@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500" viewBox="0 0 100 100" fill="none">
+  <rect x="4" y="4" width="92" height="92" rx="26" fill="{{jouzetsu-icon-accent}}"/>
+  <path d="M24 25H76C80.4183 25 84 28.5817 84 33V62C84 66.4183 80.4183 70 76 70H53L38 81V70H24C19.5817 70 16 66.4183 16 62V33C16 28.5817 19.5817 25 24 25Z" fill="{{jouzetsu-icon-surface}}"/>
+  <g stroke="{{jouzetsu-icon-linework}}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4" y="4" width="92" height="92" rx="26"/>
+    <path d="M24 25H76C80.4183 25 84 28.5817 84 33V62C84 66.4183 80.4183 70 76 70H53L38 81V70H24C19.5817 70 16 66.4183 16 62V33C16 28.5817 19.5817 25 24 25Z"/>
+  </g>
+  <circle cx="35" cy="47.5" r="5" fill="{{jouzetsu-icon-accent}}"/>
+  <circle cx="50" cy="47.5" r="5" fill="{{jouzetsu-icon-accent}}"/>
+  <circle cx="65" cy="47.5" r="5" fill="{{jouzetsu-icon-accent}}"/>
+</svg>

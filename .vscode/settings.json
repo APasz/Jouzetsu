@@ -1,0 +1,5 @@
+{
+    "python.languageServer": "None",
+    "CodeGPT.apiKey": "LM Studio",
+    "basedpyright.analysis.inlayHints.variableTypes": false
+}

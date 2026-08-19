@@ -1,0 +1,396 @@
+/* Launch page and character workspace */
+.jouzetsu-character-app,
+.jouzetsu-launch-app {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+}
+
+.jouzetsu-workspace-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 48px;
+    gap: 12px;
+    padding: calc(8px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left));
+    border-bottom: 1px solid var(--jouzetsu-border);
+    background: var(--jouzetsu-surface);
+}
+
+.jouzetsu-workspace-brand-lockup,
+.jouzetsu-workspace-nav,
+.jouzetsu-character-editor-heading,
+.jouzetsu-character-editor-actions,
+.jouzetsu-character-library-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.jouzetsu-workspace-brand-lockup {
+    min-width: 0;
+    color: var(--jouzetsu-primary);
+    text-decoration: none;
+}
+
+.jouzetsu-workspace-brand-icon {
+    width: 22px;
+    height: 22px;
+}
+
+.jouzetsu-workspace-brand {
+    font-family: var(--jouzetsu-font-display);
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.jouzetsu-workspace-nav {
+    gap: 4px;
+}
+
+.jouzetsu-workspace-link {
+    min-height: 32px;
+    padding: 7px 10px;
+    color: var(--jouzetsu-text-dim);
+    font-size: 12px;
+    text-decoration: none;
+}
+
+.jouzetsu-workspace-link:hover,
+.jouzetsu-workspace-link:focus-visible,
+.jouzetsu-workspace-link.is-active {
+    background: var(--jouzetsu-surface-2);
+    color: var(--jouzetsu-secondary);
+    outline: none;
+}
+
+.jouzetsu-launch-main {
+    display: grid;
+    min-height: 0;
+    overflow-y: auto;
+    padding: clamp(24px, 8vw, 96px) max(18px, env(safe-area-inset-right)) calc(30px + env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+    place-items: start center;
+}
+
+.jouzetsu-launch-content {
+    display: flex;
+    flex-direction: column;
+    width: min(100%, 760px);
+    gap: 20px;
+}
+
+.jouzetsu-launch-title {
+    margin: 0;
+    color: var(--jouzetsu-text);
+    font-family: var(--jouzetsu-font-display);
+    font-size: clamp(28px, 5vw, 42px);
+    letter-spacing: 0.045em;
+}
+
+.jouzetsu-launch-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.jouzetsu-launch-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 170px;
+    gap: 10px;
+    padding: 20px;
+    border: 1px solid var(--jouzetsu-border-strong);
+    background: var(--jouzetsu-surface);
+    color: var(--jouzetsu-text);
+    text-decoration: none;
+}
+
+.jouzetsu-launch-card:hover,
+.jouzetsu-launch-card:focus-visible {
+    border-color: var(--jouzetsu-secondary);
+    background: var(--jouzetsu-secondary-soft);
+    outline: none;
+}
+
+.jouzetsu-launch-card-title {
+    margin: 0;
+    color: var(--jouzetsu-secondary);
+    font-family: var(--jouzetsu-font-display);
+    font-size: 22px;
+    letter-spacing: 0.04em;
+}
+
+.jouzetsu-launch-card-copy {
+    margin: 0;
+    color: var(--jouzetsu-text-dim);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.jouzetsu-character-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 290px) minmax(0, 1fr);
+    min-height: 0;
+    overflow: hidden;
+}
+
+.jouzetsu-character-library {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    gap: 12px;
+    padding: 14px 12px calc(14px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    border-right: 1px solid var(--jouzetsu-border);
+    background: var(--jouzetsu-surface);
+}
+
+.jouzetsu-character-library-header {
+    justify-content: space-between;
+}
+
+.jouzetsu-character-library-list {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    gap: 4px;
+    overflow-y: auto;
+}
+
+.jouzetsu-character-library-item {
+    display: block;
+    overflow: hidden;
+    padding: 9px 10px;
+    border-left: 3px solid transparent;
+    color: var(--jouzetsu-text-dim);
+    font-size: 13px;
+    text-decoration: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jouzetsu-character-library-item:hover,
+.jouzetsu-character-library-item:focus-visible,
+.jouzetsu-character-library-item.is-active {
+    border-left-color: var(--jouzetsu-secondary);
+    background: var(--jouzetsu-surface-2);
+    color: var(--jouzetsu-text);
+    outline: none;
+}
+
+.jouzetsu-character-main {
+    min-width: 0;
+    overflow-y: auto;
+    padding: clamp(18px, 4vw, 44px) max(18px, env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+}
+
+.jouzetsu-character-empty-state,
+.jouzetsu-character-editor {
+    display: flex;
+    flex-direction: column;
+    width: min(100%, 920px);
+    gap: 18px;
+}
+
+.jouzetsu-character-empty-state {
+    justify-content: center;
+    min-height: 280px;
+}
+
+.jouzetsu-character-editor-heading {
+    align-items: flex-start;
+    justify-content: space-between;
+}
+
+.jouzetsu-character-title {
+    margin: 0;
+    color: var(--jouzetsu-text);
+    font-family: var(--jouzetsu-font-display);
+    font-size: clamp(25px, 4vw, 34px);
+    letter-spacing: 0.035em;
+}
+
+.jouzetsu-character-intro,
+.jouzetsu-character-field-help {
+    margin: 5px 0 0;
+    color: var(--jouzetsu-text-dim);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.jouzetsu-character-editor-form,
+.jouzetsu-character-fields-editor,
+.jouzetsu-character-preset-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+}
+
+.jouzetsu-character-preset-editor {
+    padding: 13px;
+    border: 1px solid var(--jouzetsu-border);
+    background: var(--jouzetsu-surface);
+}
+
+.jouzetsu-character-preset-extras,
+.jouzetsu-character-extra-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.jouzetsu-character-preset-extras {
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.jouzetsu-character-extra-preset {
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    gap: 4px 7px;
+    padding: 7px 9px;
+    border: 1px solid var(--jouzetsu-border);
+    color: var(--jouzetsu-text-dim);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.jouzetsu-character-extra-preset input {
+    grid-row: span 2;
+}
+
+.jouzetsu-character-extra-preset-label {
+    color: var(--jouzetsu-text);
+}
+
+.jouzetsu-character-extra-preset-description {
+    grid-column: 2;
+    color: var(--jouzetsu-text-dim);
+}
+
+.jouzetsu-character-fields-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.jouzetsu-character-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.jouzetsu-character-field-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 0.8fr) minmax(118px, 0.55fr) minmax(220px, 1.7fr) auto;
+    align-items: end;
+    gap: 9px;
+    padding: 11px;
+    border: 1px solid var(--jouzetsu-border);
+    background: var(--jouzetsu-surface);
+}
+
+.jouzetsu-character-field-row .jouzetsu-button {
+    white-space: nowrap;
+}
+
+.jouzetsu-character-prompt-details {
+    border: 1px solid var(--jouzetsu-border);
+    background: var(--jouzetsu-surface);
+}
+
+.jouzetsu-character-prompt-details summary {
+    padding: 10px 12px;
+    color: var(--jouzetsu-secondary);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.jouzetsu-character-prompt-preview {
+    margin: 0;
+    padding: 12px;
+    overflow-x: auto;
+    border-top: 1px solid var(--jouzetsu-border);
+    color: var(--jouzetsu-text-dim);
+    font-family: var(--jouzetsu-font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.jouzetsu-character-delete-form {
+    align-self: flex-start;
+}
+
+.jouzetsu-settings-character-source {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: -2px 0 2px;
+}
+
+.jouzetsu-settings-character-link {
+    color: var(--jouzetsu-secondary);
+    font-size: 11px;
+}
+
+.jouzetsu-dialog-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.jouzetsu-tab-list {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--jouzetsu-border);
+}
+
+.jouzetsu-tab {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 6px 10px;
+    border: 1px solid transparent;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--jouzetsu-text-dim);
+    font-size: 12px;
+}
+
+.jouzetsu-tab:hover,
+.jouzetsu-tab:focus-visible {
+    background: var(--jouzetsu-surface-2);
+    color: var(--jouzetsu-text);
+    outline: none;
+}
+
+.jouzetsu-tab[aria-selected="true"] {
+    border-bottom-color: var(--jouzetsu-primary);
+    color: var(--jouzetsu-primary);
+}
+
+.jouzetsu-tab-panel {
+    min-width: 0;
+}
+
+.jouzetsu-log-viewer,
+.jouzetsu-log-tab-panels {
+    min-width: 0;
+}
+
+.jouzetsu-log-tab-list {
+    margin-bottom: 8px;
+}
+
+.jouzetsu-log-tab {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

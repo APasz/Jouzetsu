@@ -1,0 +1,105 @@
+{
+    "schema_version": 1,
+    "id": "builtin",
+    "label": "Built-in presets",
+    "presets": [
+        {
+            "id": "humanoid",
+            "label": "Humanoid",
+            "description": "Biological and physical details for people and human-like characters.",
+            "layer": "base",
+            "fields": [
+                {"label": "Species", "value": "Human"},
+                {"label": "Age"},
+                {"label": "Pronouns"},
+                {"label": "Height"},
+                {"label": "Build"}
+            ]
+        },
+        {
+            "id": "creature",
+            "label": "Creature",
+            "description": "Physical details for animals, monsters, and other embodied beings.",
+            "layer": "base",
+            "fields": [
+                {"label": "Species"},
+                {"label": "Size"},
+                {"label": "Covering"},
+                {"label": "Locomotion"},
+                {"label": "Senses"}
+            ]
+        },
+        {
+            "id": "ephemeral",
+            "label": "Ephemeral",
+            "description": "Details for ghosts, projections, concepts, and other non-corporeal characters.",
+            "layer": "base",
+            "fields": [
+                {"label": "Manifestation", "kind": "long_text"},
+                {"label": "Presence"},
+                {"label": "Anchor"},
+                {"label": "Limits", "kind": "long_text"}
+            ]
+        },
+        {
+            "id": "identity",
+            "label": "Identity",
+            "description": "Role and personality.",
+            "layer": "extra",
+            "fields": [
+                {"label": "Role"},
+                {"label": "Personality", "kind": "long_text"}
+            ]
+        },
+        {
+            "id": "appearance",
+            "label": "Visual detail",
+            "description": "Colouring and distinctive features.",
+            "layer": "extra",
+            "fields": [
+                {"label": "Colouring"},
+                {"label": "Distinguishing features", "kind": "long_text"}
+            ]
+        },
+        {
+            "id": "story",
+            "label": "Story",
+            "description": "Background, goals, and secrets.",
+            "layer": "extra",
+            "fields": [
+                {"label": "Background", "kind": "long_text"},
+                {"label": "Goals", "kind": "long_text"},
+                {"label": "Secrets", "kind": "long_text"}
+            ]
+        },
+        {
+            "id": "voice",
+            "label": "Voice",
+            "description": "Speech and mannerisms.",
+            "layer": "extra",
+            "fields": [
+                {"label": "Speaking style", "kind": "long_text"},
+                {"label": "Mannerisms", "kind": "long_text"}
+            ]
+        },
+        {
+            "id": "capabilities",
+            "label": "Capabilities",
+            "description": "Abilities and limitations.",
+            "layer": "extra",
+            "fields": [
+                {"label": "Abilities", "kind": "long_text"},
+                {"label": "Limitations", "kind": "long_text"}
+            ]
+        },
+        {
+            "id": "relationships",
+            "label": "Relationships",
+            "description": "Important people, groups, or attachments.",
+            "layer": "extra",
+            "fields": [
+                {"label": "Relationships", "kind": "long_text"}
+            ]
+        }
+    ]
+}

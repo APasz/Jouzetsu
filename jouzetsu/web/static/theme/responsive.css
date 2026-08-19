@@ -1,0 +1,166 @@
+/* Motion and narrow layouts */
+@media (prefers-reduced-motion: reduce) {
+    .jouzetsu-host-stat-meter {
+        transition: none;
+    }
+
+    .jouzetsu-message.is-streaming .jouzetsu-message-surface::before {
+        background-position: 0 50%;
+        animation: none;
+    }
+
+    .jouzetsu-streaming-pending-dot {
+        opacity: 0.75;
+        animation: none;
+        transform: none;
+    }
+}
+
+@media (max-width: 640px) {
+    * {
+        scrollbar-width: none;
+    }
+
+    *::-webkit-scrollbar {
+        display: none;
+    }
+
+    .jouzetsu-messages {
+        gap: 10px;
+        padding: 10px;
+    }
+
+    .jouzetsu-message {
+        width: 100%;
+    }
+
+    .jouzetsu-message-actions {
+        gap: 4px;
+        padding: 0 5px 5px;
+    }
+
+    .jouzetsu-message-action {
+        width: 44px;
+        min-width: 44px;
+        min-height: 44px;
+        padding: 6px;
+    }
+
+    .jouzetsu-form-grid,
+    .jouzetsu-form-grid.is-two-columns,
+    .jouzetsu-form-grid.is-chat-sampling-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .jouzetsu-form-grid.is-chat-sampling-grid > :last-child,
+    .jouzetsu-chat-metadata-item:last-child {
+        grid-column: auto;
+    }
+
+    .jouzetsu-character-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(132px, auto) minmax(0, 1fr);
+    }
+
+    .jouzetsu-launch-card-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .jouzetsu-character-library {
+        gap: 8px;
+        padding: 10px max(10px, env(safe-area-inset-right)) 10px max(10px, env(safe-area-inset-left));
+        border-right: 0;
+        border-bottom: 1px solid var(--jouzetsu-border);
+    }
+
+    .jouzetsu-character-library-list {
+        flex-direction: row;
+        min-height: 42px;
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+
+    .jouzetsu-character-library-item {
+        flex: 0 0 min(200px, 58vw);
+    }
+
+    .jouzetsu-character-main {
+        padding: 18px max(12px, env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    }
+
+    .jouzetsu-character-editor-heading,
+    .jouzetsu-character-fields-heading {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .jouzetsu-character-field-row {
+        grid-template-columns: 1fr;
+    }
+
+    .jouzetsu-character-field-row .jouzetsu-button,
+    .jouzetsu-character-editor-actions .jouzetsu-button {
+        width: 100%;
+    }
+
+    .jouzetsu-chat-metadata {
+        grid-template-columns: 1fr;
+    }
+
+    .jouzetsu-spelling-row {
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    }
+
+    .jouzetsu-spelling-remove {
+        grid-column: 1 / -1;
+    }
+
+    .jouzetsu-dialog {
+        width: calc(100vw - 12px);
+        max-height: calc(100dvh - 12px);
+    }
+
+    .jouzetsu-modal-card {
+        padding: 14px;
+    }
+
+    .jouzetsu-composer-footer {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .jouzetsu-app.is-keyboard-open .jouzetsu-composer-footer {
+        align-items: center;
+        flex-direction: row;
+    }
+
+    .jouzetsu-composer-status {
+        width: 100%;
+    }
+
+    .jouzetsu-composer-status-stack {
+        width: 100%;
+    }
+
+    .jouzetsu-app.is-keyboard-open .jouzetsu-composer-status-stack {
+        width: auto;
+    }
+
+    .jouzetsu-composer-actions {
+        width: 100%;
+    }
+
+    .jouzetsu-app.is-keyboard-open .jouzetsu-composer-actions {
+        width: auto;
+    }
+
+    .jouzetsu-generation-strip {
+        align-items: center;
+        flex-direction: row;
+    }
+
+    .jouzetsu-generation-strip .jouzetsu-composer-status {
+        flex: 1 1 auto;
+        width: auto;
+    }
+}

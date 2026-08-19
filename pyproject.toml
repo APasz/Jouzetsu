@@ -1,0 +1,50 @@
+[project]
+name = "jouzetsu"
+version = "0.1.0"
+description = "Async web interface for LM Studio built with FastHTML"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "aiohttp>=3.9",
+    "markdown-it-py>=4.0.0",
+    "python-fasthtml>=0.14.9,<0.15",
+    "uvicorn>=0.35",
+]
+
+[project.scripts]
+jouzetsu = "jouzetsu.__main__:main"
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["jouzetsu*"]
+
+[tool.setuptools.package-data]
+jouzetsu = [
+    "character_preset_data/*.json",
+    "web/static/app.js",
+    "web/static/app/*.js",
+    "web/static/fallback-icon.svg",
+    "web/static/theme/*.css",
+    "web/static/fonts/*.otf",
+    "web/static/fonts/*.ttf",
+]
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.37",
+    "httpx>=0.28",
+    "pytest>=9.0",
+    "ruff>=0.15",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.basedpyright]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "strict"

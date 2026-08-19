@@ -1,0 +1,15 @@
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+.venv
+data/*
+config.json
+uv.lock
+.pytest_cache/
+
+# Local icon may override the fallback at runtime.
+/jouzetsu/web/static/icon.svg
