@@ -8,8 +8,8 @@ wheels/
 .venv
 data/*
 config.json
-uv.lock
 .pytest_cache/
+.vscode/settings.json
 
 # Local icon may override the fallback at runtime.
 /jouzetsu/web/static/icon.svg

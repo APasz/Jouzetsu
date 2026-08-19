@@ -9,6 +9,7 @@ character profiles as JSON files you control.
 - Python 3.14 or newer
 - [uv](https://docs.astral.sh/uv/)
 - LM Studio with its local server running (default: `http://localhost:1234`)
+- Linux only
 
 ## Run
 
