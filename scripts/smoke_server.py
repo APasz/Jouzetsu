@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 from jouzetsu.app import run
-from jouzetsu.config import AppConfig, LoggingSettings, UiSettings
+from jouzetsu.config import AppConfig, AppPaths, LoggingSettings, UiSettings
 
 # Use a unique port so we don't clash with a real server.
 PORT = 18099
@@ -21,11 +21,9 @@ PORT = 18099
 def _smoke_config(runtime_dir: Path) -> AppConfig:
     """Create an isolated runtime configuration for the smoke server."""
     return AppConfig(
+        paths=AppPaths.for_home(runtime_dir),
         ui=UiSettings(port=PORT, auto_open_browser=False),
         logging=LoggingSettings(enabled=False),
-        data_dir=runtime_dir,
-        chats_file=runtime_dir / "chats.json",
-        config_file=runtime_dir / "config.json",
     )
 
 

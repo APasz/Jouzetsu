@@ -1,18 +1,21 @@
 """FastHTML application composition root."""
 
+# FastHTML's route decorator registers nested handlers dynamically.
+# pyright: reportUnusedFunction=false
+
 from __future__ import annotations
 
+import mimetypes
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Final, Literal, cast
 
 from fastcore.xml import FT  # pyright: ignore[reportMissingTypeStubs]
 from fasthtml.core import FastHTML
-from starlette.responses import (
-    Response,
-)
-from starlette.staticfiles import StaticFiles
+from starlette.requests import Request
+from starlette.responses import Response
 
+from ..async_workers import run_in_worker
 from ..character_presets import CharacterPresetCatalog
 from ..config import (
     AppConfig,
@@ -82,6 +85,21 @@ def _static_asset_url(filename: str) -> str:
     return f"/static/{filename}?v={version}"
 
 
+async def _static_asset_response(asset_path: str) -> Response:
+    """Serve one packaged static asset without the default async worker pool."""
+
+    static_directory: Path = _ASSET_DIRECTORY.resolve()
+    resolved_asset: Path = (static_directory / asset_path).resolve()
+    if not resolved_asset.is_relative_to(static_directory) or not resolved_asset.is_file():
+        return Response(status_code=404)
+    try:
+        content: bytes = await run_in_worker(resolved_asset.read_bytes)
+    except OSError:
+        return Response(status_code=404)
+    media_type: str = mimetypes.guess_type(resolved_asset.name)[0] or "application/octet-stream"
+    return Response(content, media_type=media_type)
+
+
 class WebApplication:
     """Own the FastHTML layer while keeping application state framework-agnostic."""
 
@@ -134,9 +152,14 @@ class WebApplication:
             htmlkw={"lang": "en"},
         )
         self.app.add_middleware(BrowserSecurityMiddleware)
-        self.app.mount(
-            "/static", StaticFiles(directory=str(_ASSET_DIRECTORY)), name="static"
-        )
+
+        @self._route("GET", "/static/{asset_path:path}", "static_asset")
+        async def static_asset(request: Request) -> Response:
+            asset_path: object = request.path_params.get("asset_path", "")
+            if not isinstance(asset_path, str):
+                return Response(status_code=404)
+            return await _static_asset_response(asset_path)
+
         register_routes(
             RouteContext(
                 route=self._route,

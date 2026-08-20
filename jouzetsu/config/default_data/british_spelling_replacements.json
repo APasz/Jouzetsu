@@ -1,0 +1,618 @@
+[
+    {
+        "source": "mom",
+        "replacement": "mum"
+    },
+    {
+        "source": "mommy",
+        "replacement": "mummy"
+    },
+    {
+        "source": "momma",
+        "replacement": "mumma"
+    },
+    {
+        "source": "color",
+        "replacement": "colour"
+    },
+    {
+        "source": "colors",
+        "replacement": "colours"
+    },
+    {
+        "source": "colored",
+        "replacement": "coloured"
+    },
+    {
+        "source": "coloring",
+        "replacement": "colouring"
+    },
+    {
+        "source": "colorful",
+        "replacement": "colourful"
+    },
+    {
+        "source": "discolor",
+        "replacement": "discolour"
+    },
+    {
+        "source": "discolored",
+        "replacement": "discoloured"
+    },
+    {
+        "source": "discoloring",
+        "replacement": "discolouring"
+    },
+    {
+        "source": "discoloration",
+        "replacement": "discolouration"
+    },
+    {
+        "source": "favorite",
+        "replacement": "favourite"
+    },
+    {
+        "source": "favorites",
+        "replacement": "favourites"
+    },
+    {
+        "source": "favor",
+        "replacement": "favour"
+    },
+    {
+        "source": "favors",
+        "replacement": "favours"
+    },
+    {
+        "source": "favored",
+        "replacement": "favoured"
+    },
+    {
+        "source": "favoring",
+        "replacement": "favouring"
+    },
+    {
+        "source": "favorable",
+        "replacement": "favourable"
+    },
+    {
+        "source": "unfavorable",
+        "replacement": "unfavourable"
+    },
+    {
+        "source": "favoritism",
+        "replacement": "favouritism"
+    },
+    {
+        "source": "honor",
+        "replacement": "honour"
+    },
+    {
+        "source": "honors",
+        "replacement": "honours"
+    },
+    {
+        "source": "honored",
+        "replacement": "honoured"
+    },
+    {
+        "source": "honoring",
+        "replacement": "honouring"
+    },
+    {
+        "source": "honorable",
+        "replacement": "honourable"
+    },
+    {
+        "source": "dishonor",
+        "replacement": "dishonour"
+    },
+    {
+        "source": "dishonored",
+        "replacement": "dishonoured"
+    },
+    {
+        "source": "behavior",
+        "replacement": "behaviour"
+    },
+    {
+        "source": "behaviors",
+        "replacement": "behaviours"
+    },
+    {
+        "source": "behavioral",
+        "replacement": "behavioural"
+    },
+    {
+        "source": "labor",
+        "replacement": "labour"
+    },
+    {
+        "source": "labors",
+        "replacement": "labours"
+    },
+    {
+        "source": "labored",
+        "replacement": "laboured"
+    },
+    {
+        "source": "laboring",
+        "replacement": "labouring"
+    },
+    {
+        "source": "neighbor",
+        "replacement": "neighbour"
+    },
+    {
+        "source": "neighbors",
+        "replacement": "neighbours"
+    },
+    {
+        "source": "neighborhood",
+        "replacement": "neighbourhood"
+    },
+    {
+        "source": "neighboring",
+        "replacement": "neighbouring"
+    },
+    {
+        "source": "center",
+        "replacement": "centre"
+    },
+    {
+        "source": "centers",
+        "replacement": "centres"
+    },
+    {
+        "source": "centered",
+        "replacement": "centred"
+    },
+    {
+        "source": "centering",
+        "replacement": "centring"
+    },
+    {
+        "source": "kilometer",
+        "replacement": "kilometre"
+    },
+    {
+        "source": "kilometers",
+        "replacement": "kilometres"
+    },
+    {
+        "source": "centimeter",
+        "replacement": "centimetre"
+    },
+    {
+        "source": "centimeters",
+        "replacement": "centimetres"
+    },
+    {
+        "source": "millimeter",
+        "replacement": "millimetre"
+    },
+    {
+        "source": "millimeters",
+        "replacement": "millimetres"
+    },
+    {
+        "source": "liter",
+        "replacement": "litre"
+    },
+    {
+        "source": "liters",
+        "replacement": "litres"
+    },
+    {
+        "source": "fiber",
+        "replacement": "fibre"
+    },
+    {
+        "source": "fibers",
+        "replacement": "fibres"
+    },
+    {
+        "source": "theater",
+        "replacement": "theatre"
+    },
+    {
+        "source": "theaters",
+        "replacement": "theatres"
+    },
+    {
+        "source": "gray",
+        "replacement": "grey"
+    },
+    {
+        "source": "grays",
+        "replacement": "greys"
+    },
+    {
+        "source": "grayed",
+        "replacement": "greyed"
+    },
+    {
+        "source": "graying",
+        "replacement": "greying"
+    },
+    {
+        "source": "catalog",
+        "replacement": "catalogue"
+    },
+    {
+        "source": "catalogs",
+        "replacement": "catalogues"
+    },
+    {
+        "source": "cataloged",
+        "replacement": "catalogued"
+    },
+    {
+        "source": "cataloging",
+        "replacement": "cataloguing"
+    },
+    {
+        "source": "dialog",
+        "replacement": "dialogue"
+    },
+    {
+        "source": "dialogs",
+        "replacement": "dialogues"
+    },
+    {
+        "source": "organize",
+        "replacement": "organise"
+    },
+    {
+        "source": "organizes",
+        "replacement": "organises"
+    },
+    {
+        "source": "organized",
+        "replacement": "organised"
+    },
+    {
+        "source": "organizing",
+        "replacement": "organising"
+    },
+    {
+        "source": "organization",
+        "replacement": "organisation"
+    },
+    {
+        "source": "organizations",
+        "replacement": "organisations"
+    },
+    {
+        "source": "organizational",
+        "replacement": "organisational"
+    },
+    {
+        "source": "realize",
+        "replacement": "realise"
+    },
+    {
+        "source": "realizes",
+        "replacement": "realises"
+    },
+    {
+        "source": "realized",
+        "replacement": "realised"
+    },
+    {
+        "source": "realizing",
+        "replacement": "realising"
+    },
+    {
+        "source": "recognize",
+        "replacement": "recognise"
+    },
+    {
+        "source": "recognizes",
+        "replacement": "recognises"
+    },
+    {
+        "source": "recognized",
+        "replacement": "recognised"
+    },
+    {
+        "source": "recognizing",
+        "replacement": "recognising"
+    },
+    {
+        "source": "analyze",
+        "replacement": "analyse"
+    },
+    {
+        "source": "analyzes",
+        "replacement": "analyses"
+    },
+    {
+        "source": "analyzed",
+        "replacement": "analysed"
+    },
+    {
+        "source": "analyzing",
+        "replacement": "analysing"
+    },
+    {
+        "source": "analyzer",
+        "replacement": "analyser"
+    },
+    {
+        "source": "analyzers",
+        "replacement": "analysers"
+    },
+    {
+        "source": "paralyze",
+        "replacement": "paralyse"
+    },
+    {
+        "source": "paralyzed",
+        "replacement": "paralysed"
+    },
+    {
+        "source": "paralyzing",
+        "replacement": "paralysing"
+    },
+    {
+        "source": "defense",
+        "replacement": "defence"
+    },
+    {
+        "source": "defenses",
+        "replacement": "defences"
+    },
+    {
+        "source": "offense",
+        "replacement": "offence"
+    },
+    {
+        "source": "offenses",
+        "replacement": "offences"
+    },
+    {
+        "source": "pretense",
+        "replacement": "pretence"
+    },
+    {
+        "source": "traveling",
+        "replacement": "travelling"
+    },
+    {
+        "source": "traveled",
+        "replacement": "travelled"
+    },
+    {
+        "source": "traveler",
+        "replacement": "traveller"
+    },
+    {
+        "source": "travelers",
+        "replacement": "travellers"
+    },
+    {
+        "source": "canceled",
+        "replacement": "cancelled"
+    },
+    {
+        "source": "canceling",
+        "replacement": "cancelling"
+    },
+    {
+        "source": "modeled",
+        "replacement": "modelled"
+    },
+    {
+        "source": "modeling",
+        "replacement": "modelling"
+    },
+    {
+        "source": "jewelry",
+        "replacement": "jewellery"
+    },
+    {
+        "source": "plow",
+        "replacement": "plough"
+    },
+    {
+        "source": "plowed",
+        "replacement": "ploughed"
+    },
+    {
+        "source": "plowing",
+        "replacement": "ploughing"
+    },
+    {
+        "source": "mold",
+        "replacement": "mould"
+    },
+    {
+        "source": "molds",
+        "replacement": "moulds"
+    },
+    {
+        "source": "molded",
+        "replacement": "moulded"
+    },
+    {
+        "source": "molding",
+        "replacement": "moulding"
+    },
+    {
+        "source": "smolder",
+        "replacement": "smoulder"
+    },
+    {
+        "source": "smoldering",
+        "replacement": "smouldering"
+    },
+    {
+        "source": "sulfur",
+        "replacement": "sulphur"
+    },
+    {
+        "source": "aluminum",
+        "replacement": "aluminium"
+    },
+    {
+        "source": "airplane",
+        "replacement": "aeroplane"
+    },
+    {
+        "source": "airplanes",
+        "replacement": "aeroplanes"
+    },
+    {
+        "source": "tire",
+        "replacement": "tyre"
+    },
+    {
+        "source": "tires",
+        "replacement": "tyres"
+    },
+    {
+        "source": "curb",
+        "replacement": "kerb"
+    },
+    {
+        "source": "specialty",
+        "replacement": "speciality"
+    },
+    {
+        "source": "specialties",
+        "replacement": "specialities"
+    },
+    {
+        "source": "cozy",
+        "replacement": "cosy"
+    },
+    {
+        "source": "mustache",
+        "replacement": "moustache"
+    },
+    {
+        "source": "pajamas",
+        "replacement": "pyjamas"
+    },
+    {
+        "source": "esthetic",
+        "replacement": "aesthetic"
+    },
+    {
+        "source": "estrogen",
+        "replacement": "oestrogen"
+    },
+    {
+        "source": "pediatric",
+        "replacement": "paediatric"
+    },
+    {
+        "source": "pediatrics",
+        "replacement": "paediatrics"
+    },
+    {
+        "source": "fetus",
+        "replacement": "foetus"
+    },
+    {
+        "source": "fetuses",
+        "replacement": "foetuses"
+    },
+    {
+        "source": "anemia",
+        "replacement": "anaemia"
+    },
+    {
+        "source": "anemic",
+        "replacement": "anaemic"
+    },
+    {
+        "source": "leukemia",
+        "replacement": "leukaemia"
+    },
+    {
+        "source": "diarrhea",
+        "replacement": "diarrhoea"
+    },
+    {
+        "source": "hemorrhoid",
+        "replacement": "haemorrhoid"
+    },
+    {
+        "source": "hemorrhoids",
+        "replacement": "haemorrhoids"
+    },
+    {
+        "source": "orthopedic",
+        "replacement": "orthopaedic"
+    },
+    {
+        "source": "maneuver",
+        "replacement": "manoeuvre"
+    },
+    {
+        "source": "maneuvers",
+        "replacement": "manoeuvres"
+    },
+    {
+        "source": "maneuvered",
+        "replacement": "manoeuvred"
+    },
+    {
+        "source": "maneuvering",
+        "replacement": "manoeuvring"
+    },
+    {
+        "source": "toward",
+        "replacement": "towards"
+    },
+    {
+        "source": "enroll",
+        "replacement": "enrol"
+    },
+    {
+        "source": "enrollment",
+        "replacement": "enrolment"
+    },
+    {
+        "source": "installment",
+        "replacement": "instalment"
+    },
+    {
+        "source": "installments",
+        "replacement": "instalments"
+    },
+    {
+        "source": "fulfill",
+        "replacement": "fulfil"
+    },
+    {
+        "source": "fulfillment",
+        "replacement": "fulfilment"
+    },
+    {
+        "source": "skillful",
+        "replacement": "skilful"
+    },
+    {
+        "source": "willful",
+        "replacement": "wilful"
+    },
+    {
+        "source": "judgment",
+        "replacement": "judgement"
+    },
+    {
+        "source": "acknowledgment",
+        "replacement": "acknowledgement"
+    },
+    {
+        "source": "aging",
+        "replacement": "ageing"
+    },
+    {
+        "source": "ax",
+        "replacement": "axe"
+    }
+]

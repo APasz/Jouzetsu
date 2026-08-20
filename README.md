@@ -47,6 +47,11 @@ jouzetsu --home /path/to/Jouzetsu
 Use the in-app settings for normal changes. `config.json` is also editable;
 restart Jouzetsu after editing it directly. Its sections are `server`,
 `generation`, `ui`, `theme`, `logging`, `host_stats`, and `access`.
+It is a complete, strict, versioned document (`"version": 1`): missing,
+unknown, or invalid settings prevent startup rather than being silently changed.
+Built-in British-spelling replacements and the theme palette are packaged
+separately. `generation.british_spelling_replacements` and `theme` are written
+only when you customise them.
 
 Useful environment overrides:
 

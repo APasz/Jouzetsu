@@ -1,0 +1,76 @@
+"""Configuration domain, persistence, paths, and packaged defaults."""
+
+from .codec import (
+    CONFIG_VERSION,
+    ConfigIssue,
+    ConfigValidationError,
+    decode_config,
+    encode_config,
+)
+from .defaults import (
+    DefaultDataError,
+    builtin_spelling_replacements,
+    builtin_theme,
+    default_config,
+)
+from .models import (
+    CONTINUE_PROMPT_CONTENT,
+    DEFAULT_STARTER_PROMPTS,
+    MESSAGE_ACTION_ICON_STYLES,
+    AccessSettings,
+    AppConfig,
+    DeviceAccessSettings,
+    GenerationSettings,
+    HostStatsDeviceSettings,
+    HostStatsSettings,
+    IconColorSettings,
+    LoggingSettings,
+    MessageActionIconStyle,
+    ServerSettings,
+    SpellingReplacement,
+    StarterPrompt,
+    ThemeSettings,
+    UiSettings,
+)
+from .paths import (
+    APP_HOME_ENVIRONMENT_VARIABLE,
+    AppPaths,
+    default_paths,
+    resolve_app_home,
+)
+from .store import ConfigStore, EnvironmentOverrides
+
+__all__ = [
+    "APP_HOME_ENVIRONMENT_VARIABLE",
+    "CONFIG_VERSION",
+    "CONTINUE_PROMPT_CONTENT",
+    "DEFAULT_STARTER_PROMPTS",
+    "MESSAGE_ACTION_ICON_STYLES",
+    "AccessSettings",
+    "AppConfig",
+    "AppPaths",
+    "ConfigIssue",
+    "ConfigStore",
+    "ConfigValidationError",
+    "DefaultDataError",
+    "DeviceAccessSettings",
+    "EnvironmentOverrides",
+    "GenerationSettings",
+    "HostStatsDeviceSettings",
+    "HostStatsSettings",
+    "IconColorSettings",
+    "LoggingSettings",
+    "MessageActionIconStyle",
+    "ServerSettings",
+    "SpellingReplacement",
+    "StarterPrompt",
+    "ThemeSettings",
+    "UiSettings",
+    "builtin_spelling_replacements",
+    "builtin_theme",
+    "decode_config",
+    "default_config",
+    "default_paths",
+    "encode_config",
+    "resolve_app_home",
+]

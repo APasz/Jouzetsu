@@ -93,19 +93,19 @@ def configure_logging(config: AppConfig, *, startup_records: Iterable[LogRecord]
     if not config.logging.enabled:
         return
 
-    _rollover_log_directory(config.logging.directory)
+    _rollover_log_directory(config.log_directory)
     system_handler: Handler = _managed_handler(
-        FileHandler(config.logging.system_log_file, mode="a", encoding="utf-8"),
+        FileHandler(config.log_directory / "system.log", mode="a", encoding="utf-8"),
         level=level,
         formatter=formatter,
     )
     error_handler: Handler = _managed_handler(
-        FileHandler(config.logging.error_log_file, mode="a", encoding="utf-8"),
+        FileHandler(config.log_directory / "error.log", mode="a", encoding="utf-8"),
         level=logging.ERROR,
         formatter=formatter,
     )
     chat_handler: Handler = _managed_handler(
-        FileHandler(config.logging.chat_log_file, mode="a", encoding="utf-8"),
+        FileHandler(config.log_directory / "chat.log", mode="a", encoding="utf-8"),
         level=logging.INFO,
         formatter=formatter,
     )

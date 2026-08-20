@@ -17,8 +17,11 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from functools import cache
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
+
+from .async_workers import run_in_worker
 
 log: logging.Logger = logging.getLogger(__name__)
 
@@ -186,7 +189,7 @@ class HostStatsMonitor:
     async def sample_async(self) -> HostStatsSnapshot:
         """Collect a fresh reading without blocking the application's event loop."""
 
-        return await asyncio.to_thread(self.sample)
+        return await run_in_worker(self.sample)
 
     def _sample(self) -> HostStatsSnapshot:
         """Collect one reading while ``_sampling_lock`` protects sampler state."""
@@ -243,7 +246,7 @@ class HostStatsMonitor:
             await asyncio.sleep(_SAMPLE_INTERVAL_SECONDS)
             try:
                 _ = await self.sample_async()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.exception("host statistics sample failed")
 
     def _gpus_for_sample(self, now: float) -> tuple[GpuStats, ...]:
@@ -849,7 +852,7 @@ def _time_weighted_average(
     window_start: float = latest.sampled_at - window_seconds if window_seconds is not None else samples[0].sampled_at
     weighted_total: float = 0.0
     measured_seconds: float = 0.0
-    for previous, current in zip(samples, samples[1:], strict=False):
+    for previous, current in pairwise(samples):
         interval_start: float = max(previous.sampled_at, window_start)
         interval_seconds: float = current.sampled_at - interval_start
         value: float | None = value_for_sample(current)

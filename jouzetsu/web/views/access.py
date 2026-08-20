@@ -333,7 +333,7 @@ def _logs_panel(state: AppState) -> HTML:
 
 def _log_viewer(state: AppState) -> HTML:
     log_files: tuple[Path, ...] = tuple(
-        discover_log_files(state.config.logging.directory)
+        discover_log_files(state.config.log_directory)
     )
     if not log_files:
         return P(

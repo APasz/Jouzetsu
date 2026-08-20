@@ -24,7 +24,8 @@ from .character_storage import CharacterStorage
 from .config import (
     AppConfig,
     AppPaths,
-    load_config,
+    ConfigStore,
+    EnvironmentOverrides,
     resolve_app_home,
 )
 from .lmstudio import LMStudioClient
@@ -41,6 +42,7 @@ _UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: Final[int] = 5
 _state: AppState | None = None
 _web_application: WebApplication | None = None
 _data_directory_lock: LinuxDataDirectoryLock | None = None
+_config_store: ConfigStore | None = None
 
 
 def _browser_host(bind_host: str) -> str:
@@ -87,7 +89,7 @@ def mark_unclean_shutdown(config: AppConfig) -> None:
     content: str = f"recorded_at={datetime.now(UTC).isoformat()}\n"
     try:
         atomic_write_text(marker_path, content)
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.exception("could not record incomplete shutdown marker path=%s", marker_path)
 
 
@@ -101,13 +103,13 @@ def clear_unclean_shutdown_marker(config: AppConfig) -> None:
         log.exception("could not clear incomplete shutdown marker path=%s", marker_path)
 
 
-def create_state(config: AppConfig) -> AppState:
+def create_state(config: AppConfig, config_store: ConfigStore) -> AppState:
     """Construct the framework-independent state and its infrastructure."""
 
     storage: ChatStorage = ChatStorage(config.chats_file)
     character_storage: CharacterStorage = CharacterStorage(config.characters_directory)
     client: LMStudioClient = LMStudioClient(config.server)
-    return AppState(config, storage, client, character_storage)
+    return AppState(config, storage, client, character_storage, config_store)
 
 
 async def _open_browser_after_start(config: AppConfig) -> None:
@@ -119,7 +121,7 @@ async def _open_browser_after_start(config: AppConfig) -> None:
     url: str = f"http://{_browser_host(config.ui.host)}:{config.ui.port}/"
     try:
         _ = webbrowser.open(url)
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.exception("could not open browser url=%s", url)
 
 
@@ -159,7 +161,7 @@ def _build_lifecycle_callbacks(
 def build_app(config: AppConfig | None = None, *, app_home: Path | None = None) -> AppConfig:
     """Load configuration and construct the ASGI application exactly once."""
 
-    global _data_directory_lock, _state, _web_application
+    global _config_store, _data_directory_lock, _state, _web_application
 
     if config is not None and app_home is not None:
         raise ValueError("supply either an application configuration or an application home, not both")
@@ -170,15 +172,24 @@ def build_app(config: AppConfig | None = None, *, app_home: Path | None = None) 
             requested_config_file: Path = AppPaths.for_home(resolve_app_home(app_home)).config_file
             if _state.config.config_file != requested_config_file:
                 raise RuntimeError("Jouzetsu is already initialised with a different application home")
-        return _state.config if _state is not None else config or load_config(app_home=app_home)
+        if _state is not None:
+            return _state.config
+        if config is not None:
+            return config
+        return ConfigStore.for_home(app_home).load()
 
     startup_records = configure_bootstrap_logging() if config is None else []
-    resolved_config: AppConfig = config or load_config(app_home=app_home)
+    _config_store = (
+        ConfigStore.for_paths(config.paths, overrides=EnvironmentOverrides())
+        if config is not None
+        else ConfigStore.for_home(app_home)
+    )
+    resolved_config: AppConfig = config or _config_store.load()
     _data_directory_lock = LinuxDataDirectoryLock.acquire(resolved_config.data_dir)
     try:
         configure_logging(resolved_config, startup_records=startup_records)
         _warn_if_unclean_shutdown(resolved_config)
-        _state = create_state(resolved_config)
+        _state = create_state(resolved_config, _config_store)
         startup, shutdown = _build_lifecycle_callbacks(resolved_config)
         _web_application = WebApplication(
             resolved_config,
@@ -190,6 +201,7 @@ def build_app(config: AppConfig | None = None, *, app_home: Path | None = None) 
         log.exception("application initialisation failed data_dir=%s", resolved_config.data_dir)
         _data_directory_lock.release()
         _data_directory_lock = None
+        _config_store = None
         _state = None
         raise
 

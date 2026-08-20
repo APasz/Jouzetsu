@@ -17,6 +17,7 @@ from jouzetsu.access import DEVICE_ID_COOKIE_NAME
 from jouzetsu.config import (
     AccessSettings,
     AppConfig,
+    AppPaths,
     DeviceAccessSettings,
     GenerationSettings,
     LoggingSettings,
@@ -113,8 +114,10 @@ def _build_state(
     approval_phrase: str = "",
     global_settings_for_approved: bool = False,
 ) -> AppState:
-    chats_file: Path = root / "chats.json"
+    paths = AppPaths.for_home(root)
+    chats_file: Path = paths.chats_file
     config: AppConfig = AppConfig(
+        paths=paths,
         server=ServerSettings(default_model="demo-model"),
         ui=UiSettings(auto_open_browser=False),
         logging=LoggingSettings(enabled=False, directory=root / "logs"),
@@ -124,9 +127,6 @@ def _build_state(
             global_settings_for_approved=global_settings_for_approved,
             approval_phrase=approval_phrase,
         ),
-        data_dir=root,
-        chats_file=chats_file,
-        config_file=root / "config.json",
     )
     return AppState(config, ChatStorage(chats_file), FakeLMStudioClient())
 
@@ -597,6 +597,8 @@ def test_fast_html_routes_render_and_mutate_chat_state() -> None:
                 app_script: httpx.Response = await client.get("/static/app.js")
                 assert app_script.status_code == 200
                 assert "import { startApplication } from './app/application.js';" in app_script.text
+                missing_static_asset: httpx.Response = await client.get("/static/missing.js")
+                assert missing_static_asset.status_code == 404
                 for module_name in ("application", "chat", "composer", "host-stats", "messages"):
                     module: httpx.Response = await client.get(f"/static/app/{module_name}.js")
                     assert module.status_code == 200
@@ -747,7 +749,7 @@ def test_character_workspace_persists_a_custom_field_schema_and_starts_a_snapsho
                     ("Personality", "long_text"),
                     ("Occupation", "short_text"),
                 ]
-                assert (root / "characters" / f"{character_id}.json").is_file()
+                assert (root / "data" / "characters" / f"{character_id}.json").is_file()
 
                 character_page: httpx.Response = await client.get(saved.headers["location"])
                 started: httpx.Response = await client.post(
@@ -831,8 +833,8 @@ def test_character_field_actions_have_server_rendered_fallbacks() -> None:
 
 def test_character_workspace_loads_and_applies_a_private_preset_pack() -> None:
     async def scenario(root: Path) -> None:
-        presets_directory: Path = root / "character-presets"
-        presets_directory.mkdir()
+        presets_directory: Path = root / "data" / "character-presets"
+        presets_directory.mkdir(parents=True)
         pack_path: Path = presets_directory / "private.json"
         _ = pack_path.write_text(
             json.dumps(
@@ -1178,7 +1180,7 @@ def test_continuity_rewrite_dialog_allows_applying_or_discarding_a_proposal() ->
 def test_access_and_logs_dialog_separates_access_and_log_file_tabs() -> None:
     async def scenario(root: Path) -> None:
         state: AppState = _build_state(root, private=False)
-        log_directory: Path = state.config.logging.directory
+        log_directory: Path = state.config.log_directory
         log_directory.mkdir()
         _ = (log_directory / "error.log").write_text("error log contents", encoding="utf-8")
         _ = (log_directory / "system.log").write_text("system log contents", encoding="utf-8")

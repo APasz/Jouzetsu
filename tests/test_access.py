@@ -13,7 +13,7 @@ from jouzetsu.access import (
     set_device_access,
     set_device_label,
 )
-from jouzetsu.config import AppConfig, AppConfigJson, DeviceAccessSettings, load_config
+from jouzetsu.config import AppConfig, AppPaths, ConfigStore, DeviceAccessSettings
 
 
 class AccessTests(unittest.TestCase):
@@ -202,7 +202,8 @@ class AccessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "config.json"
             device_id = "dvc_12345678-abcd-4000-abcd-123456789abc"
-            config = AppConfig(config_file=path)
+            store = ConfigStore.for_config_file(path)
+            config = AppConfig(paths=AppPaths.for_config_file(path))
             config.access.devices[device_id] = DeviceAccessSettings(
                 access_allowed=True,
                 label="192.168.1.20",
@@ -211,10 +212,10 @@ class AccessTests(unittest.TestCase):
                 first_seen_at="2026-07-12T00:00:00Z",
                 last_seen_at="2026-07-12T00:05:00Z",
             )
-            config.save()
+            store.save(config)
 
-            reloaded = load_config(path)
-            saved = cast(AppConfigJson, json.loads(path.read_text(encoding="utf-8")))
+            reloaded = ConfigStore.for_config_file(path).load()
+            saved = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))
 
             self.assertTrue(reloaded.access.default_private)
             self.assertTrue(reloaded.access.allow_localhost_without_approval)
@@ -223,8 +224,10 @@ class AccessTests(unittest.TestCase):
             self.assertTrue(reloaded.access.devices[device_id].access_allowed)
             self.assertEqual(reloaded.access.devices[device_id].last_ip, "192.168.1.20")
             self.assertEqual(reloaded.access.devices[device_id].hostname, "phone.local")
-            self.assertFalse(saved["access"]["global_settings_for_approved"])
-            self.assertEqual(saved["access"]["approval_phrase"], "")
-            self.assertEqual(saved["access"]["devices"][device_id]["label"], "192.168.1.20")
-            self.assertEqual(saved["access"]["devices"][device_id]["last_ip"], "192.168.1.20")
-            self.assertEqual(saved["access"]["devices"][device_id]["hostname"], "phone.local")
+            access: dict[str, object] = cast(dict[str, object], saved["access"])
+            devices: dict[str, dict[str, object]] = cast(dict[str, dict[str, object]], access["devices"])
+            self.assertFalse(access["global_settings_for_approved"])
+            self.assertEqual(access["approval_phrase"], "")
+            self.assertEqual(devices[device_id]["label"], "192.168.1.20")
+            self.assertEqual(devices[device_id]["last_ip"], "192.168.1.20")
+            self.assertEqual(devices[device_id]["hostname"], "phone.local")

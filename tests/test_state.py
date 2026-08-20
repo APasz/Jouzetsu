@@ -12,12 +12,12 @@ from unittest.mock import patch
 from jouzetsu.character_storage import CharacterStorage
 from jouzetsu.config import (
     AppConfig,
-    AppConfigJson,
+    AppPaths,
+    ConfigStore,
     GenerationSettings,
     IconColorSettings,
     ServerSettings,
     UiSettings,
-    load_config,
 )
 from jouzetsu.continuity import CONTINUITY_REVIEW_PROMPT
 from jouzetsu.events import StateChangeKind
@@ -107,6 +107,13 @@ class FakeLMStudioClient(LMStudioClient):
         self.closed = True
 
 
+def _saved_config_section(path: Path, name: str) -> dict[str, object]:
+    """Read one known object section from a persisted configuration document."""
+
+    document = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))
+    return cast(dict[str, object], document[name])
+
+
 class FailingCharacterStorage(CharacterStorage):
     """A deterministic persistence failure used to verify state publication order."""
 
@@ -125,14 +132,12 @@ class AppStateTests(unittest.TestCase):
     @override
     def setUp(self) -> None:
         self.tmp_dir = tempfile.TemporaryDirectory()
-        chats_file = Path(self.tmp_dir.name) / "chats.json"
-        config_file = Path(self.tmp_dir.name) / "config.json"
+        paths = AppPaths.for_home(Path(self.tmp_dir.name))
+        chats_file = paths.chats_file
         config = AppConfig(
+            paths=paths,
             server=ServerSettings(default_model="demo-model"),
             ui=UiSettings(auto_open_browser=False),
-            data_dir=chats_file.parent,
-            chats_file=chats_file,
-            config_file=config_file,
         )
         self.client = FakeLMStudioClient()
         self.state = AppState(config, ChatStorage(chats_file), self.client)
@@ -1004,8 +1009,8 @@ class AppStateTests(unittest.TestCase):
 
         reloaded = ChatStorage(self.state.config.chats_file).load_all()
         self.assertIn(forked_chat_id, [chat.id for chat in reloaded])
-        saved_config = cast(AppConfigJson, json.loads(self.state.config.config_file.read_text(encoding="utf-8")))
-        self.assertEqual(saved_config["ui"]["active_chat_id"], forked_chat_id)
+        ui = _saved_config_section(self.state.config.config_file, "ui")
+        self.assertEqual(ui["active_chat_id"], forked_chat_id)
 
     def test_fork_chat_rejects_unknown_message(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown message id"):
@@ -1030,8 +1035,8 @@ class AppStateTests(unittest.TestCase):
 
         self.assertEqual(self.state.active_chat.id, first_chat_id)
         self.assertNotEqual(first_chat_id, second_chat_id)
-        saved = cast(AppConfigJson, json.loads(self.state.config.config_file.read_text(encoding="utf-8")))
-        self.assertEqual(saved["ui"]["active_chat_id"], first_chat_id)
+        ui = _saved_config_section(self.state.config.config_file, "ui")
+        self.assertEqual(ui["active_chat_id"], first_chat_id)
 
     def test_set_global_system_prompt_persists_to_config_file(self) -> None:
         asyncio.run(self.state.set_global_system_prompt("Answer tersely."))
@@ -1053,7 +1058,7 @@ class AppStateTests(unittest.TestCase):
         asyncio.run(self.state.set_generation_defaults(settings))
 
         self.assertEqual(self.state.config.generation, settings)
-        saved = cast(AppConfigJson, json.loads(self.state.config.config_file.read_text(encoding="utf-8")))
+        saved = json.loads(self.state.config.config_file.read_text(encoding="utf-8"))
         self.assertEqual(
             saved["generation"],
             {
@@ -1081,9 +1086,9 @@ class AppStateTests(unittest.TestCase):
 
         asyncio.run(self.state.set_global_settings(generation, server))
 
-        saved = cast(AppConfigJson, json.loads(self.state.config.config_file.read_text(encoding="utf-8")))
-        self.assertEqual(saved["server"]["model_aliases"], {"demo-model": "Local Demo"})
-        self.assertEqual(saved["server"]["auto_unload_minutes"], 15)
+        server_json = _saved_config_section(self.state.config.config_file, "server")
+        self.assertEqual(server_json["model_aliases"], {"demo-model": "Local Demo"})
+        self.assertEqual(server_json["auto_unload_minutes"], 15)
         self.assertEqual(self.state.config.server.auto_unload_minutes, 15)
 
     def test_set_global_settings_retains_the_shared_server_settings_instance(self) -> None:
@@ -1110,8 +1115,8 @@ class AppStateTests(unittest.TestCase):
             )
         )
 
-        saved = cast(AppConfigJson, json.loads(self.state.config.config_file.read_text(encoding="utf-8")))
-        self.assertEqual(saved["ui"]["message_action_icon_style"], "muted_color")
+        ui = _saved_config_section(self.state.config.config_file, "ui")
+        self.assertEqual(ui["message_action_icon_style"], "muted_color")
         self.assertEqual(self.state.config.ui.message_action_icon_style, "muted_color")
 
     def test_set_global_settings_persists_icon_colors(self) -> None:
@@ -1129,8 +1134,8 @@ class AppStateTests(unittest.TestCase):
             )
         )
 
-        saved = cast(AppConfigJson, json.loads(self.state.config.config_file.read_text(encoding="utf-8")))
-        self.assertEqual(saved["ui"]["icon_colors"], {
+        ui = _saved_config_section(self.state.config.config_file, "ui")
+        self.assertEqual(ui["icon_colors"], {
             "linework_color": "#101112",
             "accent_color": "#131415",
             "surface_color": "#161718",
@@ -1505,9 +1510,7 @@ class AppStateTests(unittest.TestCase):
             return first_chat_id, second_chat.id
 
         first_chat_id, _second_chat_id = asyncio.run(scenario())
-        saved_config = load_config(self.state.config.config_file)
-        saved_config.chats_file = self.state.config.chats_file
-        saved_config.data_dir = self.state.config.data_dir
+        saved_config = ConfigStore.for_config_file(self.state.config.config_file).load()
 
         reloaded_state = AppState(saved_config, ChatStorage(saved_config.chats_file), FakeLMStudioClient())
         try:
@@ -1520,9 +1523,7 @@ class AppStateTests(unittest.TestCase):
             _ = await self.state.new_chat()
 
         asyncio.run(scenario())
-        saved_config = load_config(self.state.config.config_file)
-        saved_config.chats_file = self.state.config.chats_file
-        saved_config.data_dir = self.state.config.data_dir
+        saved_config = ConfigStore.for_config_file(self.state.config.config_file).load()
 
         reloaded_state = AppState(saved_config, ChatStorage(saved_config.chats_file), FakeLMStudioClient())
         try:

@@ -10,7 +10,7 @@ from logging import Logger
 from typing import Protocol
 
 from .access import register_seen_device, set_device_access, set_device_label
-from .config import AppConfig
+from .config import AppConfig, ConfigStore
 from .events import StateChangeKind
 from .lmstudio import LMStudioClientProtocol
 from .models import Chat, ChatJSON
@@ -48,6 +48,7 @@ class PersistenceController:
     """Coalesce explicit chat upserts and deletions into durable file changes."""
 
     config: AppConfig
+    config_store: ConfigStore
     storage: ChatStorage
 
     _pending_chat_records: dict[str, ChatJSON] = field(default_factory=dict)
@@ -102,7 +103,7 @@ class PersistenceController:
     async def save_config(self) -> None:
         """Write configuration at the explicit state-commit boundary."""
 
-        self.config.save()
+        self.config_store.save(self.config)
 
     async def _write_pending_chats(self) -> None:
         """Persist queued changes after a short debounce, retaining only the latest per chat."""

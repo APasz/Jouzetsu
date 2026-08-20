@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Final, cast
+from typing import Final
 
 from ..config import AppConfig, ThemeSettings
 from .host_stats_styles import host_stat_meter_rules
@@ -53,7 +53,7 @@ def render_theme_css(config: AppConfig) -> str:
 
     palette: ThemeSettings = config.theme
     palette.validate()
-    palette_values: dict[str, str] = cast(dict[str, str], palette.to_dict())
+    palette_values: dict[str, str] = palette.values()
     start: str = _safe_hex_color(config.host_stats.activity_start_color, palette.canvas)
     end: str = _safe_hex_color(config.host_stats.activity_end_color, palette.primary)
     declarations: list[str] = [

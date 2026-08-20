@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,411 +9,204 @@ from unittest.mock import patch
 
 from jouzetsu.config import (
     APP_HOME_ENVIRONMENT_VARIABLE,
-    DEFAULT_APP_HOME,
-    DEFAULT_CONFIG_JSON,
-    AppConfig,
-    AppConfigJson,
-    IconColorSettings,
+    AppPaths,
+    ConfigStore,
+    ConfigValidationError,
+    EnvironmentOverrides,
     SpellingReplacement,
     ThemeSettings,
-    load_config,
+    default_config,
+    encode_config,
+    resolve_app_home,
 )
 
 
-class LoadConfigTests(unittest.TestCase):
-    def test_custom_data_directory_keeps_private_preset_packs_beside_characters(self) -> None:
+class ConfigStoreTests(unittest.TestCase):
+    def test_missing_config_creates_complete_indented_default_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            data_directory: Path = Path(tmp_dir) / "data"
-            config: AppConfig = AppConfig(data_dir=data_directory)
+            home = Path(tmp_dir) / "Jouzetsu"
 
-            config.ensure_directories()
+            config = ConfigStore.for_home(home).load()
 
-            self.assertEqual(config.characters_directory, data_directory / "characters")
-            self.assertEqual(config.character_presets_directory, data_directory / "character-presets")
-            self.assertTrue(config.character_presets_directory.is_dir())
-
-    def test_load_config_writes_defaults_and_applies_env_overrides(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-
-            with patch.dict(os.environ, {"JOUZETSU_HOST": "0.0.0.0", "JOUZETSU_PORT": "9090"}, clear=False):
-                config: AppConfig = load_config(path)
-
-            self.assertTrue(path.exists())
-            self.assertEqual(config.ui.host, "0.0.0.0")
-            self.assertEqual(config.ui.port, 9090)
-            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), DEFAULT_CONFIG_JSON)
-
-    def test_explicit_app_home_contains_all_default_mutable_files(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            home: Path = Path(tmp_dir) / "Jouzetsu"
-
-            config: AppConfig = load_config(app_home=home)
-
-            self.assertEqual(config.config_file, home / "config.json")
-            self.assertEqual(config.data_dir, home / "data")
+            self.assertEqual(config.paths, AppPaths.for_home(home))
             self.assertEqual(config.chats_file, home / "data" / "chats.json")
             self.assertEqual(config.characters_directory, home / "data" / "characters")
             self.assertEqual(config.character_presets_directory, home / "data" / "character-presets")
-            self.assertEqual(config.logging.directory, home / "data" / "logs")
-            self.assertTrue(config.config_file.is_file())
-            self.assertTrue(config.data_dir.is_dir())
+            self.assertEqual(config.log_directory, home / "data" / "logs")
+            content = config.config_file.read_text(encoding="utf-8")
+            self.assertIn('\n    "version": 1,', content)
+            self.assertEqual(json.loads(content), encode_config(config))
 
-    def test_environment_app_home_is_resolved_when_config_loads(self) -> None:
+    def test_custom_config_file_name_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            home: Path = Path(tmp_dir) / "Jouzetsu"
+            config_file = Path(tmp_dir) / "custom-settings.json"
 
-            with patch.dict(os.environ, {APP_HOME_ENVIRONMENT_VARIABLE: str(home)}, clear=False):
-                config: AppConfig = load_config()
+            config = ConfigStore.for_config_file(config_file).load()
 
-            self.assertEqual(config.config_file, home / "config.json")
-            self.assertEqual(config.data_dir, home / "data")
+            self.assertEqual(config.config_file, config_file)
+            self.assertTrue(config_file.is_file())
+            self.assertFalse((config_file.parent / "config.json").exists())
 
-    def test_source_checkout_remains_the_default_app_home(self) -> None:
-        self.assertEqual(DEFAULT_APP_HOME, Path(__file__).resolve().parents[1])
-
-    def test_host_stats_visibility_settings_load_from_config(self) -> None:
+    def test_packaged_defaults_are_used_but_not_persisted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps(
-                    {
-                        "host_stats": {
-                            "system": False,
-                            "cpu": True,
-                            "gpu": False,
-                            "network": True,
-                            "gpus": {"0000:0a:00.0": {"visible": True, "label": "Radeon"}},
-                            "interfaces": {
-                                "enp5s0": {"visible": True, "label": "Ethernet"},
-                                "wlan0": {"visible": False, "label": "Wi-Fi"},
-                            },
-                            "activity_start_color": "#0088ff",
-                            "activity_end_color": "#ff0000",
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
+            config = ConfigStore.for_home(Path(tmp_dir)).load()
+            document = json.loads(config.config_file.read_text(encoding="utf-8"))
 
-            config: AppConfig = load_config(path)
-
-            self.assertFalse(config.host_stats.system)
-            self.assertTrue(config.host_stats.cpu)
-            self.assertFalse(config.host_stats.gpu)
-            self.assertTrue(config.host_stats.network)
-            self.assertTrue(config.host_stats.gpus["0000:0a:00.0"].visible)
-            self.assertEqual(config.host_stats.gpus["0000:0a:00.0"].label, "Radeon")
-            self.assertTrue(config.host_stats.interfaces["enp5s0"].visible)
-            self.assertEqual(config.host_stats.interfaces["enp5s0"].label, "Ethernet")
-            self.assertFalse(config.host_stats.interfaces["wlan0"].visible)
-            self.assertEqual(config.host_stats.interfaces["wlan0"].label, "Wi-Fi")
-            self.assertEqual(config.host_stats.activity_start_color, "#0088ff")
-            self.assertEqual(config.host_stats.activity_end_color, "#ff0000")
-
-    def test_access_approval_phrase_loads_from_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(json.dumps({"access": {"approval_phrase": "custom-phrase"}}), encoding="utf-8")
-
-            config: AppConfig = load_config(path)
-
-            self.assertEqual(config.access.approval_phrase, "custom-phrase")
-
-    def test_network_device_reassociation_loads_from_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps({"access": {"allow_network_device_reassociation": True}}),
-                encoding="utf-8",
-            )
-
-            config: AppConfig = load_config(path)
-
-            self.assertTrue(config.access.allow_network_device_reassociation)
-
-    def test_load_config_coerces_valid_scalars_and_falls_back_for_invalid_values(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps(
-                    {
-                        "server": {"base_url": 123, "api_key": "token"},
-                        "generation": {"temperature": "0.5", "max_tokens": "512"},
-                        "ui": {"host": 7, "port": "18080", "dark_mode": "yes", "auto_open_browser": False},
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            config: AppConfig = load_config(path)
-
-            self.assertEqual(config.server.base_url, DEFAULT_CONFIG_JSON["server"]["base_url"])
-            self.assertEqual(config.server.api_key, "token")
-            self.assertIsNone(config.server.auto_unload_minutes)
-            self.assertEqual(config.generation.temperature, 0.5)
-            self.assertEqual(config.generation.max_tokens, 512)
-            self.assertFalse(config.generation.british_english)
             self.assertGreater(len(config.generation.british_spelling_replacements), 20)
-            self.assertEqual(config.ui.host, DEFAULT_CONFIG_JSON["ui"]["host"])
-            self.assertEqual(config.ui.port, 18080)
-            self.assertEqual(config.ui.dark_mode, DEFAULT_CONFIG_JSON["ui"]["dark_mode"])
-            self.assertFalse(config.ui.auto_open_browser)
-            self.assertEqual(config.ui.active_chat_id, DEFAULT_CONFIG_JSON["ui"]["active_chat_id"])
-            self.assertEqual(config.ui.message_action_icon_style, DEFAULT_CONFIG_JSON["ui"]["message_action_icon_style"])
-            self.assertTrue(config.logging.enabled)
-            self.assertEqual(config.logging.directory, path.parent / "data" / "logs")
+            self.assertEqual(config.theme, ThemeSettings())
+            self.assertNotIn("british_spelling_replacements", document["generation"])
+            self.assertNotIn("theme", document)
 
-    def test_invalid_port_override_raises(self) -> None:
+    def test_store_persists_custom_packaged_defaults_only_when_changed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
+            store = ConfigStore.for_home(Path(tmp_dir))
+            config = store.load()
+            config.generation.british_spelling_replacements = [SpellingReplacement("color", "colour")]
+            theme_values = config.theme.values()
+            theme_values["primary"] = "#112233"
+            config.theme = ThemeSettings(**theme_values)
 
-            with patch.dict(os.environ, {"JOUZETSU_PORT": "not-a-port"}, clear=False):
-                with self.assertRaisesRegex(ValueError, "JOUZETSU_PORT must be an integer"):
-                    _ = load_config(path)
+            store.save(config)
 
-    def test_config_save_writes_back_to_loaded_path(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "custom-config.json"
-            _ = path.write_text(json.dumps(DEFAULT_CONFIG_JSON), encoding="utf-8")
-
-            config: AppConfig = load_config(path)
-            config.generation.system_prompt = "Custom prompt"
-            config.generation.continuity_review = False
-            config.generation.british_english = True
-            config.generation.british_spelling_replacements = [SpellingReplacement("mom", "mum")]
-            config.save()
-
-            saved = cast(AppConfigJson, json.loads(path.read_text(encoding="utf-8")))
-            self.assertEqual(saved["generation"]["system_prompt"], "Custom prompt")
-            self.assertFalse(saved["generation"]["continuity_review"])
-            self.assertTrue(saved["generation"]["british_english"])
-            self.assertEqual(saved["generation"]["british_spelling_replacements"], [{"source": "mom", "replacement": "mum"}])
-
-    def test_british_english_generation_setting_loads_from_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps({"generation": {"british_english": True}}),
-                encoding="utf-8",
-            )
-
-            config: AppConfig = load_config(path)
-
-            self.assertTrue(config.generation.british_english)
-
-    def test_continuity_review_generation_setting_loads_from_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps({"generation": {"continuity_review": False}}),
-                encoding="utf-8",
-            )
-
-            config: AppConfig = load_config(path)
-
-            self.assertFalse(config.generation.continuity_review)
-
-    def test_british_spelling_replacements_load_from_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps(
-                    {
-                        "generation": {
-                            "british_spelling_replacements": [
-                                {"source": " Color ", "replacement": " Colour "},
-                                {"source": "color", "replacement": "duplicate"},
-                                {"source": "", "replacement": "blank"},
-                                {"source": "favorite", "replacement": "favourite"},
-                            ]
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            config: AppConfig = load_config(path)
-
+            saved = json.loads(config.config_file.read_text(encoding="utf-8"))
             self.assertEqual(
-                config.generation.british_spelling_replacements,
-                [
-                    SpellingReplacement("Color", "Colour"),
-                    SpellingReplacement("favorite", "favourite"),
-                ],
+                saved["generation"]["british_spelling_replacements"],
+                [{"source": "color", "replacement": "colour"}],
             )
+            self.assertEqual(saved["theme"]["primary"], "#112233")
+            self.assertEqual(len(saved["theme"]), len(config.theme.values()))
 
-    def test_model_aliases_are_validated_and_normalised(self) -> None:
+    def test_environment_overrides_are_never_written_back(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps(
-                    {
-                        "server": {
-                            "model_aliases": {
-                                " model-key ": " Friendly Name ",
-                                "blank-alias": "   ",
-                                "invalid-alias": 7,
-                            }
-                        }
-                    }
-                ),
-                encoding="utf-8",
+            home = Path(tmp_dir)
+            persisted = ConfigStore.for_home(home).load()
+            persisted.ui.host = "127.0.0.1"
+            persisted.ui.port = 8081
+            ConfigStore.for_home(home).save(persisted)
+
+            store = ConfigStore(
+                paths=AppPaths.for_home(home),
+                overrides=EnvironmentOverrides(host="0.0.0.0", port=9090),
             )
+            effective = store.load()
+            self.assertEqual((effective.ui.host, effective.ui.port), ("0.0.0.0", 9090))
 
-            config: AppConfig = load_config(path)
+            effective.ui.dark_mode = False
+            store.save(effective)
 
-            self.assertEqual(config.server.model_aliases, {"model-key": "Friendly Name"})
+            reloaded = ConfigStore.for_home(home).load()
+            self.assertEqual((reloaded.ui.host, reloaded.ui.port), ("127.0.0.1", 8081))
+            self.assertFalse(reloaded.ui.dark_mode)
 
-    def test_auto_unload_minutes_is_loaded_when_valid(self) -> None:
+    def test_save_before_load_does_not_write_environment_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps({"server": {"auto_unload_minutes": "15"}}),
-                encoding="utf-8",
-            )
+            paths = AppPaths.for_home(Path(tmp_dir))
+            persisted = ConfigStore.for_home(paths.home).load()
+            persisted.ui.host = "127.0.0.1"
+            persisted.ui.port = 8081
+            ConfigStore.for_home(paths.home).save(persisted)
 
-            config: AppConfig = load_config(path)
+            overrides = EnvironmentOverrides(host="0.0.0.0", port=9090)
+            store = ConfigStore(paths=paths, overrides=overrides)
+            effective = overrides.apply(default_config(paths))
+            effective.ui.dark_mode = False
+            store.save(effective)
 
-            self.assertEqual(config.server.auto_unload_minutes, 15)
+            reloaded = ConfigStore.for_home(paths.home).load()
+            self.assertEqual((reloaded.ui.host, reloaded.ui.port), ("127.0.0.1", 8081))
+            self.assertFalse(reloaded.ui.dark_mode)
 
-    def test_invalid_validated_sections_fall_back_to_defaults(self) -> None:
+    def test_config_rejects_missing_sections_and_unknown_settings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps(
-                    {
-                        "server": {"base_url": "http://example.test/v1", "auto_unload_minutes": 0},
-                        "generation": {"temperature": "nan", "top_p": 1.5, "max_tokens": 0},
-                    }
-                ),
-                encoding="utf-8",
-            )
+            paths = AppPaths.for_home(Path(tmp_dir))
+            document = encode_config(default_config(paths))
+            del document["access"]
+            document["surprise"] = True
+            paths.config_file.write_text(json.dumps(document), encoding="utf-8")
 
-            config: AppConfig = load_config(path)
+            with self.assertRaises(ConfigValidationError) as context:
+                ConfigStore.for_home(paths.home).load()
 
-            self.assertEqual(config.server, AppConfig().server)
-            self.assertEqual(config.generation, AppConfig().generation)
+            messages = str(context.exception)
+            self.assertIn("config.access: is required", messages)
+            self.assertIn("config.surprise: is not a recognised setting", messages)
 
-    def test_logging_settings_are_loaded_and_resolve_relative_directory(self) -> None:
+    def test_config_rejects_invalid_values_without_coercion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps({"logging": {"enabled": False, "directory": "custom-logs"}}),
-                encoding="utf-8",
-            )
+            paths = AppPaths.for_home(Path(tmp_dir))
+            document = encode_config(default_config(paths))
+            cast(dict[str, object], document["ui"])["port"] = "8080"
+            cast(dict[str, object], document["generation"])["temperature"] = 3.0
+            paths.config_file.write_text(json.dumps(document), encoding="utf-8")
 
-            config: AppConfig = load_config(path)
+            with self.assertRaises(ConfigValidationError) as context:
+                ConfigStore.for_home(paths.home).load()
 
-            self.assertFalse(config.logging.enabled)
-            self.assertEqual(config.logging.directory, path.parent / "custom-logs")
+            messages = str(context.exception)
+            self.assertIn("config.ui.port: must be an integer", messages)
+            self.assertIn("temperature must be between 0 and 2", messages)
 
-    def test_starter_prompts_preserve_distinct_labels_and_content(self) -> None:
+    def test_config_rejects_a_log_directory_that_contains_application_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps(
-                    {
-                        "ui": {
-                            "starter_prompts": [
-                                {"label": "Brief me", "content": "Give me a concise briefing about: "},
-                                {"label": "Continue answer", "content": "Continue exactly where you stopped."},
-                            ]
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
+            paths = AppPaths.for_home(Path(tmp_dir))
+            document = encode_config(default_config(paths))
+            logging = cast(dict[str, object], document["logging"])
+            logging["directory"] = ""
+            paths.config_file.write_text(json.dumps(document), encoding="utf-8")
 
-            config: AppConfig = load_config(path)
+            with self.assertRaisesRegex(ConfigValidationError, "must not contain application data"):
+                ConfigStore.for_home(paths.home).load()
 
-            self.assertEqual(
-                [(prompt.label, prompt.content) for prompt in config.ui.starter_prompts],
-                [
-                    ("Brief me", "Give me a concise briefing about: "),
-                    ("Continue answer", "Continue exactly where you stopped."),
-                ],
-            )
-            config.save()
-            saved = cast(AppConfigJson, json.loads(path.read_text(encoding="utf-8")))
-            self.assertEqual(saved["ui"]["starter_prompts"][0]["label"], "Brief me")
-            self.assertEqual(saved["ui"]["starter_prompts"][0]["content"], "Give me a concise briefing about: ")
-
-    def test_message_action_icon_style_loads_and_saves_when_valid(self) -> None:
+    def test_config_rejects_invalid_model_aliases_without_auto_unload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps({"ui": {"message_action_icon_style": "muted_color"}}),
-                encoding="utf-8",
-            )
+            paths = AppPaths.for_home(Path(tmp_dir))
+            document = encode_config(default_config(paths))
+            server = cast(dict[str, object], document["server"])
+            server["model_aliases"] = {"": "Demo model"}
+            paths.config_file.write_text(json.dumps(document), encoding="utf-8")
 
-            config: AppConfig = load_config(path)
+            with self.assertRaisesRegex(ConfigValidationError, "model aliases must use non-empty"):
+                ConfigStore.for_home(paths.home).load()
 
-            self.assertEqual(config.ui.message_action_icon_style, "muted_color")
-            config.save()
-            saved = cast(AppConfigJson, json.loads(path.read_text(encoding="utf-8")))
-            self.assertEqual(saved["ui"]["message_action_icon_style"], "muted_color")
-
-    def test_icon_colors_load_save_and_fall_back_independently(self) -> None:
+    def test_config_requires_current_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps(
-                    {
-                        "ui": {
-                            "icon_colors": {
-                                "linework_color": "#112233",
-                                "accent_color": "not-a-colour",
-                                "surface_color": "#AABBCC",
-                            }
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
+            paths = AppPaths.for_home(Path(tmp_dir))
+            document = encode_config(default_config(paths))
+            document["version"] = 0
+            paths.config_file.write_text(json.dumps(document), encoding="utf-8")
 
-            config: AppConfig = load_config(path)
+            with self.assertRaisesRegex(ConfigValidationError, "config.version: must be 1"):
+                ConfigStore.for_home(paths.home).load()
 
-            self.assertEqual(config.ui.icon_colors.linework_color, "#112233")
-            self.assertEqual(config.ui.icon_colors.accent_color, IconColorSettings().accent_color)
-            self.assertEqual(config.ui.icon_colors.surface_color, "#aabbcc")
-            config.save()
-            saved = cast(AppConfigJson, json.loads(path.read_text(encoding="utf-8")))
-            self.assertEqual(saved["ui"]["icon_colors"]["linework_color"], "#112233")
-
-    def test_theme_palette_loads_safely_and_persists_all_semantic_tokens(self) -> None:
+    def test_config_store_rejects_a_config_for_another_home(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps(
-                    {
-                        "theme": {
-                            "primary": "#112233",
-                            "text": "invalid",
-                            "action_merge_muted": "#AABBCC",
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
+            root = Path(tmp_dir)
+            first = ConfigStore.for_home(root / "first")
+            second = ConfigStore.for_home(root / "second")
 
-            config: AppConfig = load_config(path)
+            with self.assertRaisesRegex(ValueError, "different path set"):
+                first.save(second.load())
 
-            self.assertEqual(config.theme.primary, "#112233")
-            self.assertEqual(config.theme.text, ThemeSettings().text)
-            self.assertEqual(config.theme.action_merge_muted, "#aabbcc")
-            config.save()
-            saved = cast(AppConfigJson, json.loads(path.read_text(encoding="utf-8")))
-            self.assertEqual(saved["theme"], config.theme.to_dict())
 
-    def test_invalid_message_action_icon_style_falls_back_to_default(self) -> None:
+class AppHomeTests(unittest.TestCase):
+    def test_explicit_home_takes_precedence_over_environment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            path: Path = Path(tmp_dir) / "config.json"
-            _ = path.write_text(
-                json.dumps({"ui": {"message_action_icon_style": "rainbow"}}),
-                encoding="utf-8",
-            )
+            root = Path(tmp_dir)
+            explicit = root / "explicit"
+            configured = root / "configured"
+            with patch.dict("os.environ", {APP_HOME_ENVIRONMENT_VARIABLE: str(configured)}):
+                self.assertEqual(resolve_app_home(explicit), explicit.resolve())
 
-            config: AppConfig = load_config(path)
+    def test_blank_environment_home_is_rejected(self) -> None:
+        with (
+            patch.dict("os.environ", {APP_HOME_ENVIRONMENT_VARIABLE: "   "}),
+            self.assertRaisesRegex(ValueError, APP_HOME_ENVIRONMENT_VARIABLE),
+        ):
+            resolve_app_home()
 
-            self.assertEqual(config.ui.message_action_icon_style, AppConfig().ui.message_action_icon_style)
+    def test_invalid_environment_port_is_rejected(self) -> None:
+        with (
+            patch.dict("os.environ", {"JOUZETSU_PORT": "0"}),
+            self.assertRaisesRegex(ValueError, "between 1 and 65535"),
+        ):
+            EnvironmentOverrides.from_environment()

@@ -11,6 +11,7 @@ from logging import Logger
 from .character_storage import CharacterStorage
 from .config import (
     AppConfig,
+    ConfigStore,
     GenerationSettings,
     HostStatsDeviceSettings,
     IconColorSettings,
@@ -64,12 +65,17 @@ class AppState:
         storage: ChatStorage,
         client: LMStudioClientProtocol,
         character_storage: CharacterStorage | None = None,
+        config_store: ConfigStore | None = None,
     ) -> None:
         self.config: AppConfig = config
         self.storage: ChatStorage = storage
         self.character_storage: CharacterStorage = character_storage or CharacterStorage(config.characters_directory)
         self.client: LMStudioClientProtocol = client
-        self._persistence: PersistenceController = PersistenceController(config, storage)
+        self._persistence: PersistenceController = PersistenceController(
+            config,
+            config_store or ConfigStore.for_paths(config.paths),
+            storage,
+        )
         self._access: AccessController = AccessController(config, self._commit_config)
         self._host_stats: HostStatsMonitor = HostStatsMonitor()
         self._empty_chat_messages: EmptyChatMessageProvider = EmptyChatMessageProvider(config.data_dir)

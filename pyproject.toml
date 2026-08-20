@@ -23,6 +23,7 @@ include = ["jouzetsu*"]
 
 [tool.setuptools.package-data]
 jouzetsu = [
+    "config/default_data/*.json",
     "character_preset_data/*.json",
     "web/static/app.js",
     "web/static/app/*.js",

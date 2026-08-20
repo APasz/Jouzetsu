@@ -16,7 +16,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
-from jouzetsu.config import AppConfig, load_config
+from jouzetsu.config import AppConfig, AppPaths, ConfigStore
 from jouzetsu.lmstudio import LMStudioClient
 from jouzetsu.models import Message
 from jouzetsu.state import AppState
@@ -36,16 +36,14 @@ async def _wait_for_generation(state: AppState, *, timeout_seconds: float) -> bo
 
 
 async def main() -> int:
-    source_config: AppConfig = load_config()
+    source_config: AppConfig = ConfigStore.for_home().load()
     print(f"Using base_url={source_config.server.base_url}")
 
     with tempfile.TemporaryDirectory(prefix="jouzetsu-e2e-") as runtime_dir:
         runtime_path: Path = Path(runtime_dir)
         cfg: AppConfig = replace(
             source_config,
-            data_dir=runtime_path,
-            chats_file=runtime_path / "chats.json",
-            config_file=runtime_path / "config.json",
+            paths=AppPaths.for_home(runtime_path),
         )
         state: AppState = AppState(cfg, ChatStorage(cfg.chats_file), LMStudioClient(cfg.server))
 

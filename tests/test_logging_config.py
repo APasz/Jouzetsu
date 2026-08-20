@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from jouzetsu.config import DEFAULT_APP_HOME, AppConfig, LoggingSettings
+from jouzetsu.config import AppConfig, AppPaths, LoggingSettings, encode_config
 from jouzetsu.logging_config import (
     APPLICATION_LOGGER_NAME,
     chat_logger,
@@ -15,19 +15,20 @@ from jouzetsu.logging_config import (
 
 
 class LoggingConfigTests(unittest.TestCase):
-    def test_logging_settings_uses_fixed_log_file_names(self) -> None:
+    def test_app_config_derives_fixed_log_file_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            log_dir = Path(tmp_dir) / "logs"
-            settings = LoggingSettings(directory=log_dir)
+            config = AppConfig(paths=AppPaths.for_home(Path(tmp_dir)))
+            log_dir = config.log_directory
 
-            self.assertEqual(settings.system_log_file, log_dir / "system.log")
-            self.assertEqual(settings.error_log_file, log_dir / "error.log")
-            self.assertEqual(settings.chat_log_file, log_dir / "chat.log")
+            self.assertEqual(log_dir / "system.log", Path(tmp_dir) / "data" / "logs" / "system.log")
+            self.assertEqual(log_dir / "error.log", Path(tmp_dir) / "data" / "logs" / "error.log")
+            self.assertEqual(log_dir / "chat.log", Path(tmp_dir) / "data" / "logs" / "chat.log")
 
-    def test_to_dict_keeps_app_home_relative_log_directory_portable(self) -> None:
-        config = AppConfig(logging=LoggingSettings(directory=DEFAULT_APP_HOME / "data" / "logs"))
+    def test_codec_keeps_app_home_relative_log_directory_portable(self) -> None:
+        paths = AppPaths.for_home(Path("/tmp") / "jouzetsu-test-home")
+        config = AppConfig(paths=paths, logging=LoggingSettings(directory=paths.log_directory))
 
-        self.assertEqual(config.to_dict()["logging"], {"enabled": True, "directory": "data/logs"})
+        self.assertEqual(encode_config(config)["logging"], {"enabled": True, "directory": "data/logs"})
 
     def test_configure_logging_routes_system_error_and_chat_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

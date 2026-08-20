@@ -9,8 +9,12 @@ from unittest.mock import patch
 import uvicorn
 
 from jouzetsu import app as app_module
-from jouzetsu.app import clear_unclean_shutdown_marker, mark_unclean_shutdown, unclean_shutdown_marker_path
-from jouzetsu.config import AppConfig
+from jouzetsu.app import (
+    clear_unclean_shutdown_marker,
+    mark_unclean_shutdown,
+    unclean_shutdown_marker_path,
+)
+from jouzetsu.config import AppConfig, AppPaths
 
 
 class _WebApplicationStub:
@@ -27,8 +31,8 @@ class _WebApplicationStub:
 class ShutdownMarkerTests(unittest.TestCase):
     def test_incomplete_shutdown_marker_is_written_and_can_be_cleared_after_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            data_dir = Path(tmp_dir) / "data"
-            config = AppConfig(data_dir=data_dir)
+            home = Path(tmp_dir)
+            config = AppConfig(paths=AppPaths.for_home(home))
 
             mark_unclean_shutdown(config)
 

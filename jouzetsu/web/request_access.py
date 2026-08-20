@@ -17,6 +17,7 @@ from ..access import (
     access_decision,
     is_localhost_ip,
 )
+from ..async_workers import run_in_worker
 from ..config import AppConfig
 from ..state import AppState
 from .security import csrf_token_for_request, require_csrf_token
@@ -138,7 +139,7 @@ async def _reverse_hostname(client_ip: str) -> str:
 
     try:
         hostname, _, _ = await asyncio.wait_for(
-            asyncio.to_thread(socket.gethostbyaddr, client_ip),
+            run_in_worker(socket.gethostbyaddr, client_ip),
             timeout=_REVERSE_DNS_TIMEOUT_SECONDS,
         )
     except TimeoutError, OSError, socket.herror:

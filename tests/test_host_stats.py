@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 import platform
-
 from dataclasses import replace
 
 from pytest import MonkeyPatch, approx
@@ -20,6 +20,15 @@ def test_host_stats_snapshot_includes_memory_and_cpu_metadata() -> None:
     assert snapshot.logical_cpu_count >= 1
     assert snapshot.memory_total_bytes is None or snapshot.memory_total_bytes > 0
     assert snapshot.memory_used_bytes is None or snapshot.memory_used_bytes >= 0
+
+
+def test_host_stats_async_snapshot_uses_the_application_worker_pool() -> None:
+    async def scenario() -> None:
+        snapshot = await HostStatsMonitor().sample_async()
+
+        assert snapshot.hostname
+
+    asyncio.run(scenario())
 
 
 def test_friendly_operating_system_uses_system_and_release(monkeypatch: MonkeyPatch) -> None:
