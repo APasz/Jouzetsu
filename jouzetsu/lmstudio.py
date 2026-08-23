@@ -128,16 +128,23 @@ class LMStudioClient:
             async with session.get(
                 url,
                 headers=self._headers(),
-                timeout=aiohttp.ClientTimeout(total=_INVENTORY_TIMEOUT_SECONDS, sock_connect=_CONNECT_TIMEOUT_SECONDS),
+                timeout=aiohttp.ClientTimeout(
+                    total=_INVENTORY_TIMEOUT_SECONDS,
+                    sock_connect=_CONNECT_TIMEOUT_SECONDS,
+                ),
             ) as response:
                 body: str = await response.text()
                 if response.status != 200:
-                    raise LMStudioError(f"Model query returned {response.status}: {body}")
-                payload: dict[str, object] | None = _as_object_mapping(_parse_json(body))
+                    raise LMStudioError(
+                        f"Model query returned {response.status}: {body}"
+                    )
+                payload: dict[str, object] | None = _as_object_mapping(
+                    _parse_json(body)
+                )
         except LMStudioError as exc:
             log.warning("LM Studio model inventory request failed error=%s", exc)
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("LM Studio model inventory request failed error=%s", exc)
             raise LMStudioError(f"Could not query models: {exc}") from exc
 
@@ -157,7 +164,11 @@ class LMStudioClient:
             if not isinstance(key, str) or not isinstance(display_name, str):
                 continue
             raw_instances: object | None = model.get("loaded_instances")
-            instances: list[object] = cast(list[object], raw_instances) if isinstance(raw_instances, list) else []
+            instances: list[object] = (
+                cast(list[object], raw_instances)
+                if isinstance(raw_instances, list)
+                else []
+            )
             loaded_instances: list[ModelInstanceDescriptor] = []
             for raw_instance in instances:
                 instance: dict[str, object] | None = _as_object_mapping(raw_instance)
@@ -165,21 +176,35 @@ class LMStudioClient:
                     continue
                 instance_id: object | None = instance.get("id")
                 if isinstance(instance_id, str):
-                    loaded_instances.append(self._model_instance_descriptor(instance_id, instance))
+                    loaded_instances.append(
+                        self._model_instance_descriptor(instance_id, instance)
+                    )
             context_length: int | None = self._first_context_length(instances)
             max_context_length: object | None = model.get("max_context_length")
             publisher: object | None = model.get("publisher")
             architecture: object | None = model.get("architecture")
-            quantization: dict[str, object] | None = _as_object_mapping(model.get("quantization"))
-            quantization_name: object | None = quantization.get("name") if quantization is not None else None
-            bits_per_weight: object | None = quantization.get("bits_per_weight") if quantization is not None else None
+            quantization: dict[str, object] | None = _as_object_mapping(
+                model.get("quantization")
+            )
+            quantization_name: object | None = (
+                quantization.get("name") if quantization is not None else None
+            )
+            bits_per_weight: object | None = (
+                quantization.get("bits_per_weight")
+                if quantization is not None
+                else None
+            )
             size_bytes: object | None = model.get("size_bytes")
             params_string: object | None = model.get("params_string")
             model_format: object | None = model.get("format")
             description: object | None = model.get("description")
             raw_variants: object | None = model.get("variants")
             variants: list[str] = (
-                [item for item in cast(list[object], raw_variants) if isinstance(item, str)]
+                [
+                    item
+                    for item in cast(list[object], raw_variants)
+                    if isinstance(item, str)
+                ]
                 if isinstance(raw_variants, list)
                 else []
             )
@@ -188,24 +213,39 @@ class LMStudioClient:
                 ModelDescriptor(
                     key=key,
                     display_name=display_name,
-                    loaded_instance_ids=tuple(instance.id for instance in loaded_instances),
-                    loaded_instances=tuple[ModelInstanceDescriptor, ...](loaded_instances),
+                    loaded_instance_ids=tuple(
+                        instance.id for instance in loaded_instances
+                    ),
+                    loaded_instances=tuple[ModelInstanceDescriptor, ...](
+                        loaded_instances
+                    ),
                     context_length=context_length,
-                    max_context_length=max_context_length if isinstance(max_context_length, int) else None,
-                    auto_unload_minutes=self._first_auto_unload_minutes(model, instances),
+                    max_context_length=max_context_length
+                    if isinstance(max_context_length, int)
+                    else None,
+                    auto_unload_minutes=self._first_auto_unload_minutes(
+                        model, instances
+                    ),
                     publisher=publisher if isinstance(publisher, str) else "",
                     architecture=architecture if isinstance(architecture, str) else "",
-                    quantization_name=quantization_name if isinstance(quantization_name, str) else "",
+                    quantization_name=quantization_name
+                    if isinstance(quantization_name, str)
+                    else "",
                     bits_per_weight=float(bits_per_weight)
-                    if isinstance(bits_per_weight, int | float) and not isinstance(bits_per_weight, bool)
+                    if isinstance(bits_per_weight, int | float)
+                    and not isinstance(bits_per_weight, bool)
                     else None,
                     size_bytes=size_bytes if isinstance(size_bytes, int) else None,
-                    params_string=params_string if isinstance(params_string, str) else "",
+                    params_string=params_string
+                    if isinstance(params_string, str)
+                    else "",
                     format=self._model_format(model_format),
                     capabilities=self._model_capabilities(model),
                     description=description if isinstance(description, str) else "",
                     variants=tuple[str, ...](variants),
-                    selected_variant=selected_variant if isinstance(selected_variant, str) else "",
+                    selected_variant=selected_variant
+                    if isinstance(selected_variant, str)
+                    else "",
                 )
             )
         log.debug(
@@ -236,12 +276,22 @@ class LMStudioClient:
             ) as response:
                 body: str = await response.text()
                 if response.status != 200:
-                    raise LMStudioError(f"Model unload returned {response.status}: {body}")
+                    raise LMStudioError(
+                        f"Model unload returned {response.status}: {body}"
+                    )
         except LMStudioError as exc:
-            log.warning("LM Studio model unload failed instance_id=%s error=%s", instance_id, exc)
+            log.warning(
+                "LM Studio model unload failed instance_id=%s error=%s",
+                instance_id,
+                exc,
+            )
             raise
-        except Exception as exc:  # noqa: BLE001
-            log.warning("LM Studio model unload failed instance_id=%s error=%s", instance_id, exc)
+        except Exception as exc:
+            log.warning(
+                "LM Studio model unload failed instance_id=%s error=%s",
+                instance_id,
+                exc,
+            )
             raise LMStudioError(f"Could not unload model: {exc}") from exc
         log.info("LM Studio model instance unloaded instance_id=%s", instance_id)
 
@@ -272,17 +322,21 @@ class LMStudioClient:
                         ttl_seconds,
                     )
 
-            context_length: int = descriptor.context_length or descriptor.max_context_length or 0
+            context_length: int = (
+                descriptor.context_length or descriptor.max_context_length or 0
+            )
             yield ModelReady(descriptor.key, descriptor.display_name, context_length)
             yield PromptProcessingProgress(None)
-            async for event in self._stream_completion(chat, descriptor.key, generation):
+            async for event in self._stream_completion(
+                chat, descriptor.key, generation
+            ):
                 yield event
         except asyncio.CancelledError:
             raise
         except LMStudioError as exc:
             log.warning("LM Studio chat stream failed model=%s error=%s", model, exc)
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("LM Studio chat stream failed model=%s error=%s", model, exc)
             raise LMStudioError(f"Prediction failed: {exc}") from exc
 
@@ -298,7 +352,8 @@ class LMStudioClient:
                 (
                     model
                     for model in inventory
-                    if model.key == requested_model or requested_model in model.loaded_instance_ids
+                    if model.key == requested_model
+                    or requested_model in model.loaded_instance_ids
                 ),
                 None,
             )
@@ -313,7 +368,9 @@ class LMStudioClient:
 
     async def _require_loaded_model(self, model_key: str) -> ModelDescriptor:
         inventory: tuple[ModelDescriptor, ...] = await self.list_model_inventory()
-        descriptor: ModelDescriptor | None = next((model for model in inventory if model.key == model_key), None)
+        descriptor: ModelDescriptor | None = next(
+            (model for model in inventory if model.key == model_key), None
+        )
         if descriptor is None or not descriptor.is_loaded:
             raise LMStudioError(f"LM Studio did not load model: {model_key}")
         return descriptor
@@ -327,13 +384,21 @@ class LMStudioClient:
             url,
             json=payload,
             headers=self._headers(),
-            timeout=aiohttp.ClientTimeout(total=_MODEL_LOAD_TIMEOUT_SECONDS, sock_connect=_CONNECT_TIMEOUT_SECONDS),
+            timeout=aiohttp.ClientTimeout(
+                total=_MODEL_LOAD_TIMEOUT_SECONDS, sock_connect=_CONNECT_TIMEOUT_SECONDS
+            ),
         ) as response:
             body: str = await response.text()
             if response.status != 200:
-                inventory: tuple[ModelDescriptor, ...] = await self.list_model_inventory()
-                if any(model.key == model_key and model.is_loaded for model in inventory):
-                    log.info("LM Studio model was already loaded model_key=%s", model_key)
+                inventory: tuple[
+                    ModelDescriptor, ...
+                ] = await self.list_model_inventory()
+                if any(
+                    model.key == model_key and model.is_loaded for model in inventory
+                ):
+                    log.info(
+                        "LM Studio model was already loaded model_key=%s", model_key
+                    )
                     return
                 raise LMStudioError(f"Model load returned {response.status}: {body}")
         log.info("LM Studio model load accepted model_key=%s", model_key)
@@ -366,7 +431,11 @@ class LMStudioClient:
         first_token_emitted = False
 
         url: str = f"{self._server.base_url.rstrip('/')}/chat/completions"
-        log.debug("requesting LM Studio chat completion model=%s message_count=%d", model_key, len(messages))
+        log.debug(
+            "requesting LM Studio chat completion model=%s message_count=%d",
+            model_key,
+            len(messages),
+        )
         async with session.post(
             url,
             json=payload,
@@ -379,13 +448,17 @@ class LMStudioClient:
         ) as response:
             if response.status != 200:
                 body: str = await response.text()
-                raise LMStudioError(f"Chat completion returned {response.status}: {body}")
+                raise LMStudioError(
+                    f"Chat completion returned {response.status}: {body}"
+                )
 
             async for data in self._iter_sse_data(response):
                 if data == "[DONE]":
                     break
                 try:
-                    chunk: dict[str, object] | None = _as_object_mapping(_parse_json(data))
+                    chunk: dict[str, object] | None = _as_object_mapping(
+                        _parse_json(data)
+                    )
                 except json.JSONDecodeError:
                     log.debug("skipping malformed SSE data: %s", data)
                     continue
@@ -397,7 +470,9 @@ class LMStudioClient:
                     # Usage is request-level metadata. Content fragments may
                     # combine or split model tokens, so they cannot provide
                     # an exact token count themselves.
-                    completion_tokens = self._optional_int(usage.get("completion_tokens"))
+                    completion_tokens = self._optional_int(
+                        usage.get("completion_tokens")
+                    )
                     prompt_tokens = self._optional_int(usage.get("prompt_tokens"))
 
                 choices: object | None = chunk.get("choices")
@@ -410,14 +485,21 @@ class LMStudioClient:
                     finish: object | None = choice.get("finish_reason")
                     if isinstance(finish, str):
                         stop_reason = finish
-                    delta: dict[str, object] | None = _as_object_mapping(choice.get("delta"))
+                    delta: dict[str, object] | None = _as_object_mapping(
+                        choice.get("delta")
+                    )
                     if delta is None:
                         continue
-                    reasoning: object | None = delta.get("reasoning_content") or delta.get("reasoning")
+                    reasoning: object | None = delta.get(
+                        "reasoning_content"
+                    ) or delta.get("reasoning")
                     content: object | None = delta.get("content")
                     fragments: tuple[tuple[str, bool], ...] = tuple(
                         (fragment, is_reasoning)
-                        for fragment, is_reasoning in ((reasoning, True), (content, False))
+                        for fragment, is_reasoning in (
+                            (reasoning, True),
+                            (content, False),
+                        )
                         if isinstance(fragment, str) and fragment
                     )
                     for fragment, is_reasoning in fragments:
@@ -432,10 +514,14 @@ class LMStudioClient:
                         )
 
         completed_at: float = asyncio.get_running_loop().time()
-        generation_seconds: float | None = completed_at - first_token_at if first_token_at is not None else None
+        generation_seconds: float | None = (
+            completed_at - first_token_at if first_token_at is not None else None
+        )
         tokens_per_second: float | None = (
             completion_tokens / generation_seconds
-            if completion_tokens is not None and generation_seconds is not None and generation_seconds > 0
+            if completion_tokens is not None
+            and generation_seconds is not None
+            and generation_seconds > 0
             else None
         )
         yield PredictionComplete(
@@ -444,7 +530,9 @@ class LMStudioClient:
                 prompt_tokens=prompt_tokens,
                 tokens_per_second=tokens_per_second,
                 time_to_first_token_seconds=(
-                    first_token_at - request_started_at if first_token_at is not None else None
+                    first_token_at - request_started_at
+                    if first_token_at is not None
+                    else None
                 ),
                 stop_reason=stop_reason,
             )
@@ -477,13 +565,17 @@ class LMStudioClient:
             while b"\n\n" in buffer:
                 raw_event, buffer = buffer.split(b"\n\n", 1)
                 data_lines: list[bytes] = [
-                    line[5:].lstrip() for line in raw_event.split(b"\n") if line.startswith(b"data:")
+                    line[5:].lstrip()
+                    for line in raw_event.split(b"\n")
+                    if line.startswith(b"data:")
                 ]
                 if data_lines:
                     yield b"\n".join(data_lines).decode("utf-8")
 
     @staticmethod
-    def _model_instance_descriptor(instance_id: str, instance: dict[str, object]) -> ModelInstanceDescriptor:
+    def _model_instance_descriptor(
+        instance_id: str, instance: dict[str, object]
+    ) -> ModelInstanceDescriptor:
         config: dict[str, object] | None = _as_object_mapping(instance.get("config"))
         return ModelInstanceDescriptor(
             id=instance_id,
@@ -493,7 +585,9 @@ class LMStudioClient:
             flash_attention=_optional_bool(config, "flash_attention"),
             num_experts=_optional_int(config, "num_experts"),
             offload_kv_cache_to_gpu=_optional_bool(config, "offload_kv_cache_to_gpu"),
-            auto_unload_minutes=LMStudioClient._first_auto_unload_minutes({}, [instance]),
+            auto_unload_minutes=LMStudioClient._first_auto_unload_minutes(
+                {}, [instance]
+            ),
         )
 
     @staticmethod
@@ -504,10 +598,14 @@ class LMStudioClient:
 
     @staticmethod
     def _model_capabilities(model: dict[str, object]) -> ModelCapabilities:
-        capabilities: dict[str, object] | None = _as_object_mapping(model.get("capabilities"))
+        capabilities: dict[str, object] | None = _as_object_mapping(
+            model.get("capabilities")
+        )
         if capabilities is None:
             return ModelCapabilities()
-        reasoning: dict[str, object] | None = _as_object_mapping(capabilities.get("reasoning"))
+        reasoning: dict[str, object] | None = _as_object_mapping(
+            capabilities.get("reasoning")
+        )
         reasoning_options: tuple[ReasoningOption, ...] = ()
         reasoning_default: object | None = None
         if reasoning is not None:
@@ -535,7 +633,9 @@ class LMStudioClient:
             instance: dict[str, object] | None = _as_object_mapping(raw_instance)
             if instance is None:
                 continue
-            config: dict[str, object] | None = _as_object_mapping(instance.get("config"))
+            config: dict[str, object] | None = _as_object_mapping(
+                instance.get("config")
+            )
             if config is None:
                 continue
             context_length: object | None = config.get("context_length")
@@ -544,8 +644,14 @@ class LMStudioClient:
         return None
 
     @classmethod
-    def _first_auto_unload_minutes(cls, model: dict[str, object], instances: list[object]) -> int | None:
-        for raw_value in (model.get("ttl"), model.get("idle_ttl_seconds"), model.get("auto_unload_seconds")):
+    def _first_auto_unload_minutes(
+        cls, model: dict[str, object], instances: list[object]
+    ) -> int | None:
+        for raw_value in (
+            model.get("ttl"),
+            model.get("idle_ttl_seconds"),
+            model.get("auto_unload_seconds"),
+        ):
             minutes = cls._ttl_minutes(raw_value)
             if minutes is not None:
                 return minutes
@@ -561,7 +667,9 @@ class LMStudioClient:
                 minutes = cls._ttl_minutes(raw_value)
                 if minutes is not None:
                     return minutes
-            config: dict[str, object] | None = _as_object_mapping(instance.get("config"))
+            config: dict[str, object] | None = _as_object_mapping(
+                instance.get("config")
+            )
             if config is None:
                 continue
             for raw_value in (
@@ -591,10 +699,16 @@ class LMStudioClient:
         return value if isinstance(value, int) else None
 
     @staticmethod
-    def _build_messages(chat: Chat, generation: GenerationSettings) -> list[dict[str, str]]:
-        system_prompt: str = chat.system_prompt.strip() or generation.system_prompt.strip()
+    def _build_messages(
+        chat: Chat, generation: GenerationSettings
+    ) -> list[dict[str, str]]:
+        system_prompt: str = (
+            chat.system_prompt.strip() or generation.system_prompt.strip()
+        )
         if generation.british_english:
-            system_prompt = "\n\n".join(part for part in (system_prompt, BRITISH_ENGLISH_INSTRUCTION) if part)
+            system_prompt = "\n\n".join(
+                part for part in (system_prompt, BRITISH_ENGLISH_INSTRUCTION) if part
+            )
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})

@@ -31,7 +31,9 @@ class ConfigStoreTests(unittest.TestCase):
             self.assertEqual(config.paths, AppPaths.for_home(home))
             self.assertEqual(config.chats_file, home / "data" / "chats.json")
             self.assertEqual(config.characters_directory, home / "data" / "characters")
-            self.assertEqual(config.character_presets_directory, home / "data" / "character-presets")
+            self.assertEqual(
+                config.character_presets_directory, home / "data" / "character-presets"
+            )
             self.assertEqual(config.log_directory, home / "data" / "logs")
             content = config.config_file.read_text(encoding="utf-8")
             self.assertIn('\n    "version": 1,', content)
@@ -61,7 +63,9 @@ class ConfigStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             store = ConfigStore.for_home(Path(tmp_dir))
             config = store.load()
-            config.generation.british_spelling_replacements = [SpellingReplacement("color", "colour")]
+            config.generation.british_spelling_replacements = [
+                SpellingReplacement("color", "colour")
+            ]
             theme_values = config.theme.values()
             theme_values["primary"] = "#112233"
             config.theme = ThemeSettings(**theme_values)
@@ -146,7 +150,9 @@ class ConfigStoreTests(unittest.TestCase):
             self.assertIn("config.ui.port: must be an integer", messages)
             self.assertIn("temperature must be between 0 and 2", messages)
 
-    def test_config_rejects_a_log_directory_that_contains_application_data(self) -> None:
+    def test_config_rejects_a_log_directory_that_contains_application_data(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             paths = AppPaths.for_home(Path(tmp_dir))
             document = encode_config(default_config(paths))
@@ -154,7 +160,9 @@ class ConfigStoreTests(unittest.TestCase):
             logging["directory"] = ""
             paths.config_file.write_text(json.dumps(document), encoding="utf-8")
 
-            with self.assertRaisesRegex(ConfigValidationError, "must not contain application data"):
+            with self.assertRaisesRegex(
+                ConfigValidationError, "must not contain application data"
+            ):
                 ConfigStore.for_home(paths.home).load()
 
     def test_config_rejects_invalid_model_aliases_without_auto_unload(self) -> None:
@@ -165,7 +173,9 @@ class ConfigStoreTests(unittest.TestCase):
             server["model_aliases"] = {"": "Demo model"}
             paths.config_file.write_text(json.dumps(document), encoding="utf-8")
 
-            with self.assertRaisesRegex(ConfigValidationError, "model aliases must use non-empty"):
+            with self.assertRaisesRegex(
+                ConfigValidationError, "model aliases must use non-empty"
+            ):
                 ConfigStore.for_home(paths.home).load()
 
     def test_config_requires_current_version(self) -> None:
@@ -175,7 +185,9 @@ class ConfigStoreTests(unittest.TestCase):
             document["version"] = 0
             paths.config_file.write_text(json.dumps(document), encoding="utf-8")
 
-            with self.assertRaisesRegex(ConfigValidationError, "config.version: must be 1"):
+            with self.assertRaisesRegex(
+                ConfigValidationError, "config.version: must be 1"
+            ):
                 ConfigStore.for_home(paths.home).load()
 
     def test_config_store_rejects_a_config_for_another_home(self) -> None:
@@ -194,7 +206,9 @@ class AppHomeTests(unittest.TestCase):
             root = Path(tmp_dir)
             explicit = root / "explicit"
             configured = root / "configured"
-            with patch.dict("os.environ", {APP_HOME_ENVIRONMENT_VARIABLE: str(configured)}):
+            with patch.dict(
+                "os.environ", {APP_HOME_ENVIRONMENT_VARIABLE: str(configured)}
+            ):
                 self.assertEqual(resolve_app_home(explicit), explicit.resolve())
 
     def test_blank_environment_home_is_rejected(self) -> None:

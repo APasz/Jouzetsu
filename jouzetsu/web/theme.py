@@ -39,7 +39,10 @@ _PALETTE_VARIABLES: Final[tuple[tuple[str, str], ...]] = (
 _DERIVED_VARIABLES: Final[tuple[tuple[str, str], ...]] = (
     ("--jouzetsu-edit-glow", "rgb(from var(--jouzetsu-edit) r g b / 24%)"),
     ("--jouzetsu-edit-focus", "rgb(from var(--jouzetsu-edit) r g b / 16%)"),
-    ("--jouzetsu-secondary-streaming-glow", "rgb(from var(--jouzetsu-secondary) r g b / 30%)"),
+    (
+        "--jouzetsu-secondary-streaming-glow",
+        "rgb(from var(--jouzetsu-secondary) r g b / 30%)",
+    ),
     ("--jouzetsu-backdrop", "rgb(from var(--jouzetsu-bg) r g b / 88%)"),
     ("--jouzetsu-shadow-soft", "rgb(from var(--jouzetsu-bg) r g b / 32%)"),
     ("--jouzetsu-shadow-panel", "rgb(from var(--jouzetsu-bg) r g b / 70%)"),
@@ -57,12 +60,21 @@ def render_theme_css(config: AppConfig) -> str:
     start: str = _safe_hex_color(config.host_stats.activity_start_color, palette.canvas)
     end: str = _safe_hex_color(config.host_stats.activity_end_color, palette.primary)
     declarations: list[str] = [
-        *(f"    {variable}: {palette_values[field]};" for variable, field in _PALETTE_VARIABLES),
+        *(
+            f"    {variable}: {palette_values[field]};"
+            for variable, field in _PALETTE_VARIABLES
+        ),
         *(f"    {variable}: {value};" for variable, value in _DERIVED_VARIABLES),
         f"    --jouzetsu-stat-start: {start};",
         f"    --jouzetsu-stat-end: {end};",
     ]
-    return ":root {\n" + "\n".join(declarations) + "\n}\n" + host_stat_meter_rules(start, end) + "\n"
+    return (
+        ":root {\n"
+        + "\n".join(declarations)
+        + "\n}\n"
+        + host_stat_meter_rules(start, end)
+        + "\n"
+    )
 
 
 def _safe_hex_color(value: str, fallback: str) -> str:

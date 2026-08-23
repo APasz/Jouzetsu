@@ -54,7 +54,9 @@ def navigation_view(state: AppState, context: PageContext) -> NavigationView:
     return NavigationView(
         chats=chats,
         active_chat_id=state.active_chat.id,
-        generating_chat_ids=frozenset(chat.id for chat in chats if state.is_generating(chat.id)),
+        generating_chat_ids=frozenset(
+            chat.id for chat in chats if state.is_generating(chat.id)
+        ),
         app_icon_url=app_icon_url(state.config.ui.icon_colors),
         can_use_global_settings=context.decision.can_use_global_settings,
         can_manage_access=context.decision.can_manage_access,

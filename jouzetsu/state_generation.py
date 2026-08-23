@@ -53,7 +53,10 @@ def chat_with_continuation_prompt(chat: Chat) -> Chat:
 
     return replace(
         chat,
-        messages=[*chat.messages, Message(role="user", content=CONTINUE_PROMPT_CONTENT)],
+        messages=[
+            *chat.messages,
+            Message(role="user", content=CONTINUE_PROMPT_CONTENT),
+        ],
     )
 
 
@@ -114,7 +117,9 @@ class GenerationController:
         if session.is_generating:
             return
         chat: Chat = session.chat
-        generation: GenerationSettings = chat.sampling_overrides.resolve(self._default_generation())
+        generation: GenerationSettings = chat.sampling_overrides.resolve(
+            self._default_generation()
+        )
         model: str = chat.model or self._default_model()
         request: Chat = generation_request_snapshot(request_chat or chat)
         initial_content: str
@@ -175,14 +180,18 @@ class GenerationController:
             await asyncio.wait_for(task, timeout=_CANCELLATION_GRACE_SECONDS)
         except TimeoutError:
             forced_cancellation = True
-            log.warning("generation task did not stop cleanly chat_id=%s", session.chat.id)
+            log.warning(
+                "generation task did not stop cleanly chat_id=%s", session.chat.id
+            )
             _ = task.cancel()
             try:
                 await asyncio.wait_for(task, timeout=_FORCED_CANCELLATION_GRACE_SECONDS)
             except asyncio.CancelledError:
                 pass
             except TimeoutError:
-                log.error("generation task could not be cancelled chat_id=%s", session.chat.id)
+                log.error(
+                    "generation task could not be cancelled chat_id=%s", session.chat.id
+                )
                 return False
         session.generation_task = None
         if session.runtime_status.phase is RuntimePhase.STOPPING:
@@ -194,7 +203,9 @@ class GenerationController:
         """Stop all active streams concurrently and report whether every stop was clean."""
 
         cancellations: tuple[asyncio.Task[bool], ...] = tuple(
-            asyncio.create_task(self.cancel(session)) for session in sessions if session.generation_task is not None
+            asyncio.create_task(self.cancel(session))
+            for session in sessions
+            if session.generation_task is not None
         )
         if not cancellations:
             return True
@@ -203,7 +214,9 @@ class GenerationController:
         )
         for result in results:
             if isinstance(result, BaseException):
-                log.error("generation cancellation crashed during shutdown error=%r", result)
+                log.error(
+                    "generation cancellation crashed during shutdown error=%r", result
+                )
                 return False
             if not result:
                 return False
@@ -228,7 +241,9 @@ class GenerationController:
         now: float = asyncio.get_running_loop().time()
         descriptor: ModelDescriptor | None = self._model_descriptor(model)
         phase: RuntimePhase = (
-            RuntimePhase.LOADING_MODEL if descriptor is not None and not descriptor.is_loaded else RuntimePhase.STARTING
+            RuntimePhase.LOADING_MODEL
+            if descriptor is not None and not descriptor.is_loaded
+            else RuntimePhase.STARTING
         )
         return RuntimeStatus(
             phase,
@@ -251,16 +266,22 @@ class GenerationController:
         british_spelling_replacements: tuple[SpellingReplacement, ...],
     ) -> None:
         chat: Chat = session.chat
-        buffer: list[str] = self._initial_buffer(initial_content, is_continuation=is_continuation)
+        buffer: list[str] = self._initial_buffer(
+            initial_content, is_continuation=is_continuation
+        )
         output_tokens: int = 0
         last_stream_update_at: float = 0.0
         completed_metrics: GenerationMetrics | None = None
         try:
-            async for event in self._client.stream_chat(chat=request, model=model, generation=generation):
+            async for event in self._client.stream_chat(
+                chat=request, model=model, generation=generation
+            ):
                 if session.cancellation_requested.is_set():
                     break
                 if isinstance(event, ModelLoadProgress):
-                    session.runtime_status = self._status_for_load_progress(session.runtime_status, event)
+                    session.runtime_status = self._status_for_load_progress(
+                        session.runtime_status, event
+                    )
                     await self._notify(StateChangeKind.STATUS)
                     continue
                 if isinstance(event, ModelReady):
@@ -299,11 +320,15 @@ class GenerationController:
                 else:
                     buffer.append(event.content)
                     assistant.update_content(
-                        apply_case_preserving_word_replacements("".join(buffer), british_spelling_replacements)
+                        apply_case_preserving_word_replacements(
+                            "".join(buffer), british_spelling_replacements
+                        )
                     )
                 session.runtime_status = self.next_runtime_status(
                     session.runtime_status,
-                    RuntimePhase.REASONING if event.is_reasoning else RuntimePhase.GENERATING,
+                    RuntimePhase.REASONING
+                    if event.is_reasoning
+                    else RuntimePhase.GENERATING,
                     model_key=session.runtime_status.model_key,
                     model_name=session.runtime_status.model_name,
                     output_tokens=output_tokens,
@@ -373,7 +398,8 @@ class GenerationController:
             )
         final_output_tokens: int = (
             completed_metrics.output_tokens
-            if completed_metrics is not None and completed_metrics.output_tokens is not None
+            if completed_metrics is not None
+            and completed_metrics.output_tokens is not None
             else output_tokens
         )
         session.runtime_status = RuntimeStatus(
@@ -391,7 +417,9 @@ class GenerationController:
             len(assistant.content),
         )
 
-    def _status_for_load_progress(self, current: RuntimeStatus, event: ModelLoadProgress) -> RuntimeStatus:
+    def _status_for_load_progress(
+        self, current: RuntimeStatus, event: ModelLoadProgress
+    ) -> RuntimeStatus:
         return self.next_runtime_status(
             current,
             RuntimePhase.LOADING_MODEL,
@@ -400,7 +428,9 @@ class GenerationController:
             progress=event.progress,
         )
 
-    def _apply_model_ready(self, session: ChatSession, assistant: Message, event: ModelReady) -> None:
+    def _apply_model_ready(
+        self, session: ChatSession, assistant: Message, event: ModelReady
+    ) -> None:
         chat: Chat = session.chat
         if assistant.model != event.model_key:
             assistant.set_model(event.model_key)
@@ -450,17 +480,29 @@ class GenerationController:
                 generation=review_generation,
             ):
                 if session.cancellation_requested.is_set():
-                    chat_log.info("continuity_review_cancelled chat_id=%s message_id=%s", chat.id, assistant.id)
+                    chat_log.info(
+                        "continuity_review_cancelled chat_id=%s message_id=%s",
+                        chat.id,
+                        assistant.id,
+                    )
                     return
                 if isinstance(event, PredictionFragment) and not event.is_reasoning:
                     fragments.append(event.content)
         except LMStudioError as exc:
             log.warning("continuity review failed chat_id=%s error=%s", chat.id, exc)
-            chat_log.warning("continuity_review_failed chat_id=%s message_id=%s", chat.id, assistant.id)
+            chat_log.warning(
+                "continuity_review_failed chat_id=%s message_id=%s",
+                chat.id,
+                assistant.id,
+            )
             return
         except Exception:
             log.exception("continuity review crashed chat_id=%s", chat.id)
-            chat_log.error("continuity_review_crashed chat_id=%s message_id=%s", chat.id, assistant.id)
+            chat_log.error(
+                "continuity_review_crashed chat_id=%s message_id=%s",
+                chat.id,
+                assistant.id,
+            )
             return
 
         review = parse_continuity_review("".join(fragments))
@@ -488,7 +530,9 @@ class GenerationController:
         error: LMStudioError,
     ) -> None:
         error_text: str = f"⚠ {error}"
-        assistant.update_content(f"{initial_content}\n\n{error_text}" if initial_content else error_text)
+        assistant.update_content(
+            f"{initial_content}\n\n{error_text}" if initial_content else error_text
+        )
         session.runtime_status = RuntimeStatus(
             RuntimePhase.ERROR,
             model_key=session.runtime_status.model_key,
@@ -511,7 +555,9 @@ class GenerationController:
         error: Exception,
     ) -> None:
         error_text: str = f"⚠ Unexpected error: {error}"
-        assistant.update_content(f"{initial_content}\n\n{error_text}" if initial_content else error_text)
+        assistant.update_content(
+            f"{initial_content}\n\n{error_text}" if initial_content else error_text
+        )
         session.runtime_status = RuntimeStatus(
             RuntimePhase.ERROR,
             model_key=session.runtime_status.model_key,
@@ -553,7 +599,9 @@ class GenerationController:
         """Advance one generation phase while retaining total elapsed time."""
 
         now: float = asyncio.get_running_loop().time()
-        started_at: float = previous.started_at if previous.started_at is not None else now
+        started_at: float = (
+            previous.started_at if previous.started_at is not None else now
+        )
         phase_started_at: float = (
             previous.phase_started_at
             if previous.phase is phase and previous.phase_started_at is not None

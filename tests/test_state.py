@@ -62,7 +62,9 @@ class FakeLMStudioClient(LMStudioClient):
 
     @override
     async def list_model_inventory(self) -> tuple[ModelDescriptor, ...]:
-        loaded_instance_ids: tuple[str, ...] = () if "demo-model" in self.unloaded_instance_ids else ("demo-model",)
+        loaded_instance_ids: tuple[str, ...] = (
+            () if "demo-model" in self.unloaded_instance_ids else ("demo-model",)
+        )
         return (
             ModelDescriptor(
                 key="demo-model",
@@ -147,7 +149,9 @@ class AppStateTests(unittest.TestCase):
         _ = asyncio.run(self.state.shutdown())
         self.tmp_dir.cleanup()
 
-    def test_send_user_message_appends_first_message_and_streams_assistant_reply(self) -> None:
+    def test_send_user_message_appends_first_message_and_streams_assistant_reply(
+        self,
+    ) -> None:
         sent_message = None
 
         self.assertEqual(self.state.active_chat.messages, [])
@@ -199,14 +203,24 @@ class AppStateTests(unittest.TestCase):
             await self.state.set_active_chat_model("second-model")
             _ = await self.state.send_user_message("Second")
             await self._wait_for_generation()
-            return [message.model for message in self.state.active_chat.messages if message.role == "assistant"]
+            return [
+                message.model
+                for message in self.state.active_chat.messages
+                if message.role == "assistant"
+            ]
 
         message_models: list[str] = asyncio.run(scenario())
         reloaded: list[Chat] = ChatStorage(self.state.config.chats_file).load_all()
 
-        self.assertEqual(message_models, ["resolved/demo-model", "resolved/second-model"])
         self.assertEqual(
-            [message.model for message in reloaded[0].messages if message.role == "assistant"],
+            message_models, ["resolved/demo-model", "resolved/second-model"]
+        )
+        self.assertEqual(
+            [
+                message.model
+                for message in reloaded[0].messages
+                if message.role == "assistant"
+            ],
             message_models,
         )
 
@@ -219,12 +233,19 @@ class AppStateTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-        self.assertEqual(self.state.active_chat.messages[1].content, "Mum likes colour and FAVOURITE in my_color")
+        self.assertEqual(
+            self.state.active_chat.messages[1].content,
+            "Mum likes colour and FAVOURITE in my_color",
+        )
 
-    def test_character_profile_write_failure_does_not_publish_partial_state(self) -> None:
+    def test_character_profile_write_failure_does_not_publish_partial_state(
+        self,
+    ) -> None:
         async def scenario() -> None:
             character: Character = await self.state.new_character()
-            self.state.character_storage = FailingCharacterStorage(Path(self.tmp_dir.name) / "failing-characters")
+            self.state.character_storage = FailingCharacterStorage(
+                Path(self.tmp_dir.name) / "failing-characters"
+            )
 
             with self.assertRaisesRegex(OSError, "character storage unavailable"):
                 _ = await self.state.update_character(
@@ -238,14 +259,18 @@ class AppStateTests(unittest.TestCase):
             self.assertEqual(character.name, "New character")
             self.assertEqual(character.fields, [])
 
-            self.state.character_storage = FailingCharacterStorage(Path(self.tmp_dir.name) / "failing-new-characters")
+            self.state.character_storage = FailingCharacterStorage(
+                Path(self.tmp_dir.name) / "failing-new-characters"
+            )
             with self.assertRaisesRegex(OSError, "character storage unavailable"):
                 _ = await self.state.new_character()
             self.assertEqual(self.state.characters, [character])
 
         asyncio.run(scenario())
 
-    def test_character_profile_revision_prevents_stale_edits_and_binds_the_saved_revision_to_a_chat(self) -> None:
+    def test_character_profile_revision_prevents_stale_edits_and_binds_the_saved_revision_to_a_chat(
+        self,
+    ) -> None:
         async def scenario() -> None:
             character: Character = await self.state.new_character()
             updated: Character = await self.state.update_character(
@@ -267,7 +292,10 @@ class AppStateTests(unittest.TestCase):
             self.assertEqual(updated.revision, 2)
             self.assertEqual(self.state.character(character.id), updated)
             self.assertIsNotNone(chat.character)
-            self.assertEqual(chat.character.revision if chat.character is not None else 0, updated.revision)
+            self.assertEqual(
+                chat.character.revision if chat.character is not None else 0,
+                updated.revision,
+            )
             self.assertIn("Role: Pilot", chat.system_prompt)
             self.assertEqual(chat.messages, [])
 
@@ -277,7 +305,9 @@ class AppStateTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def test_continuity_review_proposes_a_rewrite_without_changing_the_visible_reply(self) -> None:
+    def test_continuity_review_proposes_a_rewrite_without_changing_the_visible_reply(
+        self,
+    ) -> None:
         review_generations: list[GenerationSettings] = []
         phases: list[RuntimePhase] = []
 
@@ -317,7 +347,9 @@ class AppStateTests(unittest.TestCase):
 
         self.assertEqual(assistant.content, "The original colour answer")
         self.assertEqual(assistant.continuity_rewrite, "A revised colour answer")
-        self.assertEqual([generation.temperature for generation in review_generations], [0.75, 0.0])
+        self.assertEqual(
+            [generation.temperature for generation in review_generations], [0.75, 0.0]
+        )
         self.assertIn(RuntimePhase.REVIEWING, phases)
 
         asyncio.run(self.state.apply_continuity_rewrite(assistant_id))
@@ -436,12 +468,18 @@ class AppStateTests(unittest.TestCase):
             ChatSamplingOverrides(temperature=0.2, top_p=0.8, max_tokens=512),
         )
 
-    def test_invalid_chat_sampling_overrides_do_not_mutate_the_active_chat(self) -> None:
+    def test_invalid_chat_sampling_overrides_do_not_mutate_the_active_chat(
+        self,
+    ) -> None:
         original: ChatSamplingOverrides = self.state.active_chat.sampling_overrides
 
         async def scenario() -> None:
-            with self.assertRaisesRegex(ValueError, "temperature must be between 0 and 2"):
-                await self.state.set_active_chat_sampling_overrides(ChatSamplingOverrides(temperature=2.1))
+            with self.assertRaisesRegex(
+                ValueError, "temperature must be between 0 and 2"
+            ):
+                await self.state.set_active_chat_sampling_overrides(
+                    ChatSamplingOverrides(temperature=2.1)
+                )
 
         asyncio.run(scenario())
 
@@ -467,7 +505,9 @@ class AppStateTests(unittest.TestCase):
         self.assertLess(stream_updates, len(self.client.tokens))
         self.assertEqual(change_kinds.count(StateChangeKind.FULL), 2)
 
-    def test_continue_last_response_creates_new_assistant_message_without_a_user_message(self) -> None:
+    def test_continue_last_response_creates_new_assistant_message_without_a_user_message(
+        self,
+    ) -> None:
         captured_history: list[tuple[str, str]] = []
 
         async def continuation_stream(
@@ -476,7 +516,9 @@ class AppStateTests(unittest.TestCase):
             generation: GenerationSettings,
         ) -> AsyncIterator[ChatStreamEvent]:
             _ = generation
-            captured_history.extend((message.role, message.content) for message in chat.messages)
+            captured_history.extend(
+                (message.role, message.content) for message in chat.messages
+            )
             yield ModelReady(model, "Demo Model", 4096)
             yield PromptProcessingProgress(1.0)
             yield FirstToken()
@@ -495,7 +537,9 @@ class AppStateTests(unittest.TestCase):
         assistant_message_id = asyncio.run(scenario())
 
         messages = self.state.active_chat.messages
-        self.assertEqual([message.role for message in messages], ["user", "assistant", "assistant"])
+        self.assertEqual(
+            [message.role for message in messages], ["user", "assistant", "assistant"]
+        )
         self.assertEqual(messages[1].id, assistant_message_id)
         self.assertEqual(messages[1].content, "Hello world")
         self.assertNotEqual(messages[-1].id, assistant_message_id)
@@ -505,13 +549,19 @@ class AppStateTests(unittest.TestCase):
             [("user", "Start a response"), ("assistant", "Hello world")],
         )
         self.assertEqual(captured_history[2][0], "user")
-        self.assertIn("Continue the previous assistant response", captured_history[2][1])
+        self.assertIn(
+            "Continue the previous assistant response", captured_history[2][1]
+        )
 
-    def test_resend_user_message_generates_a_reply_without_duplicating_the_user_turn(self) -> None:
+    def test_resend_user_message_generates_a_reply_without_duplicating_the_user_turn(
+        self,
+    ) -> None:
         async def scenario() -> tuple[str, str]:
             source: Message = await self.state.send_user_message("Ask again")
             await self._wait_for_generation()
-            removed_assistant: Message | None = self.state.active_chat.remove_message(self.state.active_chat.messages[-1].id)
+            removed_assistant: Message | None = self.state.active_chat.remove_message(
+                self.state.active_chat.messages[-1].id
+            )
             self.assertIsNotNone(removed_assistant)
             resent: Message = await self.state.resend_user_message(source.id)
             await self._wait_for_generation()
@@ -525,7 +575,9 @@ class AppStateTests(unittest.TestCase):
         self.assertEqual(messages[0].id, source_message_id)
         self.assertEqual(messages[0].id, resent_message_id)
 
-    def test_regenerate_replaces_the_final_reply_without_sending_it_back_to_the_model(self) -> None:
+    def test_regenerate_replaces_the_final_reply_without_sending_it_back_to_the_model(
+        self,
+    ) -> None:
         captured_history: list[tuple[str, str]] = []
         change_kinds: list[StateChangeKind] = []
         self.state.config.generation.continuity_review = False
@@ -536,7 +588,9 @@ class AppStateTests(unittest.TestCase):
             generation: GenerationSettings,
         ) -> AsyncIterator[ChatStreamEvent]:
             _ = generation
-            captured_history.extend((message.role, message.content) for message in chat.messages)
+            captured_history.extend(
+                (message.role, message.content) for message in chat.messages
+            )
             yield ModelReady(model, "Demo Model", 4096)
             yield FirstToken()
             yield PredictionFragment("Fresh answer", 1, False)
@@ -566,8 +620,12 @@ class AppStateTests(unittest.TestCase):
         self.assertEqual(messages[-1].content, "Fresh answer")
         self.assertEqual(change_kinds.count(StateChangeKind.FULL), 2)
 
-    def test_continue_last_response_requires_a_completed_assistant_message(self) -> None:
-        with self.assertRaisesRegex(ValueError, "last message must be a completed assistant response"):
+    def test_continue_last_response_requires_a_completed_assistant_message(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "last message must be a completed assistant response"
+        ):
             asyncio.run(self.state.continue_last_response())
 
     def test_merge_assistant_message_with_previous_same_role_message(self) -> None:
@@ -575,7 +633,9 @@ class AppStateTests(unittest.TestCase):
             _ = await self.state.send_user_message("Start a response")
             await self._wait_for_generation()
             first_assistant_id = self.state.active_chat.messages[1].id
-            second_assistant = self.state.active_chat.add_message("assistant", "Continued response")
+            second_assistant = self.state.active_chat.add_message(
+                "assistant", "Continued response"
+            )
             _ = await self.state.merge_message_with_previous(second_assistant.id)
             return first_assistant_id, second_assistant.id
 
@@ -606,9 +666,13 @@ class AppStateTests(unittest.TestCase):
         async def scenario() -> None:
             _ = await self.state.send_user_message("Start a response")
             await self._wait_for_generation()
-            _ = await self.state.merge_message_with_previous(self.state.active_chat.messages[1].id)
+            _ = await self.state.merge_message_with_previous(
+                self.state.active_chat.messages[1].id
+            )
 
-        with self.assertRaisesRegex(ValueError, "previous message must have the same role"):
+        with self.assertRaisesRegex(
+            ValueError, "previous message must have the same role"
+        ):
             asyncio.run(scenario())
 
     def test_set_active_chat_model_persists_value(self) -> None:
@@ -617,7 +681,9 @@ class AppStateTests(unittest.TestCase):
         reloaded = ChatStorage(self.state.config.chats_file).load_all()
         self.assertEqual(reloaded[0].model, "custom-model")
 
-    def test_generation_sensitive_chat_settings_reject_mutation_while_generating(self) -> None:
+    def test_generation_sensitive_chat_settings_reject_mutation_while_generating(
+        self,
+    ) -> None:
         async def slow_stream(
             chat: Chat,
             model: str,
@@ -635,15 +701,30 @@ class AppStateTests(unittest.TestCase):
         async def scenario() -> None:
             _ = await self.state.send_user_message("Generate while changing settings")
             await asyncio.sleep(0.01)
-            with self.assertRaisesRegex(ValueError, "cannot set model while generation is in progress"):
+            with self.assertRaisesRegex(
+                ValueError, "cannot set model while generation is in progress"
+            ):
                 await self.state.set_active_chat_model("other-model")
-            with self.assertRaisesRegex(ValueError, "cannot set system prompt while generation is in progress"):
+            with self.assertRaisesRegex(
+                ValueError, "cannot set system prompt while generation is in progress"
+            ):
                 await self.state.set_active_chat_system_prompt("A changed prompt")
-            with self.assertRaisesRegex(ValueError, "cannot set sampling overrides while generation is in progress"):
-                await self.state.set_active_chat_sampling_overrides(ChatSamplingOverrides(temperature=0.2))
-            with self.assertRaisesRegex(ValueError, "cannot set British spelling post-processing while generation is in progress"):
+            with self.assertRaisesRegex(
+                ValueError,
+                "cannot set sampling overrides while generation is in progress",
+            ):
+                await self.state.set_active_chat_sampling_overrides(
+                    ChatSamplingOverrides(temperature=0.2)
+                )
+            with self.assertRaisesRegex(
+                ValueError,
+                "cannot set British spelling post-processing while generation is in progress",
+            ):
                 await self.state.set_active_chat_postprocess_british_spellings(False)
-            with self.assertRaisesRegex(ValueError, "cannot set reasoning persistence while generation is in progress"):
+            with self.assertRaisesRegex(
+                ValueError,
+                "cannot set reasoning persistence while generation is in progress",
+            ):
                 await self.state.set_active_chat_save_reasoning(False)
             await self.state.stop_generation()
 
@@ -668,9 +749,13 @@ class AppStateTests(unittest.TestCase):
             await self.state.refresh_runtime_status()
             _ = await self.state.send_user_message("Keep the model loaded")
             await asyncio.sleep(0.01)
-            with self.assertRaisesRegex(ValueError, "cannot unload a model while it is generating a response"):
+            with self.assertRaisesRegex(
+                ValueError, "cannot unload a model while it is generating a response"
+            ):
                 await self.state.unload_model("demo-model")
-            with self.assertRaisesRegex(ValueError, "cannot unload a model while it is generating a response"):
+            with self.assertRaisesRegex(
+                ValueError, "cannot unload a model while it is generating a response"
+            ):
                 await self.state.unload_model_instance("demo-model")
             await self.state.stop_generation()
 
@@ -775,7 +860,9 @@ class AppStateTests(unittest.TestCase):
         assert metrics is not None
         self.assertEqual(metrics.tokens_per_second, 20.0)
 
-    def test_generation_stage_timer_resets_without_resetting_the_overall_timer(self) -> None:
+    def test_generation_stage_timer_resets_without_resetting_the_overall_timer(
+        self,
+    ) -> None:
         async def scenario() -> tuple[RuntimeStatus, RuntimeStatus]:
             loading: RuntimeStatus = RuntimeStatus(
                 RuntimePhase.LOADING_MODEL,
@@ -810,7 +897,9 @@ class AppStateTests(unittest.TestCase):
         self.assertGreater(processing.phase_started_at, loading_update.phase_started_at)
 
     def test_runtime_refresh_keeps_completed_generation_metrics(self) -> None:
-        async def scenario() -> tuple[GenerationMetrics | None, GenerationMetrics | None]:
+        async def scenario() -> tuple[
+            GenerationMetrics | None, GenerationMetrics | None
+        ]:
             _ = await self.state.send_user_message("Show detailed status")
             await self._wait_for_generation()
             before_refresh = self.state.runtime_status.metrics
@@ -854,7 +943,9 @@ class AppStateTests(unittest.TestCase):
         asyncio.run(scenario())
 
         self.assertIn(RuntimePhase.LOADING_MODEL, phases)
-        self.assertEqual(phases[:2], [RuntimePhase.LOADING_MODEL, RuntimePhase.LOADING_MODEL])
+        self.assertEqual(
+            phases[:2], [RuntimePhase.LOADING_MODEL, RuntimePhase.LOADING_MODEL]
+        )
         self.assertIn(RuntimePhase.REASONING, phases)
         self.assertEqual(self.state.active_chat.messages[-1].content, "Answer")
 
@@ -891,7 +982,9 @@ class AppStateTests(unittest.TestCase):
                 self.state.active_chat.messages[-1].reasoning,
             )
 
-        live_reasoning, completed_reasoning, response, saved_reasoning = asyncio.run(scenario())
+        live_reasoning, completed_reasoning, response, saved_reasoning = asyncio.run(
+            scenario()
+        )
 
         self.assertEqual(live_reasoning, "Inspecting the request")
         self.assertEqual(completed_reasoning, "")
@@ -915,7 +1008,9 @@ class AppStateTests(unittest.TestCase):
         self.client.stream_chat = reasoning_stream
 
         async def scenario() -> None:
-            assistant = self.state.active_chat.add_message("assistant", "Earlier answer")
+            assistant = self.state.active_chat.add_message(
+                "assistant", "Earlier answer"
+            )
             assistant.set_reasoning("Earlier trace")
             await self.state.set_active_chat_save_reasoning(False)
             _ = await self.state.send_user_message("Do not retain reasoning")
@@ -929,7 +1024,9 @@ class AppStateTests(unittest.TestCase):
         self.assertFalse(reloaded[0].save_reasoning)
         self.assertEqual(reloaded[0].messages[-1].reasoning, "")
 
-    def test_generation_starts_in_model_loading_phase_for_an_unloaded_model(self) -> None:
+    def test_generation_starts_in_model_loading_phase_for_an_unloaded_model(
+        self,
+    ) -> None:
         loading_gate: asyncio.Event = asyncio.Event()
 
         async def delayed_stream(
@@ -976,7 +1073,9 @@ class AppStateTests(unittest.TestCase):
         self.assertEqual(chat_ids[0], new_chat_id)
         self.assertIn(original_chat_id, chat_ids)
 
-    def test_fork_chat_copies_history_through_target_into_independent_chat(self) -> None:
+    def test_fork_chat_copies_history_through_target_into_independent_chat(
+        self,
+    ) -> None:
         async def scenario() -> tuple[str, list[str], str]:
             await self.state.set_active_chat_system_prompt("Source prompt")
             _ = await self.state.send_user_message("First question")
@@ -987,14 +1086,18 @@ class AppStateTests(unittest.TestCase):
             await self.state.set_active_chat_draft("Source draft")
 
             source_chat_id = self.state.active_chat.id
-            source_message_ids = [message.id for message in self.state.active_chat.messages]
+            source_message_ids = [
+                message.id for message in self.state.active_chat.messages
+            ]
             forked_chat = await self.state.fork_chat_at_message(target_message_id)
             return source_chat_id, source_message_ids, forked_chat.id
 
         source_chat_id, source_message_ids, forked_chat_id = asyncio.run(scenario())
 
         forked_chat = self.state.active_chat
-        source_chat = next(chat for chat in self.state.chats if chat.id == source_chat_id)
+        source_chat = next(
+            chat for chat in self.state.chats if chat.id == source_chat_id
+        )
         self.assertEqual(forked_chat.id, forked_chat_id)
         self.assertEqual(forked_chat.title, source_chat.title)
         self.assertEqual(forked_chat.model, source_chat.model)
@@ -1004,7 +1107,11 @@ class AppStateTests(unittest.TestCase):
             [(message.role, message.content) for message in forked_chat.messages],
             [("user", "First question"), ("assistant", "Hello world")],
         )
-        self.assertTrue(set(source_message_ids).isdisjoint(message.id for message in forked_chat.messages))
+        self.assertTrue(
+            set(source_message_ids).isdisjoint(
+                message.id for message in forked_chat.messages
+            )
+        )
         self.assertEqual(len(source_chat.messages), 4)
 
         reloaded = ChatStorage(self.state.config.chats_file).load_all()
@@ -1019,9 +1126,13 @@ class AppStateTests(unittest.TestCase):
     def test_fork_chat_rejects_in_progress_generation(self) -> None:
         async def scenario() -> None:
             _ = await self.state.send_user_message("Still generating")
-            _ = await self.state.fork_chat_at_message(self.state.active_chat.messages[0].id)
+            _ = await self.state.fork_chat_at_message(
+                self.state.active_chat.messages[0].id
+            )
 
-        with self.assertRaisesRegex(ValueError, "cannot fork while generation is in progress"):
+        with self.assertRaisesRegex(
+            ValueError, "cannot fork while generation is in progress"
+        ):
             asyncio.run(scenario())
 
     def test_select_chat_switches_active_chat(self) -> None:
@@ -1072,7 +1183,9 @@ class AppStateTests(unittest.TestCase):
             },
         )
 
-    def test_set_global_settings_persists_model_alias_and_auto_unload_minutes(self) -> None:
+    def test_set_global_settings_persists_model_alias_and_auto_unload_minutes(
+        self,
+    ) -> None:
         generation = GenerationSettings(
             temperature=0.4,
             top_p=0.8,
@@ -1091,7 +1204,9 @@ class AppStateTests(unittest.TestCase):
         self.assertEqual(server_json["auto_unload_minutes"], 15)
         self.assertEqual(self.state.config.server.auto_unload_minutes, 15)
 
-    def test_set_global_settings_retains_the_shared_server_settings_instance(self) -> None:
+    def test_set_global_settings_retains_the_shared_server_settings_instance(
+        self,
+    ) -> None:
         original_server: ServerSettings = self.state.config.server
         updated_server = ServerSettings(
             base_url="http://example.test:4321/v1",
@@ -1101,7 +1216,9 @@ class AppStateTests(unittest.TestCase):
             auto_unload_minutes=10,
         )
 
-        asyncio.run(self.state.set_global_settings(self.state.config.generation, updated_server))
+        asyncio.run(
+            self.state.set_global_settings(self.state.config.generation, updated_server)
+        )
 
         self.assertIs(self.state.config.server, original_server)
         self.assertEqual(self.state.config.server, updated_server)
@@ -1135,14 +1252,19 @@ class AppStateTests(unittest.TestCase):
         )
 
         ui = _saved_config_section(self.state.config.config_file, "ui")
-        self.assertEqual(ui["icon_colors"], {
-            "linework_color": "#101112",
-            "accent_color": "#131415",
-            "surface_color": "#161718",
-        })
+        self.assertEqual(
+            ui["icon_colors"],
+            {
+                "linework_color": "#101112",
+                "accent_color": "#131415",
+                "surface_color": "#161718",
+            },
+        )
         self.assertEqual(self.state.config.ui.icon_colors, colors)
 
-    def test_set_generation_defaults_rejects_invalid_values_without_mutating_config(self) -> None:
+    def test_set_generation_defaults_rejects_invalid_values_without_mutating_config(
+        self,
+    ) -> None:
         original_settings = self.state.config.generation
         invalid_settings = GenerationSettings(temperature=2.1)
 
@@ -1176,7 +1298,11 @@ class AppStateTests(unittest.TestCase):
 
     def test_rapid_draft_updates_are_coalesced_into_one_storage_write(self) -> None:
         async def scenario() -> int:
-            with patch.object(self.state.storage, "save_records", wraps=self.state.storage.save_records) as save_records:
+            with patch.object(
+                self.state.storage,
+                "save_records",
+                wraps=self.state.storage.save_records,
+            ) as save_records:
                 await self.state.set_active_chat_draft("First")
                 await self.state.set_active_chat_draft("Second")
                 await self.state.set_active_chat_draft("Final")
@@ -1203,7 +1329,11 @@ class AppStateTests(unittest.TestCase):
             original_save_records(chat_records, deleted_chat_ids=deleted_chat_ids)
 
         async def scenario() -> None:
-            with patch.object(self.state.storage, "save_records", side_effect=save_records_once_available):
+            with patch.object(
+                self.state.storage,
+                "save_records",
+                side_effect=save_records_once_available,
+            ):
                 await self.state.set_active_chat_draft("Retry this draft")
                 with self.assertRaisesRegex(OSError, "transient disk failure"):
                     await self.state._persistence.flush_chats()  # pyright: ignore[reportPrivateUsage]
@@ -1227,7 +1357,10 @@ class AppStateTests(unittest.TestCase):
             return first_chat_id, second_chat.id
 
         first_chat_id, second_chat_id = asyncio.run(scenario())
-        chats_by_id = {chat.id: chat for chat in ChatStorage(self.state.config.chats_file).load_all()}
+        chats_by_id = {
+            chat.id: chat
+            for chat in ChatStorage(self.state.config.chats_file).load_all()
+        }
         self.assertEqual(chats_by_id[first_chat_id].draft, "First draft")
         self.assertEqual(chats_by_id[second_chat_id].draft, "Second draft")
 
@@ -1245,7 +1378,9 @@ class AppStateTests(unittest.TestCase):
         self.client.list_model_inventory = eventually_available
 
         async def scenario() -> RuntimePhase:
-            with patch("jouzetsu.controllers._INVENTORY_RETRY_DELAYS_SECONDS", (0.0, 0.0)):
+            with patch(
+                "jouzetsu.controllers._INVENTORY_RETRY_DELAYS_SECONDS", (0.0, 0.0)
+            ):
                 await self.state.refresh_runtime_status()
             return self.state.runtime_status.phase
 
@@ -1314,9 +1449,16 @@ class AppStateTests(unittest.TestCase):
         self.assertTrue(shutdown_clean)
         self.assertTrue(self.client.closed)
         self.assertEqual(generating_states, (False, False))
-        reloaded_by_id = {chat.id: chat for chat in ChatStorage(self.state.config.chats_file).load_all()}
-        self.assertEqual(reloaded_by_id[chat_ids[0]].messages[0].content, "First generation")
-        self.assertEqual(reloaded_by_id[chat_ids[1]].messages[0].content, "Second generation")
+        reloaded_by_id = {
+            chat.id: chat
+            for chat in ChatStorage(self.state.config.chats_file).load_all()
+        }
+        self.assertEqual(
+            reloaded_by_id[chat_ids[0]].messages[0].content, "First generation"
+        )
+        self.assertEqual(
+            reloaded_by_id[chat_ids[1]].messages[0].content, "Second generation"
+        )
 
     def test_shutdown_waits_for_generation_finalization_task(self) -> None:
         original_commit_chat = self.state._generation._commit_chat  # pyright: ignore[reportPrivateUsage]
@@ -1343,14 +1485,18 @@ class AppStateTests(unittest.TestCase):
             shutdown_task = asyncio.create_task(self.state.shutdown())
             try:
                 with self.assertRaises(TimeoutError):
-                    _ = await asyncio.wait_for(asyncio.shield(shutdown_task), timeout=0.01)
+                    _ = await asyncio.wait_for(
+                        asyncio.shield(shutdown_task), timeout=0.01
+                    )
             finally:
                 release_finalization.set()
             return await shutdown_task
 
         self.assertTrue(asyncio.run(scenario()))
 
-    def test_lm_studio_disconnect_mid_generation_preserves_a_visible_error(self) -> None:
+    def test_lm_studio_disconnect_mid_generation_preserves_a_visible_error(
+        self,
+    ) -> None:
         async def disconnected_stream(
             chat: Chat,
             model: str,
@@ -1388,13 +1534,19 @@ class AppStateTests(unittest.TestCase):
         self.assertEqual(reloaded[0].title, "Renamed chat")
 
     def test_delete_chat_removes_it_and_keeps_active_chat_valid(self) -> None:
-        async def scenario() -> tuple[str, str, tuple[dict[str, object], ...], frozenset[str]]:
+        async def scenario() -> tuple[
+            str, str, tuple[dict[str, object], ...], frozenset[str]
+        ]:
             first_chat_id = self.state.active_chat.id
             await self.state.rename_chat(first_chat_id, "First chat")
             second_chat = await self.state.new_chat()
             await self.state.rename_chat(second_chat.id, "Second chat")
             await self.state.select_chat(first_chat_id)
-            with patch.object(self.state.storage, "save_records", wraps=self.state.storage.save_records) as save_records:
+            with patch.object(
+                self.state.storage,
+                "save_records",
+                wraps=self.state.storage.save_records,
+            ) as save_records:
                 await self.state.delete_chat(first_chat_id)
                 call = save_records.call_args
             self.assertIsNotNone(call)
@@ -1404,7 +1556,9 @@ class AppStateTests(unittest.TestCase):
             deleted_ids = cast(frozenset[str], call.kwargs["deleted_chat_ids"])
             return first_chat_id, second_chat.id, records, deleted_ids
 
-        deleted_chat_id, surviving_chat_id, changed_records, deleted_ids = asyncio.run(scenario())
+        deleted_chat_id, surviving_chat_id, changed_records, deleted_ids = asyncio.run(
+            scenario()
+        )
 
         self.assertEqual(self.state.active_chat.id, surviving_chat_id)
         self.assertNotIn(deleted_chat_id, [chat.id for chat in self.state.chats])
@@ -1415,10 +1569,15 @@ class AppStateTests(unittest.TestCase):
         }
         self.assertEqual(reloaded_chat_ids, {surviving_chat_id})
         self.assertTrue(
-            (ChatStorage(self.state.config.chats_file).trash_directory / f"{deleted_chat_id}.json").exists()
+            (
+                ChatStorage(self.state.config.chats_file).trash_directory
+                / f"{deleted_chat_id}.json"
+            ).exists()
         )
 
-    def test_delete_chat_refuses_to_remove_a_chat_with_a_live_generation_task(self) -> None:
+    def test_delete_chat_refuses_to_remove_a_chat_with_a_live_generation_task(
+        self,
+    ) -> None:
         async def cancellation_still_in_progress(_chat_id: str | None = None) -> bool:
             return False
 
@@ -1428,8 +1587,14 @@ class AppStateTests(unittest.TestCase):
             chat_state.is_generating = True
             try:
                 with (
-                    patch.object(self.state, "_cancel_generation", new=cancellation_still_in_progress),
-                    self.assertRaisesRegex(RuntimeError, "generation is still stopping"),
+                    patch.object(
+                        self.state,
+                        "_cancel_generation",
+                        new=cancellation_still_in_progress,
+                    ),
+                    self.assertRaisesRegex(
+                        RuntimeError, "generation is still stopping"
+                    ),
                 ):
                     await self.state.delete_chat(chat_id)
             finally:
@@ -1446,7 +1611,11 @@ class AppStateTests(unittest.TestCase):
             first_chat_id: str = self.state.active_chat.id
             _ = await self.state.new_chat()
             _ = await self.state.new_chat()
-            with patch.object(self.state.storage, "save_records", wraps=self.state.storage.save_records) as save_records:
+            with patch.object(
+                self.state.storage,
+                "save_records",
+                wraps=self.state.storage.save_records,
+            ) as save_records:
                 await self.state.rename_chat(first_chat_id, "Changed first chat")
                 call = save_records.call_args
             self.assertIsNotNone(call)
@@ -1499,7 +1668,9 @@ class AppStateTests(unittest.TestCase):
         remove_listener()
         remove_listener()
 
-        asyncio.run(self.state.rename_chat(self.state.active_chat.id, "No listener call"))
+        asyncio.run(
+            self.state.rename_chat(self.state.active_chat.id, "No listener call")
+        )
         self.assertEqual(calls, 0)
 
     def test_active_chat_selection_restores_from_config(self) -> None:
@@ -1512,7 +1683,9 @@ class AppStateTests(unittest.TestCase):
         first_chat_id, _second_chat_id = asyncio.run(scenario())
         saved_config = ConfigStore.for_config_file(self.state.config.config_file).load()
 
-        reloaded_state = AppState(saved_config, ChatStorage(saved_config.chats_file), FakeLMStudioClient())
+        reloaded_state = AppState(
+            saved_config, ChatStorage(saved_config.chats_file), FakeLMStudioClient()
+        )
         try:
             self.assertEqual(reloaded_state.active_chat.id, first_chat_id)
         finally:
@@ -1525,7 +1698,9 @@ class AppStateTests(unittest.TestCase):
         asyncio.run(scenario())
         saved_config = ConfigStore.for_config_file(self.state.config.config_file).load()
 
-        reloaded_state = AppState(saved_config, ChatStorage(saved_config.chats_file), FakeLMStudioClient())
+        reloaded_state = AppState(
+            saved_config, ChatStorage(saved_config.chats_file), FakeLMStudioClient()
+        )
         try:
             self.assertTrue(reloaded_state.active_empty_state_message)
         finally:
@@ -1593,9 +1768,13 @@ class AppStateTests(unittest.TestCase):
     def test_edit_message_while_generating_raises(self) -> None:
         async def scenario() -> None:
             _ = await self.state.send_user_message("Trigger generation")
-            await self.state.edit_message(self.state.active_chat.messages[0].id, "Edited")
+            await self.state.edit_message(
+                self.state.active_chat.messages[0].id, "Edited"
+            )
 
-        with self.assertRaisesRegex(ValueError, "cannot edit while generation is in progress"):
+        with self.assertRaisesRegex(
+            ValueError, "cannot edit while generation is in progress"
+        ):
             asyncio.run(scenario())
 
     def test_delete_message_removes_only_target_message(self) -> None:
@@ -1613,13 +1792,17 @@ class AppStateTests(unittest.TestCase):
         self.assertEqual(messages[0].content, "Keep question")
         self.assertNotEqual(messages[0].id, deleted_message_id)
 
-    def test_delete_message_and_following_removes_the_selected_transcript_tail(self) -> None:
+    def test_delete_message_and_following_removes_the_selected_transcript_tail(
+        self,
+    ) -> None:
         async def scenario() -> str:
             _ = await self.state.send_user_message("First question")
             await self._wait_for_generation()
             second_user: Message = await self.state.send_user_message("Second question")
             await self._wait_for_generation()
-            undo = await self.state.delete_message_and_following_with_undo(second_user.id)
+            undo = await self.state.delete_message_and_following_with_undo(
+                second_user.id
+            )
             self.assertIsNotNone(undo)
             return second_user.id
 
@@ -1629,7 +1812,9 @@ class AppStateTests(unittest.TestCase):
         self.assertEqual([message.role for message in messages], ["user", "assistant"])
         self.assertNotEqual(messages[-1].id, deleted_message_id)
 
-    def test_truncate_chat_to_message_keeps_target_and_drops_following_messages(self) -> None:
+    def test_truncate_chat_to_message_keeps_target_and_drops_following_messages(
+        self,
+    ) -> None:
         async def scenario() -> str:
             _ = await self.state.send_user_message("First question")
             await self._wait_for_generation()

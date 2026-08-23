@@ -149,6 +149,21 @@
     justify-content: space-between;
 }
 
+.jouzetsu-character-library-toggle {
+    display: none;
+}
+
+.jouzetsu-character-library-toggle-label,
+.jouzetsu-character-library-toggle-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jouzetsu-character-library-toggle-value {
+    color: var(--jouzetsu-text-dim);
+}
+
 .jouzetsu-character-library-list {
     display: flex;
     flex: 1 1 auto;
@@ -200,7 +215,8 @@
 
 .jouzetsu-character-editor-heading {
     align-items: flex-start;
-    justify-content: space-between;
+    flex-direction: column;
+    gap: 0;
 }
 
 .jouzetsu-character-title {
@@ -231,6 +247,27 @@
     padding: 13px;
     border: 1px solid var(--jouzetsu-border);
     background: var(--jouzetsu-surface);
+}
+
+.jouzetsu-character-preset-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.jouzetsu-character-preset-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+}
+
+.jouzetsu-character-preset-controls[hidden] {
+    display: none;
+}
+
+.jouzetsu-character-preset-toggle {
+    display: none;
 }
 
 .jouzetsu-character-preset-extras,
@@ -284,9 +321,13 @@
 }
 
 .jouzetsu-character-field-row {
+    --jouzetsu-character-field-menu-toggle-size: 34px;
+    --jouzetsu-character-field-label-rail-size: 18px;
+
     display: grid;
-    grid-template-columns: minmax(120px, 0.8fr) minmax(118px, 0.55fr) minmax(220px, 1.7fr) auto;
-    align-items: end;
+    grid-template-columns: minmax(150px, 0.72fr) minmax(0, 1.9fr) auto;
+    grid-template-areas: "field value actions";
+    align-items: start;
     gap: 9px;
     padding: 11px;
     border: 1px solid var(--jouzetsu-border);
@@ -297,16 +338,96 @@
     white-space: nowrap;
 }
 
+.jouzetsu-character-field-name {
+    grid-area: field;
+}
+
+.jouzetsu-character-field-value {
+    grid-area: value;
+}
+
+.jouzetsu-character-field-name,
+.jouzetsu-character-field-value {
+    position: relative;
+    display: block;
+    padding-left: calc(var(--jouzetsu-character-field-label-rail-size) + 4px);
+}
+
+.jouzetsu-character-field-name > .jouzetsu-field-label,
+.jouzetsu-character-field-value > .jouzetsu-field-label {
+    position: absolute;
+    top: 50%;
+    left: calc(var(--jouzetsu-character-field-label-rail-size) / 2);
+    margin: 0;
+    font-size: 10px;
+    line-height: 1;
+    white-space: nowrap;
+    transform: translate(-50%, -50%) rotate(-90deg);
+}
+
+.jouzetsu-character-field-actions {
+    grid-area: actions;
+    position: relative;
+    align-self: stretch;
+}
+
+.jouzetsu-character-field-menu-toggle {
+    display: grid;
+    width: var(--jouzetsu-character-field-menu-toggle-size);
+    min-width: var(--jouzetsu-character-field-menu-toggle-size);
+    min-height: var(--jouzetsu-character-field-menu-toggle-size);
+    height: 100%;
+    place-items: center;
+    padding: 5px;
+}
+
+.jouzetsu-character-field-menu-icon {
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    line-height: 1;
+}
+
+.jouzetsu-character-field-menu {
+    position: absolute;
+    z-index: 2;
+    top: calc(100% + 6px);
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    width: 208px;
+    gap: 9px;
+    padding: 10px;
+    border: 1px solid var(--jouzetsu-border-strong);
+    background: var(--jouzetsu-surface-2);
+    box-shadow: 0 8px 20px var(--jouzetsu-shadow-soft);
+}
+
+.jouzetsu-character-field-menu[hidden] {
+    display: none;
+}
+
+.jouzetsu-character-field-menu .jouzetsu-button {
+    width: 100%;
+}
+
 .jouzetsu-character-prompt-details {
     border: 1px solid var(--jouzetsu-border);
     background: var(--jouzetsu-surface);
 }
 
 .jouzetsu-character-prompt-details summary {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
     padding: 10px 12px;
     color: var(--jouzetsu-secondary);
     cursor: pointer;
     font-size: 12px;
+}
+
+.jouzetsu-character-prompt-summary-help {
+    color: var(--jouzetsu-text-dim);
 }
 
 .jouzetsu-character-prompt-preview {

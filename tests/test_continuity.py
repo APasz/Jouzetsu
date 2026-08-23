@@ -9,7 +9,9 @@ from jouzetsu.continuity import (
 from jouzetsu.models import Chat
 
 
-def test_continuity_review_request_is_ephemeral_and_appends_the_protocol_prompt() -> None:
+def test_continuity_review_request_is_ephemeral_and_appends_the_protocol_prompt() -> (
+    None
+):
     chat = Chat()
     _ = chat.add_message("user", "Original request")
 
@@ -21,7 +23,9 @@ def test_continuity_review_request_is_ephemeral_and_appends_the_protocol_prompt(
     assert review_chat.messages[-1].content == CONTINUITY_REVIEW_PROMPT
 
 
-def test_continuity_review_accepts_only_the_strict_keep_or_complete_replace_protocol() -> None:
+def test_continuity_review_accepts_only_the_strict_keep_or_complete_replace_protocol() -> (
+    None
+):
     keep = parse_continuity_review("  KEEP\n")
     replacement = parse_continuity_review("REPLACE\r\nRevised answer")
     invalid = parse_continuity_review("REPLACE\n")

@@ -7,7 +7,6 @@ from enum import Enum
 
 from .models import Chat, Message
 
-
 CONTINUITY_REVIEW_PROMPT: str = """Review the immediately preceding assistant response for continuity with this conversation.
 
 Check only for concrete conversational problems: contradictions with earlier messages, failure to answer the latest user request, ignored explicit constraints, incorrect self-references, or an abrupt incomplete ending. Do not fact-check, add new information, or change the response merely to make it different.
@@ -39,7 +38,10 @@ def build_continuity_review_chat(chat: Chat) -> Chat:
 
     return replace(
         chat,
-        messages=[*chat.messages, Message(role="user", content=CONTINUITY_REVIEW_PROMPT)],
+        messages=[
+            *chat.messages,
+            Message(role="user", content=CONTINUITY_REVIEW_PROMPT),
+        ],
     )
 
 

@@ -29,7 +29,9 @@ class _WebApplicationStub:
 
 
 class ShutdownMarkerTests(unittest.TestCase):
-    def test_incomplete_shutdown_marker_is_written_and_can_be_cleared_after_recovery(self) -> None:
+    def test_incomplete_shutdown_marker_is_written_and_can_be_cleared_after_recovery(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             home = Path(tmp_dir)
             config = AppConfig(paths=AppPaths.for_home(home))
@@ -55,7 +57,9 @@ class ShutdownMarkerTests(unittest.TestCase):
         ):
             app_module.run(config)
 
-        server_config: uvicorn.Config = cast(uvicorn.Config, server_type.call_args.args[0])
+        server_config: uvicorn.Config = cast(
+            uvicorn.Config, server_type.call_args.args[0]
+        )
         self.assertEqual(
             server_config.timeout_graceful_shutdown,
             app_module._UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,  # pyright: ignore[reportPrivateUsage]

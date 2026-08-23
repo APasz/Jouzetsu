@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Literal, TypeAlias
+from typing import Literal
 
 
 class RuntimePhase(Enum):
@@ -158,6 +158,11 @@ class PredictionComplete:
     metrics: GenerationMetrics
 
 
-ChatStreamEvent: TypeAlias = (
-    ModelLoadProgress | ModelReady | PromptProcessingProgress | FirstToken | PredictionFragment | PredictionComplete
+type ChatStreamEvent = (
+    ModelLoadProgress
+    | ModelReady
+    | PromptProcessingProgress
+    | FirstToken
+    | PredictionFragment
+    | PredictionComplete
 )

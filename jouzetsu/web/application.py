@@ -20,15 +20,11 @@ from ..character_presets import CharacterPresetCatalog
 from ..config import (
     AppConfig,
 )
-from ..models import Character, CharacterField
+from ..models import Character, CharacterField, CharacterPresetSelection
 from ..state import AppState
 from .form_data import (
     FormValues as _FormValues,
-)
-from .form_data import (
     character_fields_from_form as _character_fields_from_form,
-)
-from .form_data import (
     require_integer as _require_integer,
 )
 from .html import Link, Meta, Script
@@ -40,9 +36,11 @@ from .security import (
     BrowserSecurityMiddleware,
 )
 from .ui_events import UiEventBroker as _UiEventBroker
-from .view_models import chat_settings_view as _chat_settings_view
-from .view_models import chat_view as _chat_view
-from .view_models import navigation_view as _navigation_view
+from .view_models import (
+    chat_settings_view as _chat_settings_view,
+    chat_view as _chat_view,
+    navigation_view as _navigation_view,
+)
 from .views.chat import (
     ChatSettingsView,
     ChatView,
@@ -90,13 +88,18 @@ async def _static_asset_response(asset_path: str) -> Response:
 
     static_directory: Path = _ASSET_DIRECTORY.resolve()
     resolved_asset: Path = (static_directory / asset_path).resolve()
-    if not resolved_asset.is_relative_to(static_directory) or not resolved_asset.is_file():
+    if (
+        not resolved_asset.is_relative_to(static_directory)
+        or not resolved_asset.is_file()
+    ):
         return Response(status_code=404)
     try:
         content: bytes = await run_in_worker(resolved_asset.read_bytes)
     except OSError:
         return Response(status_code=404)
-    media_type: str = mimetypes.guess_type(resolved_asset.name)[0] or "application/octet-stream"
+    media_type: str = (
+        mimetypes.guess_type(resolved_asset.name)[0] or "application/octet-stream"
+    )
     return Response(content, media_type=media_type)
 
 
@@ -250,9 +253,20 @@ class WebApplication:
         fields: list[CharacterField] = _character_fields_from_form(form)
         if additional_fields:
             fields.extend(additional_fields)
+        base_preset_id: str = form.text("base_preset").strip()
+        selected_presets = self.character_preset_catalog.selected(
+            base_preset_id, form.texts("extra_preset")
+        )
+        presets: CharacterPresetSelection = CharacterPresetSelection(
+            base_id=base_preset_id,
+            extra_ids=tuple(
+                preset.id for preset in selected_presets if preset.layer == "extra"
+            ),
+        )
         return await self.state.update_character(
             character_id,
             expected_revision=revision,
             name=form.required_text("name"),
             fields=fields,
+            presets=presets,
         )

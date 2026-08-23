@@ -90,7 +90,9 @@ def mark_unclean_shutdown(config: AppConfig) -> None:
     try:
         atomic_write_text(marker_path, content)
     except Exception:
-        log.exception("could not record incomplete shutdown marker path=%s", marker_path)
+        log.exception(
+            "could not record incomplete shutdown marker path=%s", marker_path
+        )
 
 
 def clear_unclean_shutdown_marker(config: AppConfig) -> None:
@@ -158,20 +160,34 @@ def _build_lifecycle_callbacks(
     return startup, shutdown
 
 
-def build_app(config: AppConfig | None = None, *, app_home: Path | None = None) -> AppConfig:
+def build_app(
+    config: AppConfig | None = None, *, app_home: Path | None = None
+) -> AppConfig:
     """Load configuration and construct the ASGI application exactly once."""
 
     global _config_store, _data_directory_lock, _state, _web_application
 
     if config is not None and app_home is not None:
-        raise ValueError("supply either an application configuration or an application home, not both")
+        raise ValueError(
+            "supply either an application configuration or an application home, not both"
+        )
     if _web_application is not None:
-        if config is not None and _state is not None and _state.config.data_dir != config.data_dir:
-            raise RuntimeError("Jouzetsu is already initialised with a different data directory")
+        if (
+            config is not None
+            and _state is not None
+            and _state.config.data_dir != config.data_dir
+        ):
+            raise RuntimeError(
+                "Jouzetsu is already initialised with a different data directory"
+            )
         if app_home is not None and _state is not None:
-            requested_config_file: Path = AppPaths.for_home(resolve_app_home(app_home)).config_file
+            requested_config_file: Path = AppPaths.for_home(
+                resolve_app_home(app_home)
+            ).config_file
             if _state.config.config_file != requested_config_file:
-                raise RuntimeError("Jouzetsu is already initialised with a different application home")
+                raise RuntimeError(
+                    "Jouzetsu is already initialised with a different application home"
+                )
         if _state is not None:
             return _state.config
         if config is not None:
@@ -198,7 +214,9 @@ def build_app(config: AppConfig | None = None, *, app_home: Path | None = None) 
             on_shutdown=shutdown,
         )
     except Exception:
-        log.exception("application initialisation failed data_dir=%s", resolved_config.data_dir)
+        log.exception(
+            "application initialisation failed data_dir=%s", resolved_config.data_dir
+        )
         _data_directory_lock.release()
         _data_directory_lock = None
         _config_store = None

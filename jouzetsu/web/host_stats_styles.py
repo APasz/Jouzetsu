@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Final
 
-
 _METER_CLASS_PREFIX: Final[str] = "jouzetsu-host-stat-meter-"
 _METER_PERCENT_MINIMUM: Final[int] = 0
 _METER_PERCENT_MAXIMUM: Final[int] = 100
@@ -13,7 +12,9 @@ _METER_PERCENT_MAXIMUM: Final[int] = 100
 def host_stat_meter_class(activity_percent: float) -> str:
     """Return the stylesheet class for a bounded whole-percent activity reading."""
 
-    percentage: int = round(min(max(activity_percent, _METER_PERCENT_MINIMUM), _METER_PERCENT_MAXIMUM))
+    percentage: int = round(
+        min(max(activity_percent, _METER_PERCENT_MINIMUM), _METER_PERCENT_MAXIMUM)
+    )
     return f"{_METER_CLASS_PREFIX}{percentage}"
 
 
@@ -38,11 +39,10 @@ def _activity_color(start_color: str, end_color: str, activity_percent: int) -> 
     start_red, start_green, start_blue = _hex_rgb(start_color)
     end_red, end_green, end_blue = _hex_rgb(end_color)
     ratio: float = activity_percent / _METER_PERCENT_MAXIMUM
-    return "#{:02x}{:02x}{:02x}".format(
-        round(start_red + (end_red - start_red) * ratio),
-        round(start_green + (end_green - start_green) * ratio),
-        round(start_blue + (end_blue - start_blue) * ratio),
-    )
+    red: int = round(start_red + (end_red - start_red) * ratio)
+    green: int = round(start_green + (end_green - start_green) * ratio)
+    blue: int = round(start_blue + (end_blue - start_blue) * ratio)
+    return f"#{red:02x}{green:02x}{blue:02x}"
 
 
 def _hex_rgb(color: str) -> tuple[int, int, int]:

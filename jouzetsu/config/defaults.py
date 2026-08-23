@@ -37,7 +37,9 @@ def _load_json_resource(file_name: str) -> object:
     try:
         return cast(object, json.loads(resource.read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError) as exc:
-        raise DefaultDataError(f"could not load packaged default data: {resource}") from exc
+        raise DefaultDataError(
+            f"could not load packaged default data: {resource}"
+        ) from exc
 
 
 @cache
@@ -52,7 +54,9 @@ def builtin_spelling_replacements() -> tuple[SpellingReplacement, ...]:
     seen_sources: set[str] = set()
     for index, item in enumerate(cast(list[object], raw)):
         if not isinstance(item, dict):
-            raise DefaultDataError(f"British-spelling default {index} must be an object")
+            raise DefaultDataError(
+                f"British-spelling default {index} must be an object"
+            )
         values: dict[object, object] = cast(dict[object, object], item)
         if set(values) != {"source", "replacement"}:
             raise DefaultDataError(
@@ -68,7 +72,9 @@ def builtin_spelling_replacements() -> tuple[SpellingReplacement, ...]:
         try:
             item_value.validate()
         except ValueError as exc:
-            raise DefaultDataError(f"invalid British-spelling default {index}: {exc}") from exc
+            raise DefaultDataError(
+                f"invalid British-spelling default {index}: {exc}"
+            ) from exc
         source_key: str = source.casefold()
         if source_key in seen_sources:
             raise DefaultDataError(f"duplicate British-spelling source: {source}")
@@ -85,12 +91,16 @@ def builtin_theme_values() -> Mapping[str, str]:
     if not isinstance(raw, dict):
         raise DefaultDataError("theme defaults must be a JSON object")
     values: dict[object, object] = cast(dict[object, object], raw)
-    expected_fields: frozenset[str] = frozenset(field.name for field in fields(ThemeSettings))
+    expected_fields: frozenset[str] = frozenset(
+        field.name for field in fields(ThemeSettings)
+    )
     configured_fields: frozenset[str] = frozenset(
         key for key in values if isinstance(key, str)
     )
     if len(configured_fields) != len(values) or configured_fields != expected_fields:
-        raise DefaultDataError("theme defaults must define every theme token exactly once")
+        raise DefaultDataError(
+            "theme defaults must define every theme token exactly once"
+        )
 
     normalised: dict[str, str] = {}
     for field_name in expected_fields:

@@ -57,7 +57,11 @@ class EmptyChatMessageProvider:
         except FileNotFoundError:
             signature = None
         except OSError as exc:
-            log.warning("could not inspect empty-chat message file path=%s error=%s", self.path, exc)
+            log.warning(
+                "could not inspect empty-chat message file path=%s error=%s",
+                self.path,
+                exc,
+            )
             return
         else:
             signature = (stat.st_mtime_ns, stat.st_size)
@@ -72,10 +76,17 @@ class EmptyChatMessageProvider:
         try:
             text: str = self.path.read_text(encoding="utf-8")
         except OSError as exc:
-            log.warning("could not read empty-chat message file path=%s error=%s", self.path, exc)
+            log.warning(
+                "could not read empty-chat message file path=%s error=%s",
+                self.path,
+                exc,
+            )
             return
 
-        self._messages = (*BUILTIN_EMPTY_CHAT_MESSAGES, *_parse_custom_messages(text, path=self.path))
+        self._messages = (
+            *BUILTIN_EMPTY_CHAT_MESSAGES,
+            *_parse_custom_messages(text, path=self.path),
+        )
         self._file_signature = signature
 
 

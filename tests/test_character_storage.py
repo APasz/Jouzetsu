@@ -11,8 +11,12 @@ def test_character_storage_persists_each_profile_in_its_own_file() -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         directory: Path = Path(temporary_directory) / "characters"
         storage = CharacterStorage(directory)
-        first = Character(name="Mira", fields=[CharacterField(label="Role", value="Pilot")])
-        second = Character(name="Sol", fields=[CharacterField(label="Species", value="Human")])
+        first = Character(
+            name="Mira", fields=[CharacterField(label="Role", value="Pilot")]
+        )
+        second = Character(
+            name="Sol", fields=[CharacterField(label="Species", value="Human")]
+        )
 
         storage.save(first)
         storage.save(second)

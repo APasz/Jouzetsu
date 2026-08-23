@@ -59,7 +59,7 @@
 
     .jouzetsu-character-layout {
         grid-template-columns: 1fr;
-        grid-template-rows: minmax(132px, auto) minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
     }
 
     .jouzetsu-launch-card-grid {
@@ -71,6 +71,21 @@
         padding: 10px max(10px, env(safe-area-inset-right)) 10px max(10px, env(safe-area-inset-left));
         border-right: 0;
         border-bottom: 1px solid var(--jouzetsu-border);
+    }
+
+    .jouzetsu-character-library-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        gap: 10px;
+        padding: 7px 9px;
+        text-align: left;
+    }
+
+    .jouzetsu-character-library.is-collapsed .jouzetsu-character-library-list,
+    .jouzetsu-character-library.is-collapsed .jouzetsu-sheet-footnote {
+        display: none;
     }
 
     .jouzetsu-character-library-list {
@@ -89,18 +104,50 @@
     }
 
     .jouzetsu-character-editor-heading,
-    .jouzetsu-character-fields-heading {
+    .jouzetsu-character-fields-heading,
+    .jouzetsu-character-preset-heading {
         align-items: flex-start;
         flex-direction: column;
     }
 
-    .jouzetsu-character-field-row {
-        grid-template-columns: 1fr;
+    .jouzetsu-character-preset-toggle {
+        display: block;
+        width: 100%;
     }
 
-    .jouzetsu-character-field-row .jouzetsu-button,
+    .jouzetsu-character-extra-presets {
+        display: grid;
+        width: 100%;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .jouzetsu-character-field-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "field actions"
+            "value value";
+    }
+
     .jouzetsu-character-editor-actions .jouzetsu-button {
         width: 100%;
+    }
+
+    .jouzetsu-character-field-actions {
+        justify-self: end;
+        align-self: end;
+    }
+
+    .jouzetsu-character-field-menu-toggle {
+        height: var(--jouzetsu-character-field-menu-toggle-size);
+    }
+
+    .jouzetsu-character-field-menu {
+        width: min(240px, calc(100vw - 44px));
+    }
+
+    .jouzetsu-character-prompt-details summary {
+        align-items: flex-start;
+        flex-direction: column;
     }
 
     .jouzetsu-chat-metadata {

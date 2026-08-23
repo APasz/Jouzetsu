@@ -79,7 +79,9 @@ def character_fields_from_form(form: FormValues) -> list[CharacterField]:
     kinds: list[str] = form.texts("field_kind")
     values: list[str] = form.texts("field_value")
     if not (len(ids) == len(labels) == len(kinds) == len(values)):
-        raise ValueError("character fields must include matching ids, labels, styles, and values")
+        raise ValueError(
+            "character fields must include matching ids, labels, styles, and values"
+        )
 
     fields: list[CharacterField] = []
     for field_id, label, kind, value in zip(ids, labels, kinds, values, strict=True):
@@ -92,7 +94,9 @@ def character_fields_from_form(form: FormValues) -> list[CharacterField]:
             raise ValueError("character field style must be short text or long text")
         field_kind: CharacterFieldKind = cast(CharacterFieldKind, kind)
         fields.append(
-            CharacterField(id=field_id, label=trimmed_label, kind=field_kind, value=value)
+            CharacterField(
+                id=field_id, label=trimmed_label, kind=field_kind, value=value
+            )
             if field_id
             else CharacterField(label=trimmed_label, kind=field_kind, value=value)
         )
@@ -156,7 +160,9 @@ def optional_integer(raw: str, *, field_name: str) -> int | None:
     return None if not raw.strip() else require_integer(raw, field_name=field_name)
 
 
-def updated_generation_settings(state: AppState, form: FormValues, *, system_prompt: str) -> GenerationSettings:
+def updated_generation_settings(
+    state: AppState, form: FormValues, *, system_prompt: str
+) -> GenerationSettings:
     """Construct the complete generation settings model from one form section."""
 
     current: GenerationSettings = state.config.generation
@@ -167,7 +173,9 @@ def updated_generation_settings(state: AppState, form: FormValues, *, system_pro
         system_prompt=system_prompt.strip(),
         continuity_review=form.flag("continuity_review"),
         british_english=current.british_english,
-        british_spelling_replacements=_parse_spelling_replacements(form.text("british_spelling_replacements")),
+        british_spelling_replacements=_parse_spelling_replacements(
+            form.text("british_spelling_replacements")
+        ),
     )
 
 
@@ -193,7 +201,9 @@ def updated_server_settings(
         api_key=current.api_key,
         default_model=default_model.strip(),
         model_aliases=aliases,
-        auto_unload_minutes=optional_integer(auto_unload_minutes, field_name="auto_unload_minutes"),
+        auto_unload_minutes=optional_integer(
+            auto_unload_minutes, field_name="auto_unload_minutes"
+        ),
     )
     settings.validate()
     return settings
@@ -204,9 +214,15 @@ def updated_icon_color_settings(state: AppState, form: FormValues) -> IconColorS
 
     current: IconColorSettings = state.config.ui.icon_colors
     colors: IconColorSettings = IconColorSettings(
-        linework_color=form.text("icon_linework_color", default=current.linework_color).strip(),
-        accent_color=form.text("icon_accent_color", default=current.accent_color).strip(),
-        surface_color=form.text("icon_surface_color", default=current.surface_color).strip(),
+        linework_color=form.text(
+            "icon_linework_color", default=current.linework_color
+        ).strip(),
+        accent_color=form.text(
+            "icon_accent_color", default=current.accent_color
+        ).strip(),
+        surface_color=form.text(
+            "icon_surface_color", default=current.surface_color
+        ).strip(),
     )
     colors.validate()
     return colors
@@ -223,12 +239,18 @@ def _parse_spelling_replacements(raw: str) -> list[SpellingReplacement]:
             continue
         columns: list[str] = line.split()
         if len(columns) != 2:
-            raise ValueError(f"British spelling replacement line {line_number} must have two columns")
-        replacement: SpellingReplacement = SpellingReplacement(source=columns[0], replacement=columns[1])
+            raise ValueError(
+                f"British spelling replacement line {line_number} must have two columns"
+            )
+        replacement: SpellingReplacement = SpellingReplacement(
+            source=columns[0], replacement=columns[1]
+        )
         replacement.validate()
         source_key: str = replacement.source.casefold()
         if source_key in seen_sources:
-            raise ValueError(f"duplicate British spelling replacement source: {replacement.source}")
+            raise ValueError(
+                f"duplicate British spelling replacement source: {replacement.source}"
+            )
         seen_sources.add(source_key)
         replacements.append(replacement)
     return replacements

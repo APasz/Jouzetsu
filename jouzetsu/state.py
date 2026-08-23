@@ -33,6 +33,7 @@ from .models import (
     Character,
     CharacterChatBinding,
     CharacterField,
+    CharacterPresetSelection,
     Chat,
     ChatSamplingOverrides,
     ChatTitleSource,
@@ -69,7 +70,9 @@ class AppState:
     ) -> None:
         self.config: AppConfig = config
         self.storage: ChatStorage = storage
-        self.character_storage: CharacterStorage = character_storage or CharacterStorage(config.characters_directory)
+        self.character_storage: CharacterStorage = (
+            character_storage or CharacterStorage(config.characters_directory)
+        )
         self.client: LMStudioClientProtocol = client
         self._persistence: PersistenceController = PersistenceController(
             config,
@@ -78,8 +81,12 @@ class AppState:
         )
         self._access: AccessController = AccessController(config, self._commit_config)
         self._host_stats: HostStatsMonitor = HostStatsMonitor()
-        self._empty_chat_messages: EmptyChatMessageProvider = EmptyChatMessageProvider(config.data_dir)
-        self._chat_registry: ChatRegistry = ChatRegistry(self._empty_chat_messages.choose)
+        self._empty_chat_messages: EmptyChatMessageProvider = EmptyChatMessageProvider(
+            config.data_dir
+        )
+        self._chat_registry: ChatRegistry = ChatRegistry(
+            self._empty_chat_messages.choose
+        )
         self._characters: dict[str, Character] = {}
         self._notifier: StateNotifier = StateNotifier()
         self._runtime: RuntimeController = RuntimeController(
@@ -124,7 +131,11 @@ class AppState:
     def characters(self) -> list[Character]:
         """Return reusable profiles ordered by most recently edited first."""
 
-        return sorted(self._characters.values(), key=lambda character: character.updated_at, reverse=True)
+        return sorted(
+            self._characters.values(),
+            key=lambda character: character.updated_at,
+            reverse=True,
+        )
 
     def character(self, character_id: str) -> Character:
         """Resolve one character or fail clearly when a stale UI target is submitted."""
@@ -145,7 +156,9 @@ class AppState:
         return self.config.generation.system_prompt
 
     def is_generating(self, chat_id: str | None = None) -> bool:
-        session: ChatSession = self._by_id(chat_id or self._chat_registry.active_chat_id)
+        session: ChatSession = self._by_id(
+            chat_id or self._chat_registry.active_chat_id
+        )
         return session.is_generating
 
     @property
@@ -180,9 +193,13 @@ class AppState:
             return self.runtime_status.model_key
         selected_model: str = self.active_chat.model or self.config.server.default_model
         if selected_model:
-            descriptor: ModelDescriptor | None = self._runtime.model_descriptor(selected_model)
+            descriptor: ModelDescriptor | None = self._runtime.model_descriptor(
+                selected_model
+            )
             return descriptor.key if descriptor is not None else selected_model
-        loaded: ModelDescriptor | None = next((model for model in self.model_inventory if model.is_loaded), None)
+        loaded: ModelDescriptor | None = next(
+            (model for model in self.model_inventory if model.is_loaded), None
+        )
         return loaded.key if loaded is not None else ""
 
     def current_model_alias(self) -> str:
@@ -212,9 +229,13 @@ class AppState:
         """Resolve the server model key selected by one active generation."""
 
         requested_model: str = (
-            session.runtime_status.model_key or session.chat.model or self.config.server.default_model
+            session.runtime_status.model_key
+            or session.chat.model
+            or self.config.server.default_model
         )
-        descriptor: ModelDescriptor | None = self._runtime.model_descriptor(requested_model)
+        descriptor: ModelDescriptor | None = self._runtime.model_descriptor(
+            requested_model
+        )
         return descriptor.key if descriptor is not None else requested_model
 
     def host_stats_snapshot(self) -> HostStatsSnapshot:
@@ -260,15 +281,25 @@ class AppState:
         """Unload every currently loaded instance for one model."""
         self._ensure_model_is_idle(model_key)
         descriptor: ModelDescriptor = await self._runtime.unload_model(model_key)
-        log.info("model unloaded model_key=%s instance_count=%d", descriptor.key, len(descriptor.loaded_instance_ids))
+        log.info(
+            "model unloaded model_key=%s instance_count=%d",
+            descriptor.key,
+            len(descriptor.loaded_instance_ids),
+        )
 
     async def unload_model_instance(self, instance_id: str) -> None:
         """Unload one currently loaded model instance."""
         descriptor: ModelDescriptor | None = self._runtime.model_descriptor(instance_id)
         if descriptor is not None:
             self._ensure_model_is_idle(descriptor.key)
-        unloaded_descriptor: ModelDescriptor = await self._runtime.unload_model_instance(instance_id)
-        log.info("model instance unloaded model_key=%s instance_id=%s", unloaded_descriptor.key, instance_id)
+        unloaded_descriptor: ModelDescriptor = (
+            await self._runtime.unload_model_instance(instance_id)
+        )
+        log.info(
+            "model instance unloaded model_key=%s instance_id=%s",
+            unloaded_descriptor.key,
+            instance_id,
+        )
 
     async def start_runtime_monitor(self) -> None:
         """Start the single application-wide LM Studio status poller."""
@@ -288,7 +319,9 @@ class AppState:
         return self._runtime.idle_status(chat)
 
     def _load_from_disk(self) -> None:
-        self._characters = {character.id: character for character in self.character_storage.load_all()}
+        self._characters = {
+            character.id: character for character in self.character_storage.load_all()
+        }
         log.info("loaded characters count=%d", len(self._characters))
         loaded: list[Chat] = self.storage.load_all()
         if not loaded:
@@ -364,13 +397,16 @@ class AppState:
         expected_revision: int,
         name: str,
         fields: list[CharacterField],
+        presets: CharacterPresetSelection | None = None,
     ) -> Character:
         """Persist one current profile revision before exposing it to the active application."""
 
         character: Character = self.character(character_id)
         if character.revision != expected_revision:
             raise ValueError("character changed elsewhere; reload before saving")
-        updated_character: Character = character.revised_profile(name, fields)
+        updated_character: Character = character.revised_profile(
+            name, fields, presets=presets
+        )
         if updated_character is character:
             return character
         self.character_storage.save(updated_character)
@@ -444,7 +480,9 @@ class AppState:
         """Persist in-progress input text without affecting chat ordering."""
         if not self.update_chat_draft(chat_id, draft):
             return
-        await self._commit_chat(self._by_id(chat_id).chat, flush_chats=False, notify=False)
+        await self._commit_chat(
+            self._by_id(chat_id).chat, flush_chats=False, notify=False
+        )
 
     def update_chat_draft(self, chat_id: str, draft: str | None) -> bool:
         """Update a draft in memory and report whether it changed."""
@@ -457,7 +495,12 @@ class AppState:
 
     async def persist_chats(self) -> None:
         """Persist the current in-memory chats."""
-        await self._commit(changed_chats=tuple(session.chat for session in self._chat_registry.sessions), notify=False)
+        await self._commit(
+            changed_chats=tuple(
+                session.chat for session in self._chat_registry.sessions
+            ),
+            notify=False,
+        )
 
     async def set_active_chat_draft(self, draft: str | None) -> None:
         await self.set_chat_draft(self._chat_registry.active_chat_id, draft)
@@ -472,7 +515,9 @@ class AppState:
             raise ValueError(f"cannot {operation} while generation is in progress")
         return state
 
-    def _continuity_rewrite_target(self, message_id: str, *, operation: str) -> tuple[ChatSession, Message]:
+    def _continuity_rewrite_target(
+        self, message_id: str, *, operation: str
+    ) -> tuple[ChatSession, Message]:
         """Return the final assistant rewrite selected for an explicit user decision."""
 
         st: ChatSession = self._idle_active_state(operation)
@@ -480,7 +525,9 @@ class AppState:
         if message is None or message.role != "assistant":
             raise ValueError("continuity rewrites apply only to assistant messages")
         if not st.chat.messages or st.chat.messages[-1] is not message:
-            raise ValueError("continuity rewrites are available only for the last assistant message")
+            raise ValueError(
+                "continuity rewrites are available only for the last assistant message"
+            )
         if not message.continuity_rewrite:
             raise ValueError("this continuity rewrite is no longer available")
         return st, message
@@ -512,7 +559,9 @@ class AppState:
         st: ChatSession = self._idle_active_state("regenerate")
         chat: Chat = st.chat
         if not chat.messages or chat.messages[-1].role != "assistant":
-            raise ValueError("regeneration requires the last message to be an assistant response")
+            raise ValueError(
+                "regeneration requires the last message to be an assistant response"
+            )
         removed_message: Message = chat.messages.pop()
         chat_log.info(
             "message_deleted chat_id=%s message_id=%s role=assistant reason=regenerate_last",
@@ -528,7 +577,11 @@ class AppState:
         """Generate a reply to the active chat's final user message without duplicating it."""
         st: ChatSession = self._idle_active_state("resend")
         message: Message | None = st.chat.find_message(message_id)
-        if message is None or message.role != "user" or message is not st.chat.messages[-1]:
+        if (
+            message is None
+            or message.role != "user"
+            or message is not st.chat.messages[-1]
+        ):
             raise ValueError("message must be the final user message")
         _ = require_non_empty_text(message.content, field_name="message")
         await self._start_generation()
@@ -542,7 +595,11 @@ class AppState:
     async def continue_last_response(self) -> None:
         """Continue the last completed assistant response as a new message."""
         st: ChatSession = self._idle_active_state("continue")
-        if not st.chat.messages or st.chat.messages[-1].role != "assistant" or not st.chat.messages[-1].content.strip():
+        if (
+            not st.chat.messages
+            or st.chat.messages[-1].role != "assistant"
+            or not st.chat.messages[-1].content.strip()
+        ):
             raise ValueError("last message must be a completed assistant response")
         request_chat: Chat = chat_with_continuation_prompt(st.chat)
         assistant: Message = st.chat.add_message("assistant", "")
@@ -577,7 +634,9 @@ class AppState:
     async def apply_continuity_rewrite(self, message_id: str) -> None:
         """Replace one assistant response with its reviewed rewrite after confirmation."""
 
-        st, message = self._continuity_rewrite_target(message_id, operation="apply continuity rewrite")
+        st, message = self._continuity_rewrite_target(
+            message_id, operation="apply continuity rewrite"
+        )
         rewrite: str = message.continuity_rewrite
         message.update_content(rewrite)
         st.chat.touch()
@@ -592,11 +651,17 @@ class AppState:
     async def discard_continuity_rewrite(self, message_id: str) -> None:
         """Discard one reviewed rewrite while retaining the original response."""
 
-        st, message = self._continuity_rewrite_target(message_id, operation="discard continuity rewrite")
+        st, message = self._continuity_rewrite_target(
+            message_id, operation="discard continuity rewrite"
+        )
         message.discard_continuity_rewrite()
         st.chat.touch()
         await self._commit_chat(st.chat)
-        chat_log.info("continuity_rewrite_discarded chat_id=%s message_id=%s", st.chat.id, message.id)
+        chat_log.info(
+            "continuity_rewrite_discarded chat_id=%s message_id=%s",
+            st.chat.id,
+            message.id,
+        )
 
     async def delete_message(self, message_id: str) -> None:
         """Delete a single message from the active chat."""
@@ -624,7 +689,9 @@ class AppState:
             resulting_messages=snapshot_messages(chat.messages),
         )
 
-    async def delete_message_and_following_with_undo(self, message_id: str) -> ChatMessageUndo | None:
+    async def delete_message_and_following_with_undo(
+        self, message_id: str
+    ) -> ChatMessageUndo | None:
         """Delete a selected message plus every later transcript entry, with undo support."""
         st: ChatSession = self._idle_active_state("delete messages")
         chat: Chat = st.chat
@@ -666,7 +733,9 @@ class AppState:
 
         _ = await self.truncate_chat_to_message_with_undo(message_id)
 
-    async def truncate_chat_to_message_with_undo(self, message_id: str) -> ChatMessageUndo | None:
+    async def truncate_chat_to_message_with_undo(
+        self, message_id: str
+    ) -> ChatMessageUndo | None:
         """Truncate the active transcript and return an undo state when it changed."""
         st: ChatSession = self._idle_active_state("truncate")
         chat: Chat = st.chat
@@ -699,7 +768,11 @@ class AppState:
         chat.messages = restore_messages(undo.previous_messages)
         chat.touch()
         await self._commit_chat(chat)
-        chat_log.info("chat_undo_restored chat_id=%s message_count=%d", chat.id, len(chat.messages))
+        chat_log.info(
+            "chat_undo_restored chat_id=%s message_count=%d",
+            chat.id,
+            len(chat.messages),
+        )
 
     async def stop_generation(self) -> None:
         st: ChatSession = self._chat_registry.active
@@ -718,7 +791,9 @@ class AppState:
         await self._commit_chat(chat)
         chat_log.info("chat_model_changed chat_id=%s model=%s", chat.id, chat.model)
 
-    async def set_active_chat_sampling_overrides(self, overrides: ChatSamplingOverrides) -> None:
+    async def set_active_chat_sampling_overrides(
+        self, overrides: ChatSamplingOverrides
+    ) -> None:
         """Persist validated per-chat sampling values, leaving null fields inherited."""
 
         st: ChatSession = self._idle_active_state("set sampling overrides")
@@ -739,7 +814,9 @@ class AppState:
 
     async def set_global_system_prompt(self, prompt: str) -> None:
         """Persist the global fallback system prompt to config.json."""
-        await self.set_generation_defaults(replace(self.config.generation, system_prompt=trimmed_or_empty(prompt)))
+        await self.set_generation_defaults(
+            replace(self.config.generation, system_prompt=trimmed_or_empty(prompt))
+        )
 
     async def set_generation_defaults(self, settings: GenerationSettings) -> None:
         """Validate and atomically persist global generation defaults."""
@@ -752,7 +829,10 @@ class AppState:
             settings.temperature,
             settings.top_p,
         )
-        chat_log.info("global_system_prompt_updated content_length=%d", len(settings.system_prompt))
+        chat_log.info(
+            "global_system_prompt_updated content_length=%d",
+            len(settings.system_prompt),
+        )
 
     async def set_global_settings(
         self,
@@ -808,10 +888,16 @@ class AppState:
             allow_network_device_reassociation,
         )
 
-    async def set_device_access_allowed(self, device_id: str, access_allowed: bool) -> None:
+    async def set_device_access_allowed(
+        self, device_id: str, access_allowed: bool
+    ) -> None:
         """Persist one known browser/device allow flag."""
         await self._access.set_device_access(device_id, access_allowed)
-        log.info("device access updated device_id=%s access_allowed=%s", device_id, access_allowed)
+        log.info(
+            "device access updated device_id=%s access_allowed=%s",
+            device_id,
+            access_allowed,
+        )
 
     async def register_access_device(
         self,
@@ -833,7 +919,11 @@ class AppState:
     async def set_access_device_label(self, device_id: str, label: str) -> None:
         """Persist one known browser/device label."""
         await self._access.set_device_label(device_id, label)
-        log.info("device label updated device_id=%s label_length=%d", device_id, len(label.strip()))
+        log.info(
+            "device label updated device_id=%s label_length=%d",
+            device_id,
+            len(label.strip()),
+        )
 
     async def set_active_chat_system_prompt(self, prompt: str | None) -> None:
         """Persist the system prompt override for the active chat."""
@@ -848,9 +938,13 @@ class AppState:
             len(chat.system_prompt),
         )
 
-    async def set_active_chat_postprocess_british_spellings(self, enabled: bool) -> None:
+    async def set_active_chat_postprocess_british_spellings(
+        self, enabled: bool
+    ) -> None:
         """Persist whether the active chat applies British spelling replacements to output."""
-        st: ChatSession = self._idle_active_state("set British spelling post-processing")
+        st: ChatSession = self._idle_active_state(
+            "set British spelling post-processing"
+        )
         chat: Chat = st.chat
         if chat.postprocess_british_spellings == enabled:
             return
@@ -873,23 +967,34 @@ class AppState:
         chat.save_reasoning = enabled
         chat.touch()
         await self._commit_chat(chat)
-        chat_log.info("chat_reasoning_persistence_updated chat_id=%s enabled=%s", chat.id, enabled)
+        chat_log.info(
+            "chat_reasoning_persistence_updated chat_id=%s enabled=%s", chat.id, enabled
+        )
 
     async def rename_chat(self, chat_id: str, title: str) -> None:
         """Rename a chat explicitly."""
         chat: Chat = self._by_id(chat_id).chat
-        chat.set_manual_title(require_non_empty_text(trimmed_or_empty(title), field_name="chat title"))
+        chat.set_manual_title(
+            require_non_empty_text(trimmed_or_empty(title), field_name="chat title")
+        )
         await self._commit_chat(chat)
-        chat_log.info("chat_renamed chat_id=%s title_length=%d", chat.id, len(chat.title))
+        chat_log.info(
+            "chat_renamed chat_id=%s title_length=%d", chat.id, len(chat.title)
+        )
 
     async def delete_chat(self, chat_id: str) -> None:
         """Delete a chat and choose a replacement active chat if needed."""
         session: ChatSession = self._by_id(chat_id)
         cancellation_was_clean: bool = await self._cancel_generation(chat_id)
         if session.is_generating or session.generation_task is not None:
-            raise RuntimeError("cannot delete a chat while its generation is still stopping")
+            raise RuntimeError(
+                "cannot delete a chat while its generation is still stopping"
+            )
         if not cancellation_was_clean:
-            log.warning("chat deletion followed a forced generation cancellation chat_id=%s", chat_id)
+            log.warning(
+                "chat deletion followed a forced generation cancellation chat_id=%s",
+                chat_id,
+            )
         was_active: bool = self._chat_registry.active_chat_id == chat_id
         self._chat_registry.remove(chat_id)
 
@@ -918,10 +1023,14 @@ class AppState:
         assistant: Message | None = None,
         request_chat: Chat | None = None,
     ) -> None:
-        await self._generation.start(self._chat_registry.active, assistant=assistant, request_chat=request_chat)
+        await self._generation.start(
+            self._chat_registry.active, assistant=assistant, request_chat=request_chat
+        )
 
     async def _cancel_generation(self, chat_id: str | None = None) -> bool:
-        return await self._generation.cancel(self._by_id(chat_id or self._chat_registry.active_chat_id))
+        return await self._generation.cancel(
+            self._by_id(chat_id or self._chat_registry.active_chat_id)
+        )
 
     async def _save(
         self,
@@ -991,9 +1100,14 @@ class AppState:
     async def shutdown(self) -> bool:
         """Stop background work and flush state within the shutdown deadline."""
         try:
-            return await asyncio.wait_for(self._shutdown(), timeout=_SHUTDOWN_TIMEOUT_SECONDS)
+            return await asyncio.wait_for(
+                self._shutdown(), timeout=_SHUTDOWN_TIMEOUT_SECONDS
+            )
         except TimeoutError:
-            log.error("application state shutdown exceeded timeout_seconds=%s", _SHUTDOWN_TIMEOUT_SECONDS)
+            log.error(
+                "application state shutdown exceeded timeout_seconds=%s",
+                _SHUTDOWN_TIMEOUT_SECONDS,
+            )
             return False
         except Exception:
             log.exception("application state shutdown failed")

@@ -129,7 +129,9 @@ class ChatRegistry:
             try:
                 changes.setdefault(chat_id, self._sessions_by_id[chat_id].chat)
             except KeyError as exc:
-                raise RuntimeError(f"unpersisted chat is absent from state: {chat_id}") from exc
+                raise RuntimeError(
+                    f"unpersisted chat is absent from state: {chat_id}"
+                ) from exc
         for chat_id in deleted_chat_ids:
             changes.pop(chat_id, None)
         return changes

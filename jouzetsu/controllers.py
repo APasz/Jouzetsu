@@ -73,7 +73,9 @@ class PersistenceController:
         deleted_ids: set[str] = set(deleted_chat_ids)
         overlap: set[str] = set(records).intersection(deleted_ids)
         if overlap:
-            raise ValueError(f"cannot save and delete the same chat: {sorted(overlap)!r}")
+            raise ValueError(
+                f"cannot save and delete the same chat: {sorted(overlap)!r}"
+            )
         if not records and not deleted_ids:
             return
 
@@ -90,7 +92,9 @@ class PersistenceController:
     async def flush_chats(self) -> None:
         """Wait until every queued chat change has reached durable storage."""
         task: asyncio.Task[None] | None = self._chat_write_task
-        if task is None and (self._pending_chat_records or self._pending_deleted_chat_ids):
+        if task is None and (
+            self._pending_chat_records or self._pending_deleted_chat_ids
+        ):
             self._chat_write_error = None
             task = asyncio.create_task(self._write_pending_chats())
             self._chat_write_task = task
@@ -109,15 +113,24 @@ class PersistenceController:
         """Persist queued changes after a short debounce, retaining only the latest per chat."""
         try:
             try:
-                _ = await asyncio.wait_for(self._flush_chats_event.wait(), timeout=_PERSISTENCE_DEBOUNCE_SECONDS)
+                _ = await asyncio.wait_for(
+                    self._flush_chats_event.wait(),
+                    timeout=_PERSISTENCE_DEBOUNCE_SECONDS,
+                )
             except TimeoutError:
                 pass
             self._flush_chats_event.clear()
             while self._pending_chat_records or self._pending_deleted_chat_ids:
-                chat_records: tuple[ChatJSON, ...] = tuple(self._pending_chat_records.values())
-                deleted_chat_ids: frozenset[str] = frozenset(self._pending_deleted_chat_ids)
+                chat_records: tuple[ChatJSON, ...] = tuple(
+                    self._pending_chat_records.values()
+                )
+                deleted_chat_ids: frozenset[str] = frozenset(
+                    self._pending_deleted_chat_ids
+                )
                 try:
-                    self.storage.save_records(chat_records, deleted_chat_ids=deleted_chat_ids)
+                    self.storage.save_records(
+                        chat_records, deleted_chat_ids=deleted_chat_ids
+                    )
                 except Exception as exc:
                     self._chat_write_error = exc
                     log.exception("chat persistence worker failed")
@@ -151,7 +164,9 @@ class AccessController:
         await self.persist_config()
 
     async def set_device_access(self, device_id: str, access_allowed: bool) -> None:
-        set_device_access(self.config, device_id=device_id, access_allowed=access_allowed)
+        set_device_access(
+            self.config, device_id=device_id, access_allowed=access_allowed
+        )
         await self.persist_config()
 
     async def register_device(
@@ -208,7 +223,8 @@ class RuntimeController:
             (
                 model
                 for model in self._inventory
-                if model.key == key_or_instance_id or key_or_instance_id in model.loaded_instance_ids
+                if model.key == key_or_instance_id
+                or key_or_instance_id in model.loaded_instance_ids
             ),
             None,
         )
@@ -255,7 +271,10 @@ class RuntimeController:
             return
         await self.refresh()
         self._monitor_task = asyncio.create_task(self._monitor())
-        log.info("started LM Studio runtime monitor poll_interval_seconds=%d", _POLL_INTERVAL_SECONDS)
+        log.info(
+            "started LM Studio runtime monitor poll_interval_seconds=%d",
+            _POLL_INTERVAL_SECONDS,
+        )
 
     async def refresh(self) -> None:
         previous_connection: ConnectionState = self._connection
@@ -273,13 +292,17 @@ class RuntimeController:
             if previous_connection is not ConnectionState.OFFLINE:
                 log.warning("LM Studio became unavailable error=%s", exc)
             error_detail: str = str(exc)
-            await self._refresh_targets(lambda _chat: RuntimeStatus(RuntimePhase.OFFLINE, detail=error_detail))
+            await self._refresh_targets(
+                lambda _chat: RuntimeStatus(RuntimePhase.OFFLINE, detail=error_detail)
+            )
             return
 
         self._connection = ConnectionState.ONLINE
         self._next_poll_interval_seconds = _POLL_INTERVAL_SECONDS
         if previous_connection is not ConnectionState.ONLINE:
-            loaded_instance_count: int = sum(len(model.loaded_instance_ids) for model in self._inventory)
+            loaded_instance_count: int = sum(
+                len(model.loaded_instance_ids) for model in self._inventory
+            )
             log.info(
                 "LM Studio connection established model_count=%d loaded_instance_count=%d",
                 len(self._inventory),
@@ -293,7 +316,11 @@ class RuntimeController:
             raise ValueError(f"unknown model: {model_key}")
         if not descriptor.loaded_instance_ids:
             raise ValueError(f"model is not loaded: {model_key}")
-        log.info("unloading model model_key=%s instance_count=%d", descriptor.key, len(descriptor.loaded_instance_ids))
+        log.info(
+            "unloading model model_key=%s instance_count=%d",
+            descriptor.key,
+            len(descriptor.loaded_instance_ids),
+        )
         for instance_id in descriptor.loaded_instance_ids:
             await self._client.unload_model_instance(instance_id)
         await self.refresh()
@@ -303,7 +330,11 @@ class RuntimeController:
         descriptor: ModelDescriptor | None = self.model_descriptor(instance_id)
         if descriptor is None or instance_id not in descriptor.loaded_instance_ids:
             raise ValueError(f"unknown loaded model instance: {instance_id}")
-        log.info("unloading model instance model_key=%s instance_id=%s", descriptor.key, instance_id)
+        log.info(
+            "unloading model instance model_key=%s instance_id=%s",
+            descriptor.key,
+            instance_id,
+        )
         await self._client.unload_model_instance(instance_id)
         await self.refresh()
         return descriptor
@@ -335,11 +366,16 @@ class RuntimeController:
             except Exception:
                 if delay_seconds is None:
                     raise
-                log.info("LM Studio inventory request will retry delay_seconds=%s", delay_seconds)
+                log.info(
+                    "LM Studio inventory request will retry delay_seconds=%s",
+                    delay_seconds,
+                )
                 await asyncio.sleep(delay_seconds)
         raise RuntimeError("unreachable inventory retry state")
 
-    async def _refresh_targets(self, status_for: Callable[[Chat], RuntimeStatus]) -> None:
+    async def _refresh_targets(
+        self, status_for: Callable[[Chat], RuntimeStatus]
+    ) -> None:
         changed: bool = False
         for target in self._targets():
             if target.runtime_status.phase in _ACTIVE_PHASES:
@@ -352,7 +388,9 @@ class RuntimeController:
             await self._notify(StateChangeKind.STATUS)
 
     @staticmethod
-    def _status_should_change(current: RuntimeStatus, next_status: RuntimeStatus) -> bool:
+    def _status_should_change(
+        current: RuntimeStatus, next_status: RuntimeStatus
+    ) -> bool:
         """Keep completed metrics visible until a model or chat state changes."""
         if current == next_status:
             return False

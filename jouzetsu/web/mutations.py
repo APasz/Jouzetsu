@@ -73,7 +73,9 @@ class Mutations:
             raise ValueError("message id is required")
         message: Message | None = self._state.active_chat.find_message(message_id)
         if message is None or message.role not in {"user", "assistant"}:
-            raise ValueError("message action requires a visible user or assistant message")
+            raise ValueError(
+                "message action requires a visible user or assistant message"
+            )
         return message
 
     def require_last_assistant_message(self, message_id: str) -> Message:
@@ -82,7 +84,9 @@ class Mutations:
         message: Message = self.require_visible_message(message_id)
         messages = self._state.active_chat.messages
         if not messages or messages[-1].id != message.id or message.role != "assistant":
-            raise ValueError("this action is only available for the last assistant message")
+            raise ValueError(
+                "this action is only available for the last assistant message"
+            )
         return message
 
     def require_last_user_message(self, message_id: str) -> Message:
@@ -99,10 +103,14 @@ class Mutations:
 
         now: float = time.monotonic()
         self._message_undo_records = {
-            token: record for token, record in self._message_undo_records.items() if record.expires_at > now
+            token: record
+            for token, record in self._message_undo_records.items()
+            if record.expires_at > now
         }
         token: str = secrets.token_urlsafe(18)
-        self._message_undo_records[token] = _MessageUndoRecord(undo=undo, expires_at=now + _UNDO_MAX_AGE_SECONDS)
+        self._message_undo_records[token] = _MessageUndoRecord(
+            undo=undo, expires_at=now + _UNDO_MAX_AGE_SECONDS
+        )
         return token
 
     def consume_message_undo(self, token: str) -> ChatMessageUndo:

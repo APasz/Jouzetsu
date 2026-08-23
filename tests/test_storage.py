@@ -28,8 +28,14 @@ class ChatStorageTests(unittest.TestCase):
             self.assertTrue(storage.path_for(second.id).is_file())
             self.assertFalse(path.exists())
             log_output: str = "\n".join(logs.output)
-            self.assertIn(f"saved chat records directory={storage.directory} changed_count=2", log_output)
-            self.assertIn(f"loaded chat store directory={storage.directory} chat_count=2", log_output)
+            self.assertIn(
+                f"saved chat records directory={storage.directory} changed_count=2",
+                log_output,
+            )
+            self.assertIn(
+                f"loaded chat store directory={storage.directory} chat_count=2",
+                log_output,
+            )
 
     def test_message_updated_at_is_persisted_in_its_chat_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -40,16 +46,23 @@ class ChatStorageTests(unittest.TestCase):
 
             storage.save_all([chat])
 
-            saved = cast(dict[str, object], json.loads(storage.path_for(chat.id).read_text(encoding="utf-8")))
+            saved = cast(
+                dict[str, object],
+                json.loads(storage.path_for(chat.id).read_text(encoding="utf-8")),
+            )
             messages = cast(list[dict[str, object]], saved["messages"])
             self.assertEqual(messages[0]["updated_at"], 456.0)
 
-    def test_legacy_aggregate_is_migrated_and_archived_after_every_document_is_written(self) -> None:
+    def test_legacy_aggregate_is_migrated_and_archived_after_every_document_is_written(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path: Path = Path(tmp_dir) / "chats.json"
             first = Chat()
             second = Chat()
-            legacy_content: str = json.dumps({"chats": [first.to_dict(), second.to_dict()]})
+            legacy_content: str = json.dumps(
+                {"chats": [first.to_dict(), second.to_dict()]}
+            )
             _ = path.write_text(legacy_content, encoding="utf-8")
             storage = ChatStorage(path)
 
@@ -72,18 +85,26 @@ class ChatStorageTests(unittest.TestCase):
             storage = ChatStorage(path)
             unwritable_archive: Path = path.parent / "missing" / "chats.json.migrated"
 
-            with patch.object(storage, "_migrated_backup_path", return_value=unwritable_archive):
-                with self.assertRaises(OSError):
-                    _ = storage.load_all()
+            with (
+                patch.object(
+                    storage, "_migrated_backup_path", return_value=unwritable_archive
+                ),
+                self.assertRaises(OSError),
+            ):
+                _ = storage.load_all()
 
             self.assertEqual(path.read_text(encoding="utf-8"), legacy_content)
             self.assertTrue(storage.path_for(chat.id).is_file())
 
-    def test_legacy_migration_preserves_newer_documents_from_an_interrupted_prior_migration(self) -> None:
+    def test_legacy_migration_preserves_newer_documents_from_an_interrupted_prior_migration(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path: Path = Path(tmp_dir) / "chats.json"
             legacy_chat = Chat(id="chat123", title="Legacy", updated_at=100.0)
-            newer_document = Chat(id=legacy_chat.id, title="Newer document", updated_at=200.0)
+            newer_document = Chat(
+                id=legacy_chat.id, title="Newer document", updated_at=200.0
+            )
             legacy_content: str = json.dumps({"chats": [legacy_chat.to_dict()]})
             _ = path.write_text(legacy_content, encoding="utf-8")
             storage = ChatStorage(path)
@@ -109,7 +130,10 @@ class ChatStorageTests(unittest.TestCase):
             trash_path: Path = storage.trash_directory / f"{removed.id}.json"
             self.assertTrue(trash_path.exists())
             self.assertEqual(
-                cast(dict[str, object], json.loads(trash_path.read_text(encoding="utf-8")))["id"],
+                cast(
+                    dict[str, object],
+                    json.loads(trash_path.read_text(encoding="utf-8")),
+                )["id"],
                 removed.id,
             )
             self.assertEqual([chat.id for chat in storage.load_all()], [retained.id])
@@ -122,14 +146,21 @@ class ChatStorageTests(unittest.TestCase):
             storage.save_all([retained, removed])
             retained.title = "Changed"
 
-            with patch("jouzetsu.storage.atomic_write_text", side_effect=OSError("disk failure")):
-                with self.assertRaisesRegex(OSError, "disk failure"):
-                    storage.save_all([retained])
+            with (
+                patch(
+                    "jouzetsu.storage.atomic_write_text",
+                    side_effect=OSError("disk failure"),
+                ),
+                self.assertRaisesRegex(OSError, "disk failure"),
+            ):
+                storage.save_all([retained])
 
             self.assertFalse(storage.path_for(removed.id).exists())
             self.assertTrue((storage.trash_directory / f"{removed.id}.json").exists())
 
-    def test_incremental_save_writes_only_changed_documents_without_scanning_the_chat_directory(self) -> None:
+    def test_incremental_save_writes_only_changed_documents_without_scanning_the_chat_directory(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = ChatStorage(Path(tmp_dir) / "chats.json")
             chats: list[Chat] = [Chat() for _ in range(128)]
@@ -138,10 +169,15 @@ class ChatStorageTests(unittest.TestCase):
             unchanged: Chat = chats[0]
             changed.set_manual_title("Changed")
 
-            with patch("jouzetsu.storage.Path.glob", side_effect=AssertionError("incremental save scanned chat directory")):
+            with patch(
+                "jouzetsu.storage.Path.glob",
+                side_effect=AssertionError("incremental save scanned chat directory"),
+            ):
                 storage.save_records([changed.to_dict()])
 
-            reloaded_by_id: dict[str, Chat] = {chat.id: chat for chat in ChatStorage(storage.path).load_all()}
+            reloaded_by_id: dict[str, Chat] = {
+                chat.id: chat for chat in ChatStorage(storage.path).load_all()
+            }
             self.assertEqual(reloaded_by_id[changed.id].title, "Changed")
             self.assertTrue(storage.path_for(unchanged.id).is_file())
 
@@ -156,7 +192,9 @@ class ChatStorageTests(unittest.TestCase):
 
             write.assert_not_called()
 
-    def test_malformed_legacy_store_is_quarantined_before_returning_empty_store(self) -> None:
+    def test_malformed_legacy_store_is_quarantined_before_returning_empty_store(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path: Path = Path(tmp_dir) / "chats.json"
             malformed_content: str = '{"chats": ['
@@ -170,7 +208,9 @@ class ChatStorageTests(unittest.TestCase):
             self.assertEqual(len(backups), 1)
             self.assertEqual(backups[0].read_text(encoding="utf-8"), malformed_content)
 
-    def test_invalid_chat_document_is_quarantined_without_losing_other_chats(self) -> None:
+    def test_invalid_chat_document_is_quarantined_without_losing_other_chats(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = ChatStorage(Path(tmp_dir) / "chats.json")
             valid = Chat()

@@ -7,7 +7,6 @@ from typing import Final, cast
 from fastcore.xml import Safe  # pyright: ignore[reportMissingTypeStubs]
 from markdown_it import MarkdownIt
 
-
 _RENDERER: Final[MarkdownIt] = MarkdownIt(
     "commonmark",
     {

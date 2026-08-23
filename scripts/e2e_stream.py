@@ -45,7 +45,9 @@ async def main() -> int:
             source_config,
             paths=AppPaths.for_home(runtime_path),
         )
-        state: AppState = AppState(cfg, ChatStorage(cfg.chats_file), LMStudioClient(cfg.server))
+        state: AppState = AppState(
+            cfg, ChatStorage(cfg.chats_file), LMStudioClient(cfg.server)
+        )
 
         models: list[str] = await state.client.list_models()
         print(f"models downloaded: {models}")
@@ -58,10 +60,16 @@ async def main() -> int:
         print(f"using model: {state.active_chat.model}")
 
         print("Sending user message...")
-        _ = await state.send_user_message("In one sentence, what is the capital of France?")
+        _ = await state.send_user_message(
+            "In one sentence, what is the capital of France?"
+        )
 
-        if not await _wait_for_generation(state, timeout_seconds=_GENERATION_TIMEOUT_SECONDS):
-            print(f"FAIL: generation did not finish within {_GENERATION_TIMEOUT_SECONDS:.0f}s")
+        if not await _wait_for_generation(
+            state, timeout_seconds=_GENERATION_TIMEOUT_SECONDS
+        ):
+            print(
+                f"FAIL: generation did not finish within {_GENERATION_TIMEOUT_SECONDS:.0f}s"
+            )
             _ = await state.shutdown()
             return 1
 
@@ -71,8 +79,14 @@ async def main() -> int:
             print(f"[{m.role}] {m.content[:200]}")
         print("--- end ---")
 
-        assistant: Message | None = next((m for m in msgs if m.role == "assistant"), None)
-        ok: bool | Literal[""] = assistant is not None and assistant.content and not assistant.content.startswith("⚠")
+        assistant: Message | None = next(
+            (m for m in msgs if m.role == "assistant"), None
+        )
+        ok: bool | Literal[""] = (
+            assistant is not None
+            and assistant.content
+            and not assistant.content.startswith("⚠")
+        )
         _ = await state.shutdown()
         if not ok:
             print("FAIL: no valid assistant response")

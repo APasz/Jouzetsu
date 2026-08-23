@@ -45,6 +45,10 @@ dev = [
 pythonpath = ["."]
 testpaths = ["tests"]
 
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-wrap-aliases = true
+
 [tool.basedpyright]
 venvPath = "."
 venv = ".venv"

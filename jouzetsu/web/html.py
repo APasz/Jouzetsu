@@ -30,15 +30,14 @@ from fasthtml.common import (  # pyright: ignore[reportMissingTypeStubs]
     Option as _Option,
     P as _P,
     Pre as _Pre,
+    Script as _Script,
     Section as _Section,
     Select as _Select,
-    Script as _Script,
     Small as _Small,
     Span as _Span,
     Summary as _Summary,
     Textarea as _Textarea,
 )
-
 
 type HTML = FT
 type HtmlChild = HTML | str | int | float | bool | None

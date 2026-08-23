@@ -19,7 +19,9 @@ DEVICE_ID_MAX_AGE_SECONDS: int = 60 * 60 * 24 * 365
 _DEVICE_ID_PATTERN = re.compile(r"^dvc_[A-Za-z0-9_-]{8,160}$")
 _LOCALHOST_LABELS: frozenset[str] = frozenset({"127.0.0.1", "0.0.0.0", "localhost"})
 
-AccessReason = Literal["public", "localhost", "approved_device", "pending_device", "missing_device_id"]
+AccessReason = Literal[
+    "public", "localhost", "approved_device", "pending_device", "missing_device_id"
+]
 
 
 @dataclass(frozen=True)
@@ -139,11 +141,17 @@ def _known_device_for_registration(
 
     matched_device: DeviceAccessSettings = config.access.devices.pop(matching_device_id)
     config.access.devices[device_id] = matched_device
-    log.info("re-associated access device device_id=%s previous_device_id=%s", device_id, matching_device_id)
+    log.info(
+        "re-associated access device device_id=%s previous_device_id=%s",
+        device_id,
+        matching_device_id,
+    )
     return device_id, matched_device, True
 
 
-def access_decision(config: AppConfig, *, client_ip: str, raw_device_id: object) -> AccessDecision:
+def access_decision(
+    config: AppConfig, *, client_ip: str, raw_device_id: object
+) -> AccessDecision:
     """Evaluate access for a request without mutating config."""
     device_id: str = normalise_device_id(raw_device_id)
     is_localhost: bool = is_localhost_ip(client_ip)
@@ -217,7 +225,10 @@ def register_seen_device(
         hostname=clean_hostname,
     )
     if _label_conflict(config, device_id=normalised_device_id, label=clean_label):
-        log.warning("device label %r already belongs to another device; keeping existing label", clean_label)
+        log.warning(
+            "device label %r already belongs to another device; keeping existing label",
+            clean_label,
+        )
         clean_label = ""
     if device is None:
         config.access.devices[canonical_device_id] = DeviceAccessSettings(
@@ -228,10 +239,16 @@ def register_seen_device(
             first_seen_at=now,
             last_seen_at=now,
         )
-        log.info("registered pending access device device_id=%s label=%s", canonical_device_id, clean_label)
+        log.info(
+            "registered pending access device device_id=%s label=%s",
+            canonical_device_id,
+            clean_label,
+        )
         return True
 
-    should_update_label: bool = bool(clean_label) and (not device.label or is_replaceable_localhost_label(device.label))
+    should_update_label: bool = bool(clean_label) and (
+        not device.label or is_replaceable_localhost_label(device.label)
+    )
     if should_update_label:
         device.label = clean_label
         changed = True
@@ -247,17 +264,23 @@ def register_seen_device(
     return changed
 
 
-def _require_device(config: AppConfig, *, device_id: str) -> tuple[str, DeviceAccessSettings]:
+def _require_device(
+    config: AppConfig, *, device_id: str
+) -> tuple[str, DeviceAccessSettings]:
     normalised_device_id: str = normalise_device_id(device_id)
     if not normalised_device_id:
         raise ValueError("invalid device id")
-    device: DeviceAccessSettings | None = config.access.devices.get(normalised_device_id)
+    device: DeviceAccessSettings | None = config.access.devices.get(
+        normalised_device_id
+    )
     if device is None:
         raise KeyError(f"unknown device id: {normalised_device_id}")
     return normalised_device_id, device
 
 
-def set_device_access(config: AppConfig, *, device_id: str, access_allowed: bool) -> None:
+def set_device_access(
+    config: AppConfig, *, device_id: str, access_allowed: bool
+) -> None:
     """Update one known device's allow flag."""
     _, device = _require_device(config, device_id=device_id)
     device.access_allowed = access_allowed
@@ -267,8 +290,9 @@ def set_device_label(config: AppConfig, *, device_id: str, label: str) -> None:
     """Update one known device's human-readable label."""
     normalised_device_id, device = _require_device(config, device_id=device_id)
     clean_label: str = label.strip()
-    conflicting_device_id: str = _label_conflict(config, device_id=normalised_device_id, label=clean_label)
+    conflicting_device_id: str = _label_conflict(
+        config, device_id=normalised_device_id, label=clean_label
+    )
     if conflicting_device_id:
         raise ValueError("device label already in use")
     device.label = clean_label
-

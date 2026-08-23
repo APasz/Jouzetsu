@@ -12,7 +12,6 @@ from typing import cast
 from .atomic_write import atomic_write_text
 from .models import Character
 
-
 log: Logger = logging.getLogger(__name__)
 _CORRUPT_FILE_SUFFIX: str = ".corrupt-"
 
@@ -32,7 +31,11 @@ class CharacterStorage:
             character: Character | None = self._load_one(path)
             if character is not None:
                 characters.append(character)
-        log.info("loaded character store directory=%s character_count=%d", self.directory, len(characters))
+        log.info(
+            "loaded character store directory=%s character_count=%d",
+            self.directory,
+            len(characters),
+        )
         return characters
 
     def save(self, character: Character) -> None:
@@ -41,7 +44,12 @@ class CharacterStorage:
         data: str = json.dumps(character.to_dict(), ensure_ascii=False, indent=4) + "\n"
         path: Path = self.path_for(character.id)
         atomic_write_text(path, data)
-        log.info("saved character path=%s character_id=%s revision=%d", path, character.id, character.revision)
+        log.info(
+            "saved character path=%s character_id=%s revision=%d",
+            path,
+            character.id,
+            character.revision,
+        )
 
     def delete(self, character_id: str) -> None:
         """Remove the known profile document after its id was resolved in application state."""
@@ -61,7 +69,7 @@ class CharacterStorage:
         try:
             raw: object = cast(object, json.loads(path.read_text(encoding="utf-8")))
             if not isinstance(raw, dict):
-                raise ValueError("root must be an object")
+                raise TypeError("root must be an object")
             mapping: dict[object, object] = cast(dict[object, object], raw)
             character: Character = Character.from_dict(
                 {key: value for key, value in mapping.items() if isinstance(key, str)}
@@ -82,14 +90,22 @@ class CharacterStorage:
         except OSError:
             log.exception("could not quarantine corrupt character file path=%s", path)
             return
-        log.warning("quarantined corrupt character file reason=%s backup=%s", reason, backup_path)
+        log.warning(
+            "quarantined corrupt character file reason=%s backup=%s",
+            reason,
+            backup_path,
+        )
 
     @staticmethod
     def _corrupt_backup_path(path: Path) -> Path:
         timestamp: str = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-        candidate: Path = path.with_name(f"{path.name}{_CORRUPT_FILE_SUFFIX}{timestamp}")
+        candidate: Path = path.with_name(
+            f"{path.name}{_CORRUPT_FILE_SUFFIX}{timestamp}"
+        )
         sequence: int = 1
         while candidate.exists():
-            candidate = path.with_name(f"{path.name}{_CORRUPT_FILE_SUFFIX}{timestamp}-{sequence}")
+            candidate = path.with_name(
+                f"{path.name}{_CORRUPT_FILE_SUFFIX}{timestamp}-{sequence}"
+            )
             sequence += 1
         return candidate

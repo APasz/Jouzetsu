@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 import math
+from typing import cast
 from unittest.mock import patch
 
 import pytest
 
-from jouzetsu.config import GenerationSettings
 from jouzetsu.character_presets import BASE_CHARACTER_PRESETS, EXTRA_CHARACTER_PRESETS
-from jouzetsu.models import ChatTitleSource, Character, CharacterChatBinding, CharacterField, Chat, ChatSamplingOverrides, Message
+from jouzetsu.config import GenerationSettings
+from jouzetsu.models import (
+    Character,
+    CharacterChatBinding,
+    CharacterField,
+    CharacterPresetSelection,
+    Chat,
+    ChatSamplingOverrides,
+    ChatTitleSource,
+    Message,
+)
 
 
 @pytest.mark.parametrize("timestamp", ["NaN", "Infinity", "-Infinity", -1])
@@ -31,7 +41,9 @@ def test_message_accepts_finite_non_negative_timestamp() -> None:
 
 
 def test_message_updated_at_round_trips_separately_from_created_at() -> None:
-    message = Message(role="assistant", content="Revised", created_at=123.5, updated_at=456.0)
+    message = Message(
+        role="assistant", content="Revised", created_at=123.5, updated_at=456.0
+    )
 
     reloaded = Message.from_dict(message.to_dict())
 
@@ -40,7 +52,9 @@ def test_message_updated_at_round_trips_separately_from_created_at() -> None:
 
 
 def test_message_content_update_preserves_created_at() -> None:
-    message = Message(role="user", content="Original", created_at=123.5, updated_at=123.5)
+    message = Message(
+        role="user", content="Original", created_at=123.5, updated_at=123.5
+    )
 
     with patch("jouzetsu.models.time.time", return_value=456.0):
         message.update_content("Revised")
@@ -51,7 +65,9 @@ def test_message_content_update_preserves_created_at() -> None:
 
 
 def test_continuity_rewrite_round_trips_and_is_cleared_by_a_content_edit() -> None:
-    message = Message(role="assistant", content="Original", created_at=123.5, updated_at=123.5)
+    message = Message(
+        role="assistant", content="Original", created_at=123.5, updated_at=123.5
+    )
     message.set_continuity_rewrite("Revised")
 
     reloaded = Message.from_dict(message.to_dict())
@@ -87,7 +103,11 @@ def test_chat_enables_british_spelling_postprocessing_by_default() -> None:
 
 
 def test_message_reasoning_round_trips_and_is_cleared_by_a_content_edit() -> None:
-    message = Message(role="assistant", content="Answer", reasoning="Reviewed the request before responding.")
+    message = Message(
+        role="assistant",
+        content="Answer",
+        reasoning="Reviewed the request before responding.",
+    )
 
     reloaded = Message.from_dict(message.to_dict())
     reloaded.update_content("Edited answer")
@@ -106,7 +126,7 @@ def test_assistant_message_model_round_trips_and_survives_a_content_edit() -> No
 
 
 def test_message_rejects_invalid_model() -> None:
-    with pytest.raises(ValueError, match="message.model must be text"):
+    with pytest.raises(TypeError, match="message.model must be text"):
         _ = Message.from_dict({"role": "assistant", "model": ["not text"]})
 
     with pytest.raises(ValueError, match="only assistant messages can have models"):
@@ -114,7 +134,7 @@ def test_message_rejects_invalid_model() -> None:
 
 
 def test_message_rejects_invalid_reasoning() -> None:
-    with pytest.raises(ValueError, match="message.reasoning must be text"):
+    with pytest.raises(TypeError, match="message.reasoning must be text"):
         _ = Message.from_dict({"role": "assistant", "reasoning": ["not text"]})
 
     with pytest.raises(ValueError, match="only assistant messages can have reasoning"):
@@ -149,19 +169,32 @@ def test_legacy_new_chat_placeholder_loads_as_a_pristine_chat() -> None:
     assert chat.title_source is ChatTitleSource.AUTO
 
 
-@pytest.mark.parametrize("title_source", ["generated", 1, None])
-def test_chat_rejects_invalid_explicit_title_source(title_source: object) -> None:
+def test_chat_rejects_invalid_explicit_title_source_value() -> None:
     with pytest.raises(ValueError, match="title_source"):
+        _ = Chat.from_dict({"title_source": "generated"})
+
+
+@pytest.mark.parametrize("title_source", [1, None])
+def test_chat_rejects_non_text_explicit_title_source(title_source: object) -> None:
+    with pytest.raises(TypeError, match="title_source"):
         _ = Chat.from_dict({"title_source": title_source})
 
 
-def test_chat_sampling_overrides_round_trip_and_resolve_against_global_defaults() -> None:
-    chat = Chat(sampling_overrides=ChatSamplingOverrides(temperature=0.2, max_tokens=512))
+def test_chat_sampling_overrides_round_trip_and_resolve_against_global_defaults() -> (
+    None
+):
+    chat = Chat(
+        sampling_overrides=ChatSamplingOverrides(temperature=0.2, max_tokens=512)
+    )
 
     reloaded = Chat.from_dict(chat.to_dict())
-    effective = reloaded.sampling_overrides.resolve(GenerationSettings(temperature=0.8, top_p=0.9, max_tokens=1024))
+    effective = reloaded.sampling_overrides.resolve(
+        GenerationSettings(temperature=0.8, top_p=0.9, max_tokens=1024)
+    )
 
-    assert reloaded.sampling_overrides == ChatSamplingOverrides(temperature=0.2, max_tokens=512)
+    assert reloaded.sampling_overrides == ChatSamplingOverrides(
+        temperature=0.2, max_tokens=512
+    )
     assert effective.temperature == 0.2
     assert effective.top_p == 0.9
     assert effective.max_tokens == 512
@@ -185,7 +218,9 @@ def test_chat_fork_preserves_chat_settings_and_message_reasoning() -> None:
     assert forked.messages[-1].reasoning == "Source trace"
 
 
-def test_merging_assistant_messages_with_different_models_clears_model_provenance() -> None:
+def test_merging_assistant_messages_with_different_models_clears_model_provenance() -> (
+    None
+):
     chat = Chat()
     first = chat.add_message("assistant", "First response")
     first.set_model("acme/first")
@@ -198,11 +233,15 @@ def test_merging_assistant_messages_with_different_models_clears_model_provenanc
     assert merged.model == ""
 
 
-def test_character_uses_its_own_field_schema_and_compiles_only_populated_values() -> None:
+def test_character_uses_its_own_field_schema_and_compiles_only_populated_values() -> (
+    None
+):
     character = Character(
         name="Mira",
         fields=[
-            CharacterField(label="Personality", kind="long_text", value="Warm and observant."),
+            CharacterField(
+                label="Personality", kind="long_text", value="Warm and observant."
+            ),
             CharacterField(label="Height", value=""),
         ],
     )
@@ -216,11 +255,57 @@ def test_character_uses_its_own_field_schema_and_compiles_only_populated_values(
     assert reloaded == character
 
 
-def test_character_field_presets_have_one_base_layer_and_composable_extra_layer() -> None:
+def test_character_preserves_selected_profile_templates_and_loads_older_profiles() -> (
+    None
+):
+    character = Character(
+        name="Mira",
+        presets=CharacterPresetSelection(
+            base_id="builtin:humanoid",
+            extra_ids=("builtin:identity", "builtin:voice"),
+        ),
+    )
+    serialized = character.to_dict()
+    reloaded = Character.from_dict(serialized)
+    legacy = dict(serialized)
+    _ = legacy.pop("presets")
+
+    assert reloaded.presets == character.presets
+    assert Character.from_dict(legacy).presets == CharacterPresetSelection()
+
+
+def test_character_preset_selection_rejects_mutable_or_non_text_values() -> None:
+    with pytest.raises(TypeError, match="base preset id must be text"):
+        _ = CharacterPresetSelection(base_id=cast(str, 1))
+    with pytest.raises(TypeError, match="immutable tuple"):
+        _ = CharacterPresetSelection(
+            extra_ids=cast(tuple[str, ...], ["builtin:identity"])
+        )
+    with pytest.raises(TypeError, match="preset ids must be text"):
+        _ = CharacterPresetSelection(extra_ids=cast(tuple[str, ...], (1,)))
+
+
+def test_character_preset_selection_rejects_invalid_persisted_value_types() -> None:
+    with pytest.raises(TypeError, match="presets.base must be text"):
+        _ = CharacterPresetSelection.from_dict({"base": 1})
+    with pytest.raises(TypeError, match="presets.extras must be a list"):
+        _ = CharacterPresetSelection.from_dict({"extras": "builtin:identity"})
+    with pytest.raises(TypeError, match="presets.extras must be a list"):
+        _ = CharacterPresetSelection.from_dict({"extras": ["builtin:identity", 1]})
+
+
+def test_character_field_presets_have_one_base_layer_and_composable_extra_layer() -> (
+    None
+):
     assert {preset.layer for preset in BASE_CHARACTER_PRESETS} == {"base"}
     assert {preset.layer for preset in EXTRA_CHARACTER_PRESETS} == {"extra"}
-    assert all(preset.fields for preset in (*BASE_CHARACTER_PRESETS, *EXTRA_CHARACTER_PRESETS))
-    assert all(preset.fields_json().startswith("[") for preset in (*BASE_CHARACTER_PRESETS, *EXTRA_CHARACTER_PRESETS))
+    assert all(
+        preset.fields for preset in (*BASE_CHARACTER_PRESETS, *EXTRA_CHARACTER_PRESETS)
+    )
+    assert all(
+        preset.fields_json().startswith("[")
+        for preset in (*BASE_CHARACTER_PRESETS, *EXTRA_CHARACTER_PRESETS)
+    )
 
 
 def test_character_revised_profile_only_advances_revision_when_data_changes() -> None:
@@ -232,12 +317,29 @@ def test_character_revised_profile_only_advances_revision_when_data_changes() ->
     assert unchanged is character
     assert character.revision == 3
 
-    revised = character.revised_profile("Mira", [CharacterField(id=field.id, label="Role", value="Navigator")])
+    revised = character.revised_profile(
+        "Mira", [CharacterField(id=field.id, label="Role", value="Navigator")]
+    )
 
     assert revised is not character
     assert character.revision == 3
     assert revised.revision == 4
     assert revised.fields[0].value == "Navigator"
+
+
+def test_character_revised_profile_advances_revision_when_template_choices_change() -> (
+    None
+):
+    character = Character(name="Mira", revision=3)
+
+    revised = character.revised_profile(
+        "Mira",
+        [],
+        presets=CharacterPresetSelection(extra_ids=("builtin:identity",)),
+    )
+
+    assert revised.revision == 4
+    assert revised.presets.extra_ids == ("builtin:identity",)
 
 
 def test_character_chat_binding_round_trips_with_chat_and_fork() -> None:

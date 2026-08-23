@@ -36,41 +36,31 @@ from ..models import Character, CharacterField, ChatSamplingOverrides, Message
 from ..state import AppState, ChatMessageUndo
 from .form_data import (
     FormValues as _FormValues,
-)
-from .form_data import (
     character_fields_from_form as _character_fields_from_form,
-)
-from .form_data import (
     form_values as _form_values,
-)
-from .form_data import (
     missing_preset_fields as _missing_preset_fields,
-)
-from .form_data import (
     optional_float as _optional_float,
-)
-from .form_data import (
     optional_integer as _optional_integer,
-)
-from .form_data import (
     updated_generation_settings as _updated_generation_settings,
-)
-from .form_data import (
     updated_icon_color_settings as _updated_icon_color_settings,
-)
-from .form_data import (
     updated_server_settings as _updated_server_settings,
 )
 from .icon import configured_icon_svg, icon_artwork_path
-from .mutations import DialogName as _DialogName
-from .mutations import Mutations
-from .request_access import RequestAccess
-from .request_access import RequestContext as _RequestContext
+from .mutations import (
+    DialogName as _DialogName,
+    Mutations,
+)
+from .request_access import (
+    RequestAccess,
+    RequestContext as _RequestContext,
+)
 from .security import require_csrf_token
 from .theme import render_theme_css
-from .ui_events import UiEvent as _UiEvent
-from .ui_events import UiEventBroker
-from .ui_events import stream_events as _stream_events
+from .ui_events import (
+    UiEvent as _UiEvent,
+    UiEventBroker,
+    stream_events as _stream_events,
+)
 from .views.access import render_locked_access_page
 from .views.characters import render_character_page
 from .views.chat import (

@@ -40,9 +40,11 @@ from ..html import (
     Summary,
     Textarea,
 )
-from .controls import checkbox as _checkbox
-from .controls import field as _field
-from .controls import post_button as _post_button
+from .controls import (
+    checkbox as _checkbox,
+    field as _field,
+    post_button as _post_button,
+)
 from .icons import render_icon as _icon
 
 

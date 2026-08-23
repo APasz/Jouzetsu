@@ -17,9 +17,12 @@ def apply_case_preserving_word_replacements(
         return text
 
     replacement_by_source: dict[str, str] = {
-        replacement.source.casefold(): replacement.replacement for replacement in replacements
+        replacement.source.casefold(): replacement.replacement
+        for replacement in replacements
     }
-    alternatives: list[str] = sorted((re.escape(item.source) for item in replacements), key=len, reverse=True)
+    alternatives: list[str] = sorted(
+        (re.escape(item.source) for item in replacements), key=len, reverse=True
+    )
     pattern: re.Pattern[str] = re.compile(
         r"(?<![A-Za-z0-9_])(" + "|".join(alternatives) + r")(?![A-Za-z0-9_])",
         re.IGNORECASE,

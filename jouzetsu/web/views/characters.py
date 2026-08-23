@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from ...character_presets import CharacterFieldPreset, CharacterPresetCatalog
-from ...models import Character, CharacterField
+from ...models import (
+    CHARACTER_PROMPT_CLOSING,
+    CHARACTER_PROMPT_EMPTY_PROFILE,
+    CHARACTER_PROMPT_NAME_TEMPLATE,
+    CHARACTER_PROMPT_PROFILE_HEADING,
+    Character,
+    CharacterField,
+)
 from ...state import AppState
 from ..html import (
     H1,
@@ -35,6 +42,7 @@ from ..security import CSRF_FORM_FIELD
 from .context import PageContext
 from .controls import csrf_context, field
 from .feedback import render_notice_area
+from .icons import render_icon
 
 
 def render_character_page(
@@ -102,6 +110,14 @@ def _character_workspace_header(state: AppState) -> HTML:
 
 
 def _character_library(characters: list[Character], selected_character_id: str) -> HTML:
+    selected_character_name: str = next(
+        (
+            character.name
+            for character in characters
+            if character.id == selected_character_id
+        ),
+        "Choose a character",
+    )
     character_links: tuple[HTML, ...] = tuple(
         A(
             character.name,
@@ -129,13 +145,26 @@ def _character_library(characters: list[Character], selected_character_id: str) 
             ),
             cls="jouzetsu-character-library-header",
         ),
+        Button(
+            Span("Characters", cls="jouzetsu-character-library-toggle-label"),
+            Span(
+                selected_character_name, cls="jouzetsu-character-library-toggle-value"
+            ),
+            type="button",
+            cls="jouzetsu-character-library-toggle",
+            aria_controls="character-library-picker",
+            aria_expanded="true",
+            data_character_library_toggle="true",
+        ),
         Div(
             *character_links,
+            id="character-library-picker",
             cls="jouzetsu-character-library-list",
             data_testid="character-library",
         ),
         Span(f"{len(characters)} character(s)", cls="jouzetsu-sheet-footnote"),
         cls="jouzetsu-character-library",
+        data_character_library="true",
     )
 
 
@@ -157,15 +186,31 @@ def _render_character_editor(
 ) -> HTML:
     """Render profile metadata from the character's own field definitions."""
 
+    is_onboarding: bool = (
+        character.revision == 1
+        and character.name == "New character"
+        and not character.fields
+    )
     fields: tuple[HTML, ...] = tuple(
         _render_character_field(profile_field) for profile_field in character.fields
     )
     return Section(
         Form(
             Div(
-                H1(character.name, cls="jouzetsu-character-title"),
+                H1(
+                    "Create character" if is_onboarding else character.name,
+                    cls="jouzetsu-character-title",
+                ),
                 P(
-                    f"Revision {character.revision} · chats keep the revision they started with.",
+                    (
+                        "Start with a name, choose the details that shape the conversation, "
+                        "then make them your own."
+                        if is_onboarding
+                        else (
+                            f"Revision {character.revision} · chats keep the revision they "
+                            "started with."
+                        )
+                    ),
                     cls="jouzetsu-character-intro",
                 ),
                 cls="jouzetsu-character-editor-heading",
@@ -182,12 +227,15 @@ def _render_character_editor(
                     data_testid="character-name-input",
                 ),
             ),
-            _render_character_preset_controls(character, preset_catalog),
+            _render_character_preset_controls(
+                character, preset_catalog, is_onboarding=is_onboarding
+            ),
             Div(
                 Div(
                     H2("Profile fields", cls="jouzetsu-section-title"),
                     P(
-                        "Add, remove, and choose the input style for the details this character actually needs.",
+                        "Add the details that affect the chat. Blank values are not included "
+                        "in the prompt.",
                         cls="jouzetsu-character-field-help",
                     ),
                     cls="jouzetsu-character-fields-heading",
@@ -198,7 +246,7 @@ def _render_character_editor(
                     data_character_fields="true",
                 ),
                 Button(
-                    "Add field",
+                    "Add custom field",
                     type="submit",
                     cls="jouzetsu-button",
                     formaction=f"/characters/{character.id}/fields/add",
@@ -231,10 +279,21 @@ def _render_character_editor(
             data_testid="character-editor-form",
         ),
         Details(
-            Summary("Compiled chat prompt"),
+            Summary(
+                Span("Live compiled chat prompt"),
+                Small(
+                    "Updates as you edit · blank fields are omitted",
+                    cls="jouzetsu-character-prompt-summary-help",
+                ),
+            ),
             Pre(
                 character.compiled_system_prompt(),
                 cls="jouzetsu-character-prompt-preview",
+                data_character_prompt_preview="true",
+                data_character_prompt_name_template=CHARACTER_PROMPT_NAME_TEMPLATE,
+                data_character_prompt_profile_heading=CHARACTER_PROMPT_PROFILE_HEADING,
+                data_character_prompt_empty_profile=CHARACTER_PROMPT_EMPTY_PROFILE,
+                data_character_prompt_closing=CHARACTER_PROMPT_CLOSING,
             ),
             cls="jouzetsu-character-prompt-details",
         ),
@@ -254,21 +313,40 @@ def _render_character_editor(
 
 
 def _render_character_preset_controls(
-    character: Character, preset_catalog: CharacterPresetCatalog
+    character: Character,
+    preset_catalog: CharacterPresetCatalog,
+    *,
+    is_onboarding: bool,
 ) -> HTML:
-    """Render template choices from the shared preset catalogue."""
+    """Render durable template choices from the shared preset catalogue."""
 
     base_options: tuple[HTML, ...] = (
-        Option("No base preset", value=""),
+        Option(
+            "No base template",
+            value="",
+            selected=not character.presets.base_id,
+        ),
         *(
             Option(
                 preset.label,
                 value=preset.id,
                 title=preset.description,
+                selected=preset.id == character.presets.base_id,
                 data_character_preset_fields=preset.fields_json(),
             )
             for preset in preset_catalog.base_presets
         ),
+    )
+    controls_id: str = f"character-{character.id}-preset-controls"
+    section_title: str = "Quick start" if is_onboarding else "Profile templates"
+    help_text: str = (
+        "1. Name them above. 2. Choose their form. 3. Pick the details that "
+        "will shape the conversations you want to have."
+        if is_onboarding
+        else (
+            "Template choices are remembered. Adding selected fields never "
+            "overwrites the profile you have already made."
+        )
     )
     load_issue_notice: tuple[HTML, ...] = (
         (
@@ -289,55 +367,79 @@ def _render_character_preset_controls(
     )
     return Div(
         Div(
-            H2("Field presets", cls="jouzetsu-section-title"),
-            P(
-                "Choose one compatible base and any extra templates, then apply them as editable fields.",
-                cls="jouzetsu-character-field-help",
+            Div(
+                H2(section_title, cls="jouzetsu-section-title"),
+                P(help_text, cls="jouzetsu-character-field-help"),
+                cls="jouzetsu-character-preset-copy",
             ),
-            cls="jouzetsu-character-fields-heading",
-        ),
-        *load_issue_notice,
-        field(
-            "Base preset",
-            Select(
-                *base_options,
-                name="base_preset",
-                data_character_base_preset="true",
-                data_testid="character-base-preset",
+            Button(
+                "Hide templates",
+                type="button",
+                cls="jouzetsu-character-preset-toggle",
+                aria_controls=controls_id,
+                aria_expanded="true",
+                data_character_preset_toggle="true",
             ),
+            cls="jouzetsu-character-preset-heading",
         ),
         Div(
-            Span("Extra presets", cls="jouzetsu-field-label"),
-            Div(
-                *(
-                    _render_character_extra_preset(preset)
-                    for preset in preset_catalog.extra_presets
+            *load_issue_notice,
+            field(
+                "Character type" if is_onboarding else "Base template",
+                Select(
+                    *base_options,
+                    name="base_preset",
+                    data_character_base_preset="true",
+                    data_testid="character-base-preset",
                 ),
-                cls="jouzetsu-character-extra-presets",
             ),
-            cls="jouzetsu-character-preset-extras",
-        ),
-        Button(
-            "Apply selected presets",
-            type="submit",
-            cls="jouzetsu-button",
-            formaction=f"/characters/{character.id}/presets/apply",
-            formmethod="post",
-            formnovalidate=True,
-            data_character_apply_presets="true",
-            data_testid="character-apply-presets",
+            Div(
+                Span(
+                    "What should shape the conversation?"
+                    if is_onboarding
+                    else "Extra templates",
+                    cls="jouzetsu-field-label",
+                ),
+                Div(
+                    *(
+                        _render_character_extra_preset(
+                            preset,
+                            checked=preset.id in character.presets.extra_ids,
+                        )
+                        for preset in preset_catalog.extra_presets
+                    ),
+                    cls="jouzetsu-character-extra-presets",
+                ),
+                cls="jouzetsu-character-preset-extras",
+            ),
+            Button(
+                "Add chosen fields" if is_onboarding else "Add selected fields",
+                type="submit",
+                cls="jouzetsu-button",
+                formaction=f"/characters/{character.id}/presets/apply",
+                formmethod="post",
+                formnovalidate=True,
+                data_character_apply_presets="true",
+                data_testid="character-apply-presets",
+            ),
+            id=controls_id,
+            cls="jouzetsu-character-preset-controls",
+            data_character_preset_controls="true",
         ),
         cls="jouzetsu-character-preset-editor",
         data_character_preset_editor="true",
     )
 
 
-def _render_character_extra_preset(preset: CharacterFieldPreset) -> HTML:
+def _render_character_extra_preset(
+    preset: CharacterFieldPreset, *, checked: bool
+) -> HTML:
     return Label(
         Input(
             type="checkbox",
             name="extra_preset",
             value=preset.id,
+            checked=checked,
             data_character_extra_preset="true",
             data_character_preset_fields=preset.fields_json(),
         ),
@@ -348,6 +450,7 @@ def _render_character_extra_preset(preset: CharacterFieldPreset) -> HTML:
 
 
 def _render_character_field(profile_field: CharacterField) -> HTML:
+    options_id: str = f"character-field-options-{profile_field.id}"
     value_control: HTML = (
         Textarea(
             profile_field.value,
@@ -368,37 +471,58 @@ def _render_character_field(profile_field: CharacterField) -> HTML:
     return Div(
         Input(type="hidden", name="field_id", value=profile_field.id),
         field(
-            "Label",
+            "Field",
             Input(
                 name="field_label",
                 value=profile_field.label,
                 autocomplete="off",
                 required=True,
+                data_character_field_label="true",
             ),
+            classes="jouzetsu-character-field-name",
         ),
-        field(
-            "Input style",
-            Select(
-                Option(
-                    "Short text",
-                    value="short_text",
-                    selected=profile_field.kind == "short_text",
-                ),
-                Option(
-                    "Long text",
-                    value="long_text",
-                    selected=profile_field.kind == "long_text",
-                ),
-                name="field_kind",
-                aria_label=f"{profile_field.label} input style",
+        field("Value", value_control, classes="jouzetsu-character-field-value"),
+        Div(
+            Button(
+                render_icon("more"),
+                type="button",
+                cls="jouzetsu-button jouzetsu-character-field-menu-toggle",
+                title="Field options",
+                aria_label=f"Options for {profile_field.label}",
+                aria_controls=options_id,
+                aria_expanded="false",
+                data_character_field_menu_toggle="true",
             ),
-        ),
-        field("Value", value_control),
-        Button(
-            "Remove field",
-            type="button",
-            cls="jouzetsu-button jouzetsu-button-muted",
-            data_character_remove_field="true",
+            Div(
+                field(
+                    "Input style",
+                    Select(
+                        Option(
+                            "Short text",
+                            value="short_text",
+                            selected=profile_field.kind == "short_text",
+                        ),
+                        Option(
+                            "Long text",
+                            value="long_text",
+                            selected=profile_field.kind == "long_text",
+                        ),
+                        name="field_kind",
+                        aria_label=f"{profile_field.label} input style",
+                    ),
+                ),
+                Button(
+                    "Remove field",
+                    type="button",
+                    cls="jouzetsu-button jouzetsu-button-muted",
+                    data_character_remove_field="true",
+                ),
+                id=options_id,
+                cls="jouzetsu-character-field-menu",
+                data_character_field_menu="true",
+                hidden=True,
+            ),
+            cls="jouzetsu-character-field-actions",
         ),
         cls="jouzetsu-character-field-row",
         data_character_field="true",

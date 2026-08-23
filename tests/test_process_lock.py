@@ -5,7 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from jouzetsu.process_lock import DataDirectoryInUseError, LOCK_FILE_NAME, LinuxDataDirectoryLock
+from jouzetsu.process_lock import (
+    LOCK_FILE_NAME,
+    DataDirectoryInUseError,
+    LinuxDataDirectoryLock,
+)
 
 
 class LinuxDataDirectoryLockTests(unittest.TestCase):

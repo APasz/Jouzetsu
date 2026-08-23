@@ -44,7 +44,9 @@ class RequestAccess:
         self._state: AppState = state
         self._device_registration_lock: asyncio.Lock = asyncio.Lock()
 
-    async def context(self, request: Request, *, register_device: bool) -> RequestContext:
+    async def context(
+        self, request: Request, *, register_device: bool
+    ) -> RequestContext:
         """Evaluate a request without trusting browser-provided identity fields."""
 
         client_ip: str = request.client.host if request.client is not None else ""
@@ -56,7 +58,11 @@ class RequestAccess:
             client_ip=client_ip,
             raw_device_id=raw_device_id,
         )
-        if register_device and self._config.access.default_private and decision.device_id:
+        if (
+            register_device
+            and self._config.access.default_private
+            and decision.device_id
+        ):
             await self._register_pending_device(
                 decision.device_id,
                 client_ip=client_ip,
@@ -91,7 +97,9 @@ class RequestAccess:
             await require_csrf_token(request)
         context: RequestContext = await self.context(request, register_device=False)
         decision: AccessDecision = context.page.decision
-        allow_pending_local_admin: bool = require_access_management and decision.can_manage_access
+        allow_pending_local_admin: bool = (
+            require_access_management and decision.can_manage_access
+        )
         if not decision.access_allowed and not allow_pending_local_admin:
             raise HTTPException(403, "device access has not been approved")
         if require_global_settings and not decision.can_use_global_settings:
@@ -114,12 +122,18 @@ class RequestAccess:
             if device_id in self._config.access.devices:
                 return
             pending_count: int = sum(
-                1 for device in self._config.access.devices.values() if not device.access_allowed
+                1
+                for device in self._config.access.devices.values()
+                if not device.access_allowed
             )
             if pending_count >= _MAX_PENDING_DEVICES and not is_localhost:
-                log.warning("pending device registration limit reached client_ip=%s", client_ip)
+                log.warning(
+                    "pending device registration limit reached client_ip=%s", client_ip
+                )
                 return
-            hostname: str = _host_label() if is_localhost else await _reverse_hostname(client_ip)
+            hostname: str = (
+                _host_label() if is_localhost else await _reverse_hostname(client_ip)
+            )
             await self._state.register_access_device(
                 device_id,
                 client_label,

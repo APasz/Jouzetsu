@@ -54,14 +54,22 @@ def configure_bootstrap_logging() -> list[LogRecord]:
     startup_records: list[LogRecord] = []
     application_logger.setLevel(logging.INFO)
     application_logger.propagate = False
-    application_logger.addHandler(_managed_handler(StreamHandler(sys.stderr), level=logging.INFO, formatter=formatter))
     application_logger.addHandler(
-        _managed_handler(_StartupLogBuffer(startup_records), level=logging.INFO, formatter=formatter)
+        _managed_handler(
+            StreamHandler(sys.stderr), level=logging.INFO, formatter=formatter
+        )
+    )
+    application_logger.addHandler(
+        _managed_handler(
+            _StartupLogBuffer(startup_records), level=logging.INFO, formatter=formatter
+        )
     )
     return startup_records
 
 
-def configure_logging(config: AppConfig, *, startup_records: Iterable[LogRecord] = ()) -> None:
+def configure_logging(
+    config: AppConfig, *, startup_records: Iterable[LogRecord] = ()
+) -> None:
     """Install console, system, error, and chat log handlers.
 
     The function is idempotent so tests and repeated app construction do not
@@ -130,7 +138,9 @@ def _rollover_log_directory(directory: Path) -> None:
     if not resolved_directory.name:
         raise ValueError("logging directory must not be the filesystem root")
 
-    previous_directory: Path = resolved_directory.with_name(f"{resolved_directory.name}.old")
+    previous_directory: Path = resolved_directory.with_name(
+        f"{resolved_directory.name}.old"
+    )
     if previous_directory.is_symlink() or previous_directory.is_file():
         previous_directory.unlink()
     elif previous_directory.exists():
@@ -153,7 +163,9 @@ def _application_logger() -> Logger:
     return logging.getLogger(APPLICATION_LOGGER_NAME)
 
 
-def _replay_startup_records(records: Iterable[LogRecord], handlers: tuple[Handler, ...]) -> None:
+def _replay_startup_records(
+    records: Iterable[LogRecord], handlers: tuple[Handler, ...]
+) -> None:
     """Write bootstrap records to the newly configured Jouzetsu file handlers."""
     for record in records:
         for handler in handlers:

@@ -4,7 +4,7 @@ import json
 import unittest
 from collections.abc import AsyncIterator
 from types import TracebackType
-from typing import cast, override
+from typing import Self, cast, override
 
 import aiohttp
 
@@ -19,7 +19,7 @@ class RecordingResponse:
         self.status: int = status
         self._body: str = body
 
-    async def __aenter__(self) -> RecordingResponse:
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(
@@ -101,13 +101,18 @@ class RecordingLMStudioClient(LMStudioClient):
 
 
 class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
-    async def test_load_model_omits_ttl_even_when_auto_unload_is_configured(self) -> None:
+    async def test_load_model_omits_ttl_even_when_auto_unload_is_configured(
+        self,
+    ) -> None:
         """The native endpoint does not accept an idle-TTL load option."""
         client = RecordingLMStudioClient(ServerSettings(auto_unload_minutes=5))
 
         await client.load_demo_model_for_test()
 
-        self.assertEqual(client.recording_session.posts, [{"model": "demo-model", "echo_load_config": True}])
+        self.assertEqual(
+            client.recording_session.posts,
+            [{"model": "demo-model", "echo_load_config": True}],
+        )
 
     async def test_configured_auto_unload_uses_jit_loading_with_ttl(self) -> None:
         client = RecordingLMStudioClient(ServerSettings(auto_unload_minutes=5))
@@ -126,7 +131,12 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
         chat = Chat()
         _ = chat.add_message("user", "Hello")
 
-        _ = [event async for event in client.stream_chat(chat, "demo-model", GenerationSettings())]
+        _ = [
+            event
+            async for event in client.stream_chat(
+                chat, "demo-model", GenerationSettings()
+            )
+        ]
 
         self.assertEqual(len(client.recording_session.posts), 1)
         self.assertEqual(client.recording_session.posts[0]["model"], "demo-model")
@@ -138,7 +148,9 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
 
         await client.unload_model_instance("demo-instance")
 
-        self.assertEqual(client.recording_session.posts, [{"instance_id": "demo-instance"}])
+        self.assertEqual(
+            client.recording_session.posts, [{"instance_id": "demo-instance"}]
+        )
 
     async def test_native_api_root_tracks_the_shared_server_settings(self) -> None:
         server = ServerSettings(base_url="http://first.example:1234/v1")
@@ -148,8 +160,14 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
         server.base_url = "http://second.example:4321/v1"
         await client.unload_model_instance("demo-instance")
 
-        self.assertEqual(client.recording_session.get_urls, ["http://first.example:1234/api/v1/models"])
-        self.assertEqual(client.recording_session.post_urls, ["http://second.example:4321/api/v1/models/unload"])
+        self.assertEqual(
+            client.recording_session.get_urls,
+            ["http://first.example:1234/api/v1/models"],
+        )
+        self.assertEqual(
+            client.recording_session.post_urls,
+            ["http://second.example:4321/api/v1/models/unload"],
+        )
 
     async def test_management_requests_use_bounded_timeouts(self) -> None:
         client = RecordingLMStudioClient(ServerSettings())
@@ -167,14 +185,21 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
         chat = Chat()
         _ = chat.add_message("user", "Hello")
 
-        _ = [event async for event in client._stream_completion(chat, "demo-model", GenerationSettings())]  # pyright: ignore[reportPrivateUsage]
+        _ = [
+            event
+            async for event in client._stream_completion(  # pyright: ignore[reportPrivateUsage]
+                chat, "demo-model", GenerationSettings()
+            )
+        ]
 
         timeout = client.recording_session.post_timeouts[0]
         self.assertIsNone(timeout.total)
         self.assertEqual(timeout.sock_connect, 10.0)
         self.assertEqual(timeout.sock_read, 120.0)
 
-    async def test_streaming_preserves_visible_content_when_a_chunk_also_has_reasoning(self) -> None:
+    async def test_streaming_preserves_visible_content_when_a_chunk_also_has_reasoning(
+        self,
+    ) -> None:
         client = RecordingLMStudioClient(ServerSettings())
         client.recording_session.stream_data = (
             b'data: {"choices":[{"delta":{"reasoning_content":"private thought","content":"Visible answer"}}]}\n\n'
@@ -183,7 +208,12 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
         chat = Chat()
         _ = chat.add_message("user", "Hello")
 
-        events = [event async for event in client._stream_completion(chat, "demo-model", GenerationSettings())]  # pyright: ignore[reportPrivateUsage]
+        events = [
+            event
+            async for event in client._stream_completion(  # pyright: ignore[reportPrivateUsage]
+                chat, "demo-model", GenerationSettings()
+            )
+        ]
         fragments = [event for event in events if isinstance(event, PredictionFragment)]
 
         self.assertEqual(
@@ -203,9 +233,16 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
         chat = Chat()
         _ = chat.add_message("user", "Hello")
 
-        events = [event async for event in client._stream_completion(chat, "demo-model", GenerationSettings())]  # pyright: ignore[reportPrivateUsage]
+        events = [
+            event
+            async for event in client._stream_completion(  # pyright: ignore[reportPrivateUsage]
+                chat, "demo-model", GenerationSettings()
+            )
+        ]
         fragments = [event for event in events if isinstance(event, PredictionFragment)]
-        completed = next(event for event in events if isinstance(event, PredictionComplete))
+        completed = next(
+            event for event in events if isinstance(event, PredictionComplete)
+        )
 
         self.assertEqual([fragment.token_count for fragment in fragments], [None, None])
         self.assertEqual(completed.metrics.prompt_tokens, 7)
@@ -214,12 +251,16 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_build_messages_appends_british_english_instruction(self) -> None:
         chat = Chat()
         _ = chat.add_message("user", "Hello")
-        generation = GenerationSettings(system_prompt="Answer tersely.", british_english=True)
+        generation = GenerationSettings(
+            system_prompt="Answer tersely.", british_english=True
+        )
 
         messages = LMStudioClient._build_messages(chat, generation)  # pyright: ignore[reportPrivateUsage]
 
         self.assertEqual(messages[0]["role"], "system")
-        self.assertEqual(messages[0]["content"], f"Answer tersely.\n\n{BRITISH_ENGLISH_INSTRUCTION}")
+        self.assertEqual(
+            messages[0]["content"], f"Answer tersely.\n\n{BRITISH_ENGLISH_INSTRUCTION}"
+        )
         self.assertEqual(messages[1], {"role": "user", "content": "Hello"})
 
     async def test_list_model_inventory_parses_instance_and_capabilities(self) -> None:
@@ -254,7 +295,10 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
                         "capabilities": {
                             "vision": True,
                             "trained_for_tool_use": True,
-                            "reasoning": {"allowed_options": ["off", "on"], "default": "on"},
+                            "reasoning": {
+                                "allowed_options": ["off", "on"],
+                                "default": "on",
+                            },
                         },
                         "description": "Demo description",
                         "variants": ["google/gemma@q4_k_m"],

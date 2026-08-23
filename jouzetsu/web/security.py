@@ -17,7 +17,6 @@ from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-
 CSRF_COOKIE_NAME: Final[str] = "jouzetsu_csrf"
 CSRF_FORM_FIELD: Final[str] = "_jouzetsu_csrf"
 CSRF_HEADER_NAME: Final[str] = "x-jouzetsu-csrf"
@@ -46,13 +45,17 @@ class BrowserSecurityMiddleware:
         issue_cookie: bool = not bool(token)
         if not token:
             token = secrets.token_urlsafe(32)
-        state: dict[str, object] = cast(dict[str, object], scope.setdefault("state", {}))
+        state: dict[str, object] = cast(
+            dict[str, object], scope.setdefault("state", {})
+        )
         state[CSRF_TOKEN_STATE_KEY] = token
 
         async def send_with_security_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
-                _ = headers.setdefault("Content-Security-Policy", _CONTENT_SECURITY_POLICY)
+                _ = headers.setdefault(
+                    "Content-Security-Policy", _CONTENT_SECURITY_POLICY
+                )
                 _ = headers.setdefault("X-Frame-Options", "DENY")
                 _ = headers.setdefault("X-Content-Type-Options", "nosniff")
                 _ = headers.setdefault("Referrer-Policy", "same-origin")
@@ -88,7 +91,9 @@ async def require_csrf_token(request: Request) -> None:
         raise HTTPException(403, "invalid or missing CSRF token")
 
     origin: str = request.headers.get("origin", "")
-    if origin and not secrets.compare_digest(origin.rstrip("/"), str(request.base_url).rstrip("/")):
+    if origin and not secrets.compare_digest(
+        origin.rstrip("/"), str(request.base_url).rstrip("/")
+    ):
         raise HTTPException(403, "cross-origin mutation request rejected")
 
 
@@ -116,7 +121,7 @@ def _csrf_token_from_cookie(scope: Scope) -> str:
         cookies: SimpleCookie = SimpleCookie()
         try:
             cookies.load(raw_value.decode("latin-1"))
-        except (UnicodeDecodeError, ValueError):
+        except UnicodeDecodeError, ValueError:
             return ""
         morsel = cookies.get(CSRF_COOKIE_NAME)
         value: str = morsel.value if morsel is not None else ""

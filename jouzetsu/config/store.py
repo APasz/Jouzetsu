@@ -19,7 +19,9 @@ def _is_non_blank_string(value: object) -> bool:
 
 
 def _is_valid_port(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535
+    return (
+        isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +135,9 @@ class ConfigStore:
                 if self.paths.config_file.exists()
                 else default_config(self.paths)
             )
-        persisted: AppConfig = self.overrides.remove(effective, persisted=self._persisted)
+        persisted: AppConfig = self.overrides.remove(
+            effective, persisted=self._persisted
+        )
         encoded: dict[str, object] = encode_config(persisted)
         self.paths.config_file.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(self.paths.config_file, json.dumps(encoded, indent=4) + "\n")
@@ -149,7 +153,11 @@ class ConfigStore:
         try:
             raw: object = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            raise ConfigValidationError([ConfigIssue("config", f"invalid JSON: {exc.msg}")]) from exc
+            raise ConfigValidationError(
+                [ConfigIssue("config", f"invalid JSON: {exc.msg}")]
+            ) from exc
         except OSError as exc:
-            raise ConfigValidationError([ConfigIssue("config", f"cannot read file: {exc}")]) from exc
+            raise ConfigValidationError(
+                [ConfigIssue("config", f"cannot read file: {exc}")]
+            ) from exc
         return decode_config(raw, paths=self.paths)

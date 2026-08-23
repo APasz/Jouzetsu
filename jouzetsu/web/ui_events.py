@@ -81,14 +81,18 @@ class UiEventBroker:
         self._queues.clear()
 
 
-async def stream_events(broker: UiEventBroker, queue: asyncio.Queue[UiEvent]) -> AsyncIterator[str]:
+async def stream_events(
+    broker: UiEventBroker, queue: asyncio.Queue[UiEvent]
+) -> AsyncIterator[str]:
     """Yield SSE frames and release the queue when its response disconnects."""
 
     try:
         yield _sse_frame(UiEvent(revision=0, kind=StateChangeKind.FULL))
         while True:
             try:
-                event: UiEvent = await asyncio.wait_for(queue.get(), timeout=_HEARTBEAT_SECONDS)
+                event: UiEvent = await asyncio.wait_for(
+                    queue.get(), timeout=_HEARTBEAT_SECONDS
+                )
             except TimeoutError:
                 yield ": ping\n\n"
                 continue

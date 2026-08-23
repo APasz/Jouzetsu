@@ -8,12 +8,19 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Literal, TypeAlias, TypedDict, cast
+from typing import Literal, TypedDict, cast
 
 from .character_presets import CharacterFieldKind
 from .config import GenerationSettings
 
-Role: TypeAlias = Literal["system", "user", "assistant"]
+type Role = Literal["system", "user", "assistant"]
+
+CHARACTER_PROMPT_NAME_TEMPLATE: str = "You are roleplaying as {name}."
+CHARACTER_PROMPT_PROFILE_HEADING: str = "Character profile:"
+CHARACTER_PROMPT_EMPTY_PROFILE: str = "No additional profile details are defined."
+CHARACTER_PROMPT_CLOSING: str = (
+    "Stay consistent with this profile while responding naturally to the user."
+)
 
 
 class ChatTitleSource(str, Enum):
@@ -75,6 +82,13 @@ class CharacterFieldJSON(TypedDict):
     value: str
 
 
+class CharacterPresetSelectionJSON(TypedDict):
+    """The saved template choices that shaped a character profile."""
+
+    base: str
+    extras: list[str]
+
+
 class CharacterJSON(TypedDict):
     """The complete standalone document persisted for one character."""
 
@@ -84,6 +98,7 @@ class CharacterJSON(TypedDict):
     created_at: float
     updated_at: float
     fields: list[CharacterFieldJSON]
+    presets: CharacterPresetSelectionJSON
 
 
 def _new_id() -> str:
@@ -93,7 +108,9 @@ def _new_id() -> str:
 def _required_string(raw: object, *, field_name: str) -> str:
     """Read a non-empty string from a persisted document."""
 
-    if not isinstance(raw, str) or not raw.strip():
+    if not isinstance(raw, str):
+        raise TypeError(f"{field_name} must be text")
+    if not raw.strip():
         raise ValueError(f"{field_name} must be non-empty text")
     return raw.strip()
 
@@ -101,12 +118,18 @@ def _required_string(raw: object, *, field_name: str) -> str:
 def _integer_from_json(raw: object, *, field_name: str, minimum: int) -> int:
     """Read an integer above a defined lower bound from persisted data."""
 
-    if isinstance(raw, bool) or not isinstance(raw, int) or raw < minimum:
-        raise ValueError(f"{field_name} must be an integer greater than or equal to {minimum}")
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise TypeError(f"{field_name} must be an integer")
+    if raw < minimum:
+        raise ValueError(
+            f"{field_name} must be an integer greater than or equal to {minimum}"
+        )
     return raw
 
 
 def _role_from_json(raw: object) -> Role:
+    if not isinstance(raw, str):
+        raise TypeError("message role must be text")
     if raw not in {"system", "user", "assistant"}:
         raise ValueError(f"invalid message role: {raw!r}")
     return cast(Role, raw)
@@ -116,7 +139,7 @@ def _float_from_json(raw: object, *, default: float) -> float:
     if raw is None:
         return default
     if isinstance(raw, bool) or not isinstance(raw, int | float | str):
-        raise ValueError(f"expected a number, got {raw!r}")
+        raise TypeError(f"expected a number, got {raw!r}")
     try:
         value: float = float(raw)
     except ValueError as exc:
@@ -130,7 +153,7 @@ def _bool_from_json(raw: object, *, default: bool) -> bool:
     if raw is None:
         return default
     if not isinstance(raw, bool):
-        raise ValueError(f"expected a boolean, got {raw!r}")
+        raise TypeError(f"expected a boolean, got {raw!r}")
     return raw
 
 
@@ -140,7 +163,7 @@ def _optional_float_from_json(raw: object, *, field_name: str) -> float | None:
     if raw is None:
         return None
     if isinstance(raw, bool) or not isinstance(raw, int | float):
-        raise ValueError(f"{field_name} must be a number or null")
+        raise TypeError(f"{field_name} must be a number or null")
     value: float = float(raw)
     if not math.isfinite(value):
         raise ValueError(f"{field_name} must be finite")
@@ -153,16 +176,16 @@ def _optional_integer_from_json(raw: object, *, field_name: str) -> int | None:
     if raw is None:
         return None
     if isinstance(raw, bool) or not isinstance(raw, int):
-        raise ValueError(f"{field_name} must be an integer or null")
+        raise TypeError(f"{field_name} must be an integer or null")
     return raw
 
 
 def _string_mapping(raw: object, *, field_name: str) -> dict[str, object]:
     if not isinstance(raw, dict):
-        raise ValueError(f"{field_name} must be an object")
+        raise TypeError(f"{field_name} must be an object")
     mapping: dict[object, object] = cast(dict[object, object], raw)
     if not all(isinstance(key, str) for key in mapping):
-        raise ValueError(f"{field_name} must use string keys")
+        raise TypeError(f"{field_name} must use string keys")
     return {cast(str, key): value for key, value in mapping.items()}
 
 
@@ -180,7 +203,7 @@ def _title_source_from_json(raw: object) -> ChatTitleSource:
     """Read and validate an explicitly persisted chat title source."""
 
     if not isinstance(raw, str):
-        raise ValueError("chat.title_source must be text")
+        raise TypeError("chat.title_source must be text")
     try:
         return ChatTitleSource(raw)
     except ValueError as exc:
@@ -206,9 +229,13 @@ class ChatSamplingOverrides:
 
         settings: GenerationSettings = replace(
             defaults,
-            temperature=defaults.temperature if self.temperature is None else self.temperature,
+            temperature=defaults.temperature
+            if self.temperature is None
+            else self.temperature,
             top_p=defaults.top_p if self.top_p is None else self.top_p,
-            max_tokens=defaults.max_tokens if self.max_tokens is None else self.max_tokens,
+            max_tokens=defaults.max_tokens
+            if self.max_tokens is None
+            else self.max_tokens,
         )
         settings.validate()
         return settings
@@ -221,13 +248,19 @@ class ChatSamplingOverrides:
         }
 
     @classmethod
-    def from_dict(cls, raw: Mapping[str, object]) -> "ChatSamplingOverrides":
+    def from_dict(cls, raw: Mapping[str, object]) -> ChatSamplingOverrides:
         """Load and validate optional sampling values from persisted chat data."""
 
         overrides: ChatSamplingOverrides = cls(
-            temperature=_optional_float_from_json(raw.get("temperature"), field_name="chat.sampling_overrides.temperature"),
-            top_p=_optional_float_from_json(raw.get("top_p"), field_name="chat.sampling_overrides.top_p"),
-            max_tokens=_optional_integer_from_json(raw.get("max_tokens"), field_name="chat.sampling_overrides.max_tokens"),
+            temperature=_optional_float_from_json(
+                raw.get("temperature"), field_name="chat.sampling_overrides.temperature"
+            ),
+            top_p=_optional_float_from_json(
+                raw.get("top_p"), field_name="chat.sampling_overrides.top_p"
+            ),
+            max_tokens=_optional_integer_from_json(
+                raw.get("max_tokens"), field_name="chat.sampling_overrides.max_tokens"
+            ),
         )
         _ = overrides.resolve(GenerationSettings())
         return overrides
@@ -253,11 +286,13 @@ class CharacterChatBinding:
         return {"id": self.id, "name": self.name, "revision": self.revision}
 
     @classmethod
-    def from_dict(cls, raw: Mapping[str, object]) -> "CharacterChatBinding":
+    def from_dict(cls, raw: Mapping[str, object]) -> CharacterChatBinding:
         return cls(
             id=_required_string(raw.get("id"), field_name="chat.character.id"),
             name=_required_string(raw.get("name"), field_name="chat.character.name"),
-            revision=_integer_from_json(raw.get("revision"), field_name="chat.character.revision", minimum=1),
+            revision=_integer_from_json(
+                raw.get("revision"), field_name="chat.character.revision", minimum=1
+            ),
         )
 
 
@@ -287,19 +322,80 @@ class CharacterField:
         }
 
     @classmethod
-    def from_dict(cls, raw: Mapping[str, object]) -> "CharacterField":
+    def from_dict(cls, raw: Mapping[str, object]) -> CharacterField:
         raw_kind: object = raw.get("kind", "short_text")
+        if not isinstance(raw_kind, str):
+            raise TypeError("character field kind must be text")
         if raw_kind not in {"short_text", "long_text"}:
             raise ValueError(f"invalid character field kind: {raw_kind!r}")
         raw_value: object = raw.get("value", "")
         if not isinstance(raw_value, str):
-            raise ValueError("character field value must be text")
+            raise TypeError("character field value must be text")
         return cls(
             id=_required_string(raw.get("id"), field_name="character.fields.id"),
-            label=_required_string(raw.get("label"), field_name="character.fields.label"),
+            label=_required_string(
+                raw.get("label"), field_name="character.fields.label"
+            ),
             kind=cast(CharacterFieldKind, raw_kind),
             value=raw_value,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterPresetSelection:
+    """Saved template choices that can safely add missing profile fields again."""
+
+    base_id: str = ""
+    extra_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        raw_base_id: object = cast(object, self.base_id)
+        if not isinstance(raw_base_id, str):
+            raise TypeError("character base preset id must be text")
+        raw_extra_ids: object = cast(object, self.extra_ids)
+        if not isinstance(raw_extra_ids, tuple):
+            raise TypeError("character extra preset ids must be an immutable tuple")
+        extra_ids: tuple[object, ...] = cast(tuple[object, ...], raw_extra_ids)
+        if any(not isinstance(preset_id, str) for preset_id in extra_ids):
+            raise TypeError("character extra preset ids must be text")
+        if self.base_id != self.base_id.strip():
+            raise ValueError("character base preset id must be trimmed text")
+        if any(
+            not preset_id or preset_id != preset_id.strip()
+            for preset_id in self.extra_ids
+        ):
+            raise ValueError(
+                "character extra preset ids must be non-empty trimmed text"
+            )
+        if len(self.extra_ids) != len(set(self.extra_ids)):
+            raise ValueError("character extra preset ids must be unique")
+
+    def to_dict(self) -> CharacterPresetSelectionJSON:
+        return {"base": self.base_id, "extras": list(self.extra_ids)}
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, object]) -> CharacterPresetSelection:
+        raw_base_id: object = raw.get("base", "")
+        if not isinstance(raw_base_id, str):
+            raise TypeError("character.presets.base must be text")
+        if raw_base_id != raw_base_id.strip():
+            raise ValueError(
+                "character.presets.base must not have surrounding whitespace"
+            )
+        base_id: str = raw_base_id.strip()
+        raw_extra_ids: object = raw.get("extras", [])
+        if not isinstance(raw_extra_ids, list):
+            raise TypeError("character.presets.extras must be a list of text values")
+        extra_items: list[object] = cast(list[object], raw_extra_ids)
+        if not all(isinstance(preset_id, str) for preset_id in extra_items):
+            raise TypeError("character.presets.extras must be a list of text values")
+        extra_values: list[str] = [cast(str, preset_id) for preset_id in extra_items]
+        if any(preset_id != preset_id.strip() for preset_id in extra_values):
+            raise ValueError(
+                "character.presets.extras must not have surrounding whitespace"
+            )
+        extra_ids: tuple[str, ...] = tuple(extra_values)
+        return cls(base_id=base_id, extra_ids=extra_ids)
 
 
 @dataclass
@@ -312,6 +408,7 @@ class Character:
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     fields: list[CharacterField] = field(default_factory=list)
+    presets: CharacterPresetSelection = field(default_factory=CharacterPresetSelection)
 
     def __post_init__(self) -> None:
         self._validate()
@@ -327,7 +424,13 @@ class Character:
         if len(field_ids) != len(set(field_ids)):
             raise ValueError("character field ids must be unique")
 
-    def revised_profile(self, name: str, fields: list[CharacterField]) -> "Character":
+    def revised_profile(
+        self,
+        name: str,
+        fields: list[CharacterField],
+        *,
+        presets: CharacterPresetSelection | None = None,
+    ) -> Character:
         """Return the next profile revision without changing this persisted version."""
 
         next_name: str = name.strip()
@@ -337,7 +440,14 @@ class Character:
         field_ids: list[str] = [profile_field.id for profile_field in next_fields]
         if len(field_ids) != len(set(field_ids)):
             raise ValueError("character field ids must be unique")
-        if self.name == next_name and self.fields == next_fields:
+        next_presets: CharacterPresetSelection = (
+            self.presets if presets is None else presets
+        )
+        if (
+            self.name == next_name
+            and self.fields == next_fields
+            and self.presets == next_presets
+        ):
             return self
         return Character(
             id=self.id,
@@ -346,20 +456,30 @@ class Character:
             created_at=self.created_at,
             updated_at=time.time(),
             fields=next_fields,
+            presets=next_presets,
         )
 
     def compiled_system_prompt(self) -> str:
         """Compile the character's current structured profile for one chat snapshot."""
 
-        populated_fields: list[CharacterField] = [profile_field for profile_field in self.fields if profile_field.value.strip()]
-        profile_lines: list[str] = [
-            f"{profile_field.label.strip()}: {profile_field.value.strip()}" for profile_field in populated_fields
+        populated_fields: list[CharacterField] = [
+            profile_field
+            for profile_field in self.fields
+            if profile_field.value.strip()
         ]
-        profile: str = "\n".join(profile_lines) if profile_lines else "No additional profile details are defined."
+        profile_lines: list[str] = [
+            f"{profile_field.label.strip()}: {profile_field.value.strip()}"
+            for profile_field in populated_fields
+        ]
+        profile: str = (
+            "\n".join(profile_lines)
+            if profile_lines
+            else CHARACTER_PROMPT_EMPTY_PROFILE
+        )
         return (
-            f"You are roleplaying as {self.name.strip()}.\n\n"
-            f"Character profile:\n{profile}\n\n"
-            "Stay consistent with this profile while responding naturally to the user."
+            f"{CHARACTER_PROMPT_NAME_TEMPLATE.format(name=self.name.strip())}\n\n"
+            f"{CHARACTER_PROMPT_PROFILE_HEADING}\n{profile}\n\n"
+            f"{CHARACTER_PROMPT_CLOSING}"
         )
 
     def to_dict(self) -> CharacterJSON:
@@ -370,25 +490,34 @@ class Character:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "fields": [profile_field.to_dict() for profile_field in self.fields],
+            "presets": self.presets.to_dict(),
         }
 
     @classmethod
-    def from_dict(cls, raw: Mapping[str, object]) -> "Character":
+    def from_dict(cls, raw: Mapping[str, object]) -> Character:
         now: float = time.time()
         raw_fields: object = raw.get("fields", [])
         if not isinstance(raw_fields, list):
-            raise ValueError("character.fields must be a list")
+            raise TypeError("character.fields must be a list")
         fields: list[CharacterField] = [
-            CharacterField.from_dict(_string_mapping(item, field_name="character.fields item"))
+            CharacterField.from_dict(
+                _string_mapping(item, field_name="character.fields item")
+            )
             for item in cast(list[object], raw_fields)
         ]
+        presets: CharacterPresetSelection = CharacterPresetSelection.from_dict(
+            _string_mapping(raw.get("presets", {}), field_name="character.presets")
+        )
         return cls(
             id=_required_string(raw.get("id"), field_name="character.id"),
             name=_required_string(raw.get("name"), field_name="character.name"),
-            revision=_integer_from_json(raw.get("revision", 1), field_name="character.revision", minimum=1),
+            revision=_integer_from_json(
+                raw.get("revision", 1), field_name="character.revision", minimum=1
+            ),
             created_at=_float_from_json(raw.get("created_at"), default=now),
             updated_at=_float_from_json(raw.get("updated_at"), default=now),
             fields=fields,
+            presets=presets,
         )
 
 
@@ -485,7 +614,7 @@ class Message:
         }
 
     @classmethod
-    def from_dict(cls, raw: Mapping[str, object]) -> "Message":
+    def from_dict(cls, raw: Mapping[str, object]) -> Message:
         now: float = time.time()
         created_at: float = _float_from_json(raw.get("created_at"), default=now)
         role: Role = _role_from_json(raw.get("role", "user"))
@@ -493,11 +622,11 @@ class Message:
         continuity_rewrite: object = raw.get("continuity_rewrite", "")
         reasoning: object = raw.get("reasoning", "")
         if not isinstance(model, str):
-            raise ValueError("message.model must be text")
+            raise TypeError("message.model must be text")
         if not isinstance(continuity_rewrite, str):
-            raise ValueError("message.continuity_rewrite must be text")
+            raise TypeError("message.continuity_rewrite must be text")
         if not isinstance(reasoning, str):
-            raise ValueError("message.reasoning must be text")
+            raise TypeError("message.reasoning must be text")
         if continuity_rewrite and role != "assistant":
             raise ValueError("only assistant messages can have continuity rewrites")
         if reasoning and role != "assistant":
@@ -532,7 +661,9 @@ class Chat:
     updated_at: float = field(default_factory=time.time)
     model: str = ""
     system_prompt: str = ""
-    sampling_overrides: ChatSamplingOverrides = field(default_factory=ChatSamplingOverrides)
+    sampling_overrides: ChatSamplingOverrides = field(
+        default_factory=ChatSamplingOverrides
+    )
     postprocess_british_spellings: bool = True
     save_reasoning: bool = True
     draft: str = ""
@@ -599,7 +730,11 @@ class Chat:
     def merge_message_with_previous(self, message_id: str) -> Message:
         """Merge a message into its immediate predecessor and remove it."""
         target_index: int | None = next(
-            (index for index, message in enumerate[Message](self.messages) if message.id == message_id),
+            (
+                index
+                for index, message in enumerate[Message](self.messages)
+                if message.id == message_id
+            ),
             None,
         )
         if target_index is None:
@@ -613,17 +748,23 @@ class Chat:
             raise ValueError("previous message must have the same role")
 
         models_match: bool = previous_message.model == target_message.model
-        previous_message.update_content(_merge_message_content(previous_message.content, target_message.content))
+        previous_message.update_content(
+            _merge_message_content(previous_message.content, target_message.content)
+        )
         if previous_message.role == "assistant" and not models_match:
             previous_message.clear_model()
         del self.messages[target_index]
         self.touch()
         return previous_message
 
-    def fork_through(self, message_id: str) -> "Chat":
+    def fork_through(self, message_id: str) -> Chat:
         """Create an independent chat containing messages through the target."""
         target_index: int | None = next(
-            (index for index, message in enumerate[Message](self.messages) if message.id == message_id),
+            (
+                index
+                for index, message in enumerate[Message](self.messages)
+                if message.id == message_id
+            ),
             None,
         )
         if target_index is None:
@@ -691,16 +832,18 @@ class Chat:
             "postprocess_british_spellings": self.postprocess_british_spellings,
             "save_reasoning": self.save_reasoning,
             "draft": self.draft,
-            "character": self.character.to_dict() if self.character is not None else None,
+            "character": self.character.to_dict()
+            if self.character is not None
+            else None,
             "messages": [m.to_dict() for m in self.messages],
         }
 
     @classmethod
-    def from_dict(cls, raw: Mapping[str, object]) -> "Chat":
+    def from_dict(cls, raw: Mapping[str, object]) -> Chat:
         now: float = time.time()
         raw_messages: object = raw.get("messages", [])
         if not isinstance(raw_messages, list):
-            raise ValueError("chat.messages must be a list")
+            raise TypeError("chat.messages must be a list")
         messages: list[Message] = [
             Message.from_dict(_string_mapping(item, field_name="chat.messages item"))
             for item in cast(list[object], raw_messages)
@@ -712,20 +855,26 @@ class Chat:
             ChatSamplingOverrides()
             if raw_sampling_overrides is None
             else ChatSamplingOverrides.from_dict(
-                _string_mapping(raw_sampling_overrides, field_name="chat.sampling_overrides")
+                _string_mapping(
+                    raw_sampling_overrides, field_name="chat.sampling_overrides"
+                )
             )
         )
         raw_character: object = raw.get("character")
         character: CharacterChatBinding | None = (
             None
             if raw_character is None
-            else CharacterChatBinding.from_dict(_string_mapping(raw_character, field_name="chat.character"))
+            else CharacterChatBinding.from_dict(
+                _string_mapping(raw_character, field_name="chat.character")
+            )
         )
         title: str = str(raw.get("title", "New chat"))
         title_source: ChatTitleSource = (
             _title_source_from_json(raw["title_source"])
             if "title_source" in raw
-            else (ChatTitleSource.AUTO if title == "New chat" else ChatTitleSource.MANUAL)
+            else (
+                ChatTitleSource.AUTO if title == "New chat" else ChatTitleSource.MANUAL
+            )
         )
         return cls(
             id=str(raw.get("id") or _new_id()),

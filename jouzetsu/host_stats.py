@@ -156,7 +156,10 @@ class HostStatsMonitor:
         if self._task is None:
             _ = await self.sample_async()
             self._task = asyncio.create_task(self._sample_forever())
-            log.info("started host statistics monitor sample_interval_seconds=%d", _SAMPLE_INTERVAL_SECONDS)
+            log.info(
+                "started host statistics monitor sample_interval_seconds=%d",
+                _SAMPLE_INTERVAL_SECONDS,
+            )
 
     async def stop(self) -> None:
         """Stop background sampling without losing the most recent reading."""
@@ -196,7 +199,9 @@ class HostStatsMonitor:
 
         now: float = self._clock()
         cpu_times: tuple[_CpuTimes, ...] = _read_cpu_times()
-        cpu_utilization, peak_core_utilization = _cpu_utilization(self._previous_cpu_times, cpu_times)
+        cpu_utilization, peak_core_utilization = _cpu_utilization(
+            self._previous_cpu_times, cpu_times
+        )
         self._previous_cpu_times = cpu_times
         slow_metrics: _SlowHostMetrics = self._slow_metrics_for_sample(now)
         snapshot: HostStatsSnapshot = HostStatsSnapshot(
@@ -215,14 +220,20 @@ class HostStatsMonitor:
             average_cpu_utilization_percent=None,
             recent_cpu_utilization_percent=None,
             recent_peak_core_utilization_percent=None,
-            memory_used_bytes=(slow_metrics.memory_total_bytes - slow_metrics.memory_available_bytes)
-            if slow_metrics.memory_total_bytes is not None and slow_metrics.memory_available_bytes is not None
+            memory_used_bytes=(
+                slow_metrics.memory_total_bytes - slow_metrics.memory_available_bytes
+            )
+            if slow_metrics.memory_total_bytes is not None
+            and slow_metrics.memory_available_bytes is not None
             else None,
             memory_total_bytes=slow_metrics.memory_total_bytes,
             recent_memory_utilization_percent=None,
             recent_load_utilization_percent=None,
-            swap_used_bytes=(slow_metrics.swap_total_bytes - slow_metrics.swap_free_bytes)
-            if slow_metrics.swap_total_bytes is not None and slow_metrics.swap_free_bytes is not None
+            swap_used_bytes=(
+                slow_metrics.swap_total_bytes - slow_metrics.swap_free_bytes
+            )
+            if slow_metrics.swap_total_bytes is not None
+            and slow_metrics.swap_free_bytes is not None
             else None,
             swap_total_bytes=slow_metrics.swap_total_bytes,
             memory_pressure_percent=slow_metrics.memory_pressure_percent,
@@ -250,7 +261,10 @@ class HostStatsMonitor:
                 log.exception("host statistics sample failed")
 
     def _gpus_for_sample(self, now: float) -> tuple[GpuStats, ...]:
-        if now - self._last_gpu_sample_at >= _GPU_REFRESH_INTERVAL_SECONDS or not self._last_gpus:
+        if (
+            now - self._last_gpu_sample_at >= _GPU_REFRESH_INTERVAL_SECONDS
+            or not self._last_gpus
+        ):
             self._last_gpus = _read_gpus()
             self._last_gpu_sample_at = now
         return self._last_gpus
@@ -259,7 +273,10 @@ class HostStatsMonitor:
         """Reuse slow system readings while CPU activity samples arrive every 100 ms."""
 
         cached: _SlowHostMetrics | None = self._last_slow_metrics
-        if cached is not None and now - self._last_slow_metrics_at < _SLOW_METRIC_REFRESH_INTERVAL_SECONDS:
+        if (
+            cached is not None
+            and now - self._last_slow_metrics_at < _SLOW_METRIC_REFRESH_INTERVAL_SECONDS
+        ):
             return cached
         memory = _read_meminfo()
         metrics = _SlowHostMetrics(
@@ -288,22 +305,37 @@ class HostStatsMonitor:
         previous_at: float | None = self._last_package_energy_at
         self._last_package_energy_uj = energy_uj
         self._last_package_energy_at = now if energy_uj is not None else None
-        if energy_uj is None or previous_energy is None or previous_at is None or energy_uj < previous_energy:
+        if (
+            energy_uj is None
+            or previous_energy is None
+            or previous_at is None
+            or energy_uj < previous_energy
+        ):
             return None
         elapsed: float = now - previous_at
-        return (energy_uj - previous_energy) / elapsed / 1_000_000 if elapsed > 0.0 else None
+        return (
+            (energy_uj - previous_energy) / elapsed / 1_000_000
+            if elapsed > 0.0
+            else None
+        )
 
     def _networks_for_sample(self, now: float) -> tuple[NetworkStats, ...]:
         current: dict[str, tuple[int, int]] = _read_network_counters()
         networks: list[NetworkStats] = []
         for name, (received, transmitted) in current.items():
-            previous: tuple[int, int, float] | None = self._previous_network_counters.get(name)
+            previous: tuple[int, int, float] | None = (
+                self._previous_network_counters.get(name)
+            )
             received_rate: float | None = None
             transmitted_rate: float | None = None
             if previous is not None:
                 previous_received, previous_transmitted, previous_at = previous
                 elapsed: float = now - previous_at
-                if elapsed > 0.0 and received >= previous_received and transmitted >= previous_transmitted:
+                if (
+                    elapsed > 0.0
+                    and received >= previous_received
+                    and transmitted >= previous_transmitted
+                ):
                     received_rate = (received - previous_received) / elapsed
                     transmitted_rate = (transmitted - previous_transmitted) / elapsed
             networks.append(
@@ -315,16 +347,21 @@ class HostStatsMonitor:
                 )
             )
         self._previous_network_counters = {
-            name: (received, transmitted, now) for name, (received, transmitted) in current.items()
+            name: (received, transmitted, now)
+            for name, (received, transmitted) in current.items()
         }
         return tuple(networks)
 
     def _with_averages(self, snapshot: HostStatsSnapshot) -> HostStatsSnapshot:
         samples: tuple[HostStatsSnapshot, ...] = tuple(self._samples)
         window_seconds: float = max(snapshot.sampled_at - samples[0].sampled_at, 0.0)
-        cpu_average: float | None = _time_weighted_average(samples, lambda sample: sample.cpu_utilization_percent)
+        cpu_average: float | None = _time_weighted_average(
+            samples, lambda sample: sample.cpu_utilization_percent
+        )
         gpu_averages: tuple[float | None, ...] = tuple(
-            _time_weighted_average(samples, lambda sample, index=index: _gpu_utilization(sample, index))
+            _time_weighted_average(
+                samples, lambda sample, index=index: _gpu_utilization(sample, index)
+            )
             for index in range(len(snapshot.gpus))
         )
         recent_gpu_averages: tuple[float | None, ...] = tuple(
@@ -340,12 +377,16 @@ class HostStatsMonitor:
                 network,
                 average_received_bytes_per_second_5s=_time_weighted_average(
                     samples,
-                    lambda sample, name=network.name: _network_rate(sample, name, received=True),
+                    lambda sample, name=network.name: _network_rate(
+                        sample, name, received=True
+                    ),
                     window_seconds=5.0,
                 ),
                 average_transmitted_bytes_per_second_5s=_time_weighted_average(
                     samples,
-                    lambda sample, name=network.name: _network_rate(sample, name, received=False),
+                    lambda sample, name=network.name: _network_rate(
+                        sample, name, received=False
+                    ),
                     window_seconds=5.0,
                 ),
             )
@@ -389,7 +430,10 @@ def _friendly_operating_system() -> str:
     if system == "Darwin":
         system = "macOS"
         release = platform.mac_ver()[0].strip() or release
-    return " ".join(part for part in (system, release) if part) or "Unknown operating system"
+    return (
+        " ".join(part for part in (system, release) if part)
+        or "Unknown operating system"
+    )
 
 
 def _read_cpu_times() -> tuple[_CpuTimes, ...]:
@@ -414,7 +458,11 @@ def _read_cpu_times() -> tuple[_CpuTimes, ...]:
 
 
 def _memory_utilization_percent(snapshot: HostStatsSnapshot) -> float | None:
-    if snapshot.memory_used_bytes is None or snapshot.memory_total_bytes is None or snapshot.memory_total_bytes == 0:
+    if (
+        snapshot.memory_used_bytes is None
+        or snapshot.memory_total_bytes is None
+        or snapshot.memory_total_bytes == 0
+    ):
         return None
     return 100.0 * snapshot.memory_used_bytes / snapshot.memory_total_bytes
 
@@ -453,14 +501,16 @@ def _read_load_average_1m() -> float | None:
 def _read_uptime_seconds() -> float | None:
     try:
         return float(Path("/proc/uptime").read_text(encoding="utf-8").split()[0])
-    except (OSError, ValueError, IndexError):
+    except OSError, ValueError, IndexError:
         return None
 
 
 def _read_meminfo() -> dict[str, int]:
     values: dict[str, int] = {}
     try:
-        lines: list[str] = Path("/proc/meminfo").read_text(encoding="utf-8").splitlines()
+        lines: list[str] = (
+            Path("/proc/meminfo").read_text(encoding="utf-8").splitlines()
+        )
     except OSError:
         return {}
     for line in lines:
@@ -505,7 +555,9 @@ def _read_cpu_temperature_celsius() -> int | None:
 
 def _read_cpu_clock_mhz() -> int | None:
     frequencies: list[int] = []
-    for path in Path("/sys/devices/system/cpu").glob("cpu[0-9]*/cpufreq/scaling_cur_freq"):
+    for path in Path("/sys/devices/system/cpu").glob(
+        "cpu[0-9]*/cpufreq/scaling_cur_freq"
+    ):
         value: int | None = _optional_int(_read_text(path))
         if value is not None:
             frequencies.append(value // 1000)
@@ -514,7 +566,9 @@ def _read_cpu_clock_mhz() -> int | None:
 
 def _read_cpu_throttle_events() -> int | None:
     counts: list[int] = []
-    for path in Path("/sys/devices/system/cpu").glob("cpu[0-9]*/thermal_throttle/*_throttle_count"):
+    for path in Path("/sys/devices/system/cpu").glob(
+        "cpu[0-9]*/thermal_throttle/*_throttle_count"
+    ):
         value: int | None = _optional_int(_read_text(path))
         if value is not None:
             counts.append(value)
@@ -545,7 +599,9 @@ def _read_network_counters() -> dict[str, tuple[int, int]]:
 
 
 def _read_network_link_speed_megabits_per_second(name: str) -> int | None:
-    speed: int | None = _optional_int(_read_text(Path("/sys/class/net") / name / "speed"))
+    speed: int | None = _optional_int(
+        _read_text(Path("/sys/class/net") / name / "speed")
+    )
     return speed if speed is not None and speed > 0 else None
 
 
@@ -571,9 +627,13 @@ def _read_nvidia_gpus() -> tuple[GpuStats, ...]:
             text=True,
             timeout=_NVIDIA_SMI_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return ()
-    return tuple(gpu for line in result.stdout.splitlines() if (gpu := _parse_nvidia_gpu(line)) is not None)
+    return tuple(
+        gpu
+        for line in result.stdout.splitlines()
+        if (gpu := _parse_nvidia_gpu(line)) is not None
+    )
 
 
 def _read_amdgpu_gpus() -> tuple[GpuStats, ...]:
@@ -590,12 +650,21 @@ def _read_amdgpu_gpus() -> tuple[GpuStats, ...]:
             GpuStats(
                 id=_read_amdgpu_id(device_path, card_path.name),
                 name=name,
-                utilization_percent=_optional_float(_read_text(device_path / "gpu_busy_percent")),
-                memory_used_bytes=_optional_int(_read_text(device_path / "mem_info_vram_used")),
-                memory_total_bytes=_optional_int(_read_text(device_path / "mem_info_vram_total")),
-                temperature_celsius=_rocm_temperature(rocm, "edge") or _read_amdgpu_temperature_celsius(device_path),
-                power_watts=_rocm_power_draw_watts(rocm) or _read_amdgpu_power_watts(device_path),
-                clock_mhz=_rocm_clock_mhz(rocm, "sclk") or _read_amdgpu_clock_mhz(device_path),
+                utilization_percent=_optional_float(
+                    _read_text(device_path / "gpu_busy_percent")
+                ),
+                memory_used_bytes=_optional_int(
+                    _read_text(device_path / "mem_info_vram_used")
+                ),
+                memory_total_bytes=_optional_int(
+                    _read_text(device_path / "mem_info_vram_total")
+                ),
+                temperature_celsius=_rocm_temperature(rocm, "edge")
+                or _read_amdgpu_temperature_celsius(device_path),
+                power_watts=_rocm_power_draw_watts(rocm)
+                or _read_amdgpu_power_watts(device_path),
+                clock_mhz=_rocm_clock_mhz(rocm, "sclk")
+                or _read_amdgpu_clock_mhz(device_path),
                 encoder_utilization_percent=None,
                 decoder_utilization_percent=None,
                 junction_temperature_celsius=_rocm_temperature(rocm, "junction"),
@@ -630,7 +699,7 @@ def _read_pci_gpu_name(identifier: str) -> str:
             text=True,
             timeout=1.0,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return ""
     _, separator, name = result.stdout.strip().partition(": ")
     return name.strip() if separator else ""
@@ -639,7 +708,11 @@ def _read_pci_gpu_name(identifier: str) -> str:
 def _read_rocm_smi_cards() -> dict[str, dict[str, str]]:
     """Return optional AMD GPU telemetry exposed by ROCm SMI's JSON interface."""
 
-    executable: str | None = str(_ROCM_SMI_STANDARD_PATH) if _ROCM_SMI_STANDARD_PATH.is_file() else shutil.which("rocm-smi")
+    executable: str | None = (
+        str(_ROCM_SMI_STANDARD_PATH)
+        if _ROCM_SMI_STANDARD_PATH.is_file()
+        else shutil.which("rocm-smi")
+    )
     if executable is None:
         return {}
     try:
@@ -659,7 +732,7 @@ def _read_rocm_smi_cards() -> dict[str, dict[str, str]]:
             timeout=_ROCM_SMI_TIMEOUT_SECONDS,
         )
         raw_cards: object = cast(object, json.loads(result.stdout))
-    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+    except OSError, subprocess.SubprocessError, json.JSONDecodeError:
         return {}
     if not isinstance(raw_cards, dict):
         return {}
@@ -679,7 +752,10 @@ def _read_rocm_smi_cards() -> dict[str, dict[str, str]]:
 
 def _rocm_value(values: dict[str, str], fragment: str) -> str | None:
     fragment_lower: str = fragment.casefold()
-    return next((value for key, value in values.items() if fragment_lower in key.casefold()), None)
+    return next(
+        (value for key, value in values.items() if fragment_lower in key.casefold()),
+        None,
+    )
 
 
 def _rocm_temperature(values: dict[str, str], sensor: str) -> int | None:
@@ -808,15 +884,22 @@ def _mebibytes_to_bytes(value: int | None) -> int | None:
     return value * 1024 * 1024 if value is not None else None
 
 
-def is_gpu_enabled(gpu: GpuStats, configured: dict[str, HostStatsDeviceSettings]) -> bool:
+def is_gpu_enabled(
+    gpu: GpuStats, configured: dict[str, HostStatsDeviceSettings]
+) -> bool:
     """Return an explicit setting, or hide likely integrated GPUs by default."""
     settings: HostStatsDeviceSettings | None = configured.get(gpu.id)
     if settings is not None:
         return settings.visible
-    return gpu.memory_total_bytes is None or gpu.memory_total_bytes >= _INTEGRATED_GPU_MEMORY_BYTES
+    return (
+        gpu.memory_total_bytes is None
+        or gpu.memory_total_bytes >= _INTEGRATED_GPU_MEMORY_BYTES
+    )
 
 
-def is_network_interface_enabled(network: NetworkStats, configured: dict[str, HostStatsDeviceSettings]) -> bool:
+def is_network_interface_enabled(
+    network: NetworkStats, configured: dict[str, HostStatsDeviceSettings]
+) -> bool:
     """Return an interface override, otherwise hide only the loopback interface."""
 
     settings: HostStatsDeviceSettings | None = configured.get(network.name)
@@ -826,16 +909,28 @@ def is_network_interface_enabled(network: NetworkStats, configured: dict[str, Ho
 def _gpu_utilization(snapshot: HostStatsSnapshot, index: int) -> float | None:
     """Return one GPU utilization reading when that GPU still occupies its slot."""
 
-    return snapshot.gpus[index].utilization_percent if 0 <= index < len(snapshot.gpus) else None
+    return (
+        snapshot.gpus[index].utilization_percent
+        if 0 <= index < len(snapshot.gpus)
+        else None
+    )
 
 
-def _network_rate(snapshot: HostStatsSnapshot, name: str, *, received: bool) -> float | None:
+def _network_rate(
+    snapshot: HostStatsSnapshot, name: str, *, received: bool
+) -> float | None:
     """Return one interface's receive or transmit rate when it remains present."""
 
-    network: NetworkStats | None = next((item for item in snapshot.networks if item.name == name), None)
+    network: NetworkStats | None = next(
+        (item for item in snapshot.networks if item.name == name), None
+    )
     if network is None:
         return None
-    return network.received_bytes_per_second if received else network.transmitted_bytes_per_second
+    return (
+        network.received_bytes_per_second
+        if received
+        else network.transmitted_bytes_per_second
+    )
 
 
 def _time_weighted_average(
@@ -849,7 +944,11 @@ def _time_weighted_average(
     if not samples:
         return None
     latest: HostStatsSnapshot = samples[-1]
-    window_start: float = latest.sampled_at - window_seconds if window_seconds is not None else samples[0].sampled_at
+    window_start: float = (
+        latest.sampled_at - window_seconds
+        if window_seconds is not None
+        else samples[0].sampled_at
+    )
     weighted_total: float = 0.0
     measured_seconds: float = 0.0
     for previous, current in pairwise(samples):

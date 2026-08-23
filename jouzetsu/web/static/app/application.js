@@ -272,6 +272,7 @@ export const startApplication = () => {
     document.addEventListener('scroll', () => messages.closeContextMenu(), true);
 
     document.addEventListener('keydown', (event) => {
+        if (characters.handleKeyDown(event)) return;
         if (event.key === 'Escape' && messages.closeContextMenu()) {
             event.preventDefault();
             return;
@@ -350,6 +351,7 @@ export const startApplication = () => {
     });
 
     composer.reconcileViewport();
+    characters.initialize();
     composer.restoreHeight();
     localizeMessageUpdatedTimes();
     composer.autoSizeInput(document.querySelector('.jouzetsu-message-input'));
@@ -361,6 +363,7 @@ export const startApplication = () => {
     if (!messages.restoreScrollAfterNavigation()) messages.scrollListToBottom(byId('message-list'));
 
     window.addEventListener('resize', () => composer.scheduleViewportReconciliation());
+    window.addEventListener('resize', () => characters.handleViewportChange());
     window.visualViewport?.addEventListener('resize', () => composer.scheduleViewportReconciliation());
     window.visualViewport?.addEventListener('scroll', () => composer.scheduleViewportReconciliation());
     window.addEventListener('popstate', () => void chat.handlePopstate());

@@ -15,6 +15,8 @@ def test_case_preserving_word_replacements_keep_common_case_shapes() -> None:
 def test_word_replacements_do_not_replace_inside_identifiers() -> None:
     replacements = [SpellingReplacement("color", "colour")]
 
-    result = apply_case_preserving_word_replacements("color my_color color2 color-coded", replacements)
+    result = apply_case_preserving_word_replacements(
+        "color my_color color2 color-coded", replacements
+    )
 
     assert result == "colour my_color color2 colour-coded"

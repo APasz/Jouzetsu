@@ -12,7 +12,10 @@ from typing import ClassVar, Literal
 from .paths import AppPaths, default_paths
 
 MessageActionIconStyle = Literal["monochrome", "muted_color"]
-MESSAGE_ACTION_ICON_STYLES: tuple[MessageActionIconStyle, ...] = ("monochrome", "muted_color")
+MESSAGE_ACTION_ICON_STYLES: tuple[MessageActionIconStyle, ...] = (
+    "monochrome",
+    "muted_color",
+)
 CONTINUE_PROMPT_CONTENT: str = (
     "Continue the previous assistant response exactly from where it stopped. "
     "Do not repeat earlier text and do not add prefatory wording."
@@ -60,11 +63,13 @@ class ServerSettings:
         if not self.base_url.strip():
             raise ValueError("base_url cannot be blank")
         if self.auto_unload_minutes is not None and (
-            type(self.auto_unload_minutes) is not int
-            or self.auto_unload_minutes < 1
+            type(self.auto_unload_minutes) is not int or self.auto_unload_minutes < 1
         ):
             raise ValueError("auto_unload_minutes must be an integer of at least 1")
-        if any(not key.strip() or not value.strip() for key, value in self.model_aliases.items()):
+        if any(
+            not key.strip() or not value.strip()
+            for key, value in self.model_aliases.items()
+        ):
             raise ValueError("model aliases must use non-empty keys and values")
 
     def apply(self, settings: ServerSettings) -> None:
@@ -87,8 +92,13 @@ class SpellingReplacement:
 
     def validate(self) -> None:
         if not self.source.strip() or not self.replacement.strip():
-            raise ValueError("spelling replacement source and replacement cannot be empty")
-        if self.source != self.source.strip() or self.replacement != self.replacement.strip():
+            raise ValueError(
+                "spelling replacement source and replacement cannot be empty"
+            )
+        if (
+            self.source != self.source.strip()
+            or self.replacement != self.replacement.strip()
+        ):
             raise ValueError("spelling replacements cannot have surrounding whitespace")
         if any(character.isspace() for character in self.source + self.replacement):
             raise ValueError("spelling replacements must each be one word")
@@ -118,16 +128,19 @@ class GenerationSettings:
         if isinstance(self.temperature, bool) or not math.isfinite(self.temperature):
             raise ValueError("temperature must be a finite number")
         if not self.MIN_TEMPERATURE <= self.temperature <= self.MAX_TEMPERATURE:
-            raise ValueError(f"temperature must be between {self.MIN_TEMPERATURE:g} and {self.MAX_TEMPERATURE:g}")
+            raise ValueError(
+                f"temperature must be between {self.MIN_TEMPERATURE:g} and {self.MAX_TEMPERATURE:g}"
+            )
         if isinstance(self.top_p, bool) or not math.isfinite(self.top_p):
             raise ValueError("top_p must be a finite number")
         if not self.MIN_TOP_P <= self.top_p <= self.MAX_TOP_P:
-            raise ValueError(f"top_p must be between {self.MIN_TOP_P:g} and {self.MAX_TOP_P:g}")
-        if (
-            type(self.max_tokens) is not int
-            or self.max_tokens < self.MIN_MAX_TOKENS
-        ):
-            raise ValueError(f"max_tokens must be an integer of at least {self.MIN_MAX_TOKENS}")
+            raise ValueError(
+                f"top_p must be between {self.MIN_TOP_P:g} and {self.MAX_TOP_P:g}"
+            )
+        if type(self.max_tokens) is not int or self.max_tokens < self.MIN_MAX_TOKENS:
+            raise ValueError(
+                f"max_tokens must be an integer of at least {self.MIN_MAX_TOKENS}"
+            )
         if not _are_booleans(self.continuity_review, self.british_english):
             raise ValueError("continuity_review and british_english must be booleans")
         seen_sources: set[str] = set()
@@ -135,7 +148,9 @@ class GenerationSettings:
             replacement.validate()
             source_key: str = replacement.source.casefold()
             if source_key in seen_sources:
-                raise ValueError(f"duplicate spelling replacement source: {replacement.source}")
+                raise ValueError(
+                    f"duplicate spelling replacement source: {replacement.source}"
+                )
             seen_sources.add(source_key)
 
 
@@ -196,27 +211,50 @@ class ThemeSettings:
     primary_subtle: str = field(default_factory=_theme_value_factory("primary_subtle"))
     on_accent: str = field(default_factory=_theme_value_factory("on_accent"))
     secondary: str = field(default_factory=_theme_value_factory("secondary"))
-    secondary_muted: str = field(default_factory=_theme_value_factory("secondary_muted"))
-    secondary_subtle: str = field(default_factory=_theme_value_factory("secondary_subtle"))
+    secondary_muted: str = field(
+        default_factory=_theme_value_factory("secondary_muted")
+    )
+    secondary_subtle: str = field(
+        default_factory=_theme_value_factory("secondary_subtle")
+    )
     edit: str = field(default_factory=_theme_value_factory("edit"))
-    streaming_highlight: str = field(default_factory=_theme_value_factory("streaming_highlight"))
+    streaming_highlight: str = field(
+        default_factory=_theme_value_factory("streaming_highlight")
+    )
     action_delete: str = field(default_factory=_theme_value_factory("action_delete"))
-    action_regenerate: str = field(default_factory=_theme_value_factory("action_regenerate"))
-    action_delete_muted: str = field(default_factory=_theme_value_factory("action_delete_muted"))
-    action_regenerate_muted: str = field(default_factory=_theme_value_factory("action_regenerate_muted"))
-    action_merge_muted: str = field(default_factory=_theme_value_factory("action_merge_muted"))
-    action_edit_muted: str = field(default_factory=_theme_value_factory("action_edit_muted"))
-    action_continue_muted: str = field(default_factory=_theme_value_factory("action_continue_muted"))
+    action_regenerate: str = field(
+        default_factory=_theme_value_factory("action_regenerate")
+    )
+    action_delete_muted: str = field(
+        default_factory=_theme_value_factory("action_delete_muted")
+    )
+    action_regenerate_muted: str = field(
+        default_factory=_theme_value_factory("action_regenerate_muted")
+    )
+    action_merge_muted: str = field(
+        default_factory=_theme_value_factory("action_merge_muted")
+    )
+    action_edit_muted: str = field(
+        default_factory=_theme_value_factory("action_edit_muted")
+    )
+    action_continue_muted: str = field(
+        default_factory=_theme_value_factory("action_continue_muted")
+    )
 
     def values(self) -> dict[str, str]:
         """Return the palette using the dataclass fields as its only key source."""
 
-        return {theme_field.name: getattr(self, theme_field.name) for theme_field in fields(self)}
+        return {
+            theme_field.name: getattr(self, theme_field.name)
+            for theme_field in fields(self)
+        }
 
     def validate(self) -> None:
         for field_name, value in self.values().items():
             if not _HEX_COLOR_PATTERN.fullmatch(value):
-                raise ValueError(f"theme.{field_name} must be a six-digit hexadecimal color")
+                raise ValueError(
+                    f"theme.{field_name} must be a six-digit hexadecimal color"
+                )
 
 
 @dataclass
@@ -230,15 +268,14 @@ class UiSettings:
     active_chat_id: str = ""
     message_action_icon_style: MessageActionIconStyle = "monochrome"
     icon_colors: IconColorSettings = field(default_factory=IconColorSettings)
-    starter_prompts: list[StarterPrompt] = field(default_factory=lambda: list(DEFAULT_STARTER_PROMPTS))
+    starter_prompts: list[StarterPrompt] = field(
+        default_factory=lambda: list(DEFAULT_STARTER_PROMPTS)
+    )
 
     def validate(self) -> None:
         if not self.host.strip():
             raise ValueError("host cannot be blank")
-        if (
-            type(self.port) is not int
-            or not 1 <= self.port <= 65535
-        ):
+        if type(self.port) is not int or not 1 <= self.port <= 65535:
             raise ValueError("port must be an integer between 1 and 65535")
         if not _are_booleans(self.dark_mode, self.auto_open_browser):
             raise ValueError("dark_mode and auto_open_browser must be booleans")
@@ -394,7 +431,10 @@ class AppConfig:
             self.paths.characters_directory,
             self.paths.character_presets_directory,
         )
-        if any(protected_path.is_relative_to(log_directory) for protected_path in protected_paths):
+        if any(
+            protected_path.is_relative_to(log_directory)
+            for protected_path in protected_paths
+        ):
             raise ValueError("logging.directory must not contain application data")
         self.host_stats.validate()
         self.access.validate()
