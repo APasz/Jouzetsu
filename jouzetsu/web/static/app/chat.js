@@ -169,7 +169,6 @@ export class ChatController {
                 this.#notices.announce(error, true);
                 return;
             }
-            this.#syncLiveDeviceCard(form);
             await Promise.all([this.replaceFragment(), this.refreshPanels()]);
             this.#notices.announce(form.dataset.liveNotice || 'Saved');
         } catch {
@@ -427,20 +426,4 @@ export class ChatController {
         this.#setHistoryUrl(url, true);
     }
 
-    #syncLiveDeviceCard(form) {
-        const card = form.closest('.jouzetsu-device-card');
-        if (!(card instanceof HTMLElement)) return;
-        if (form.dataset.liveDeviceAccess === 'true') {
-            const checkbox = form.querySelector('input[name="access_allowed"]');
-            const status = card.querySelector('[data-live-device-access-status]');
-            if (checkbox instanceof HTMLInputElement && status instanceof HTMLElement) {
-                status.textContent = checkbox.checked ? ' · allowed' : ' · pending';
-            }
-        }
-        const label = form.querySelector('input[name="label"]');
-        const labelTarget = card.querySelector('[data-live-device-label]');
-        if (label instanceof HTMLInputElement && labelTarget instanceof HTMLElement) {
-            labelTarget.textContent = label.value.trim() || form.dataset.liveDeviceFallback || '';
-        }
-    }
 }

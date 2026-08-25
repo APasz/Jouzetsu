@@ -186,6 +186,20 @@ def _register_page_routes(context: RouteContext) -> None:
             error=_query_text(request, "error"),
         )
 
+    @context.route("GET", "/access/denied", "access_denied_preview")
+    async def access_denied_preview(request: Request) -> FT:
+        """Let localhost administrators view the page shown to unapproved browsers."""
+
+        request_context: _RequestContext = await context.access.require(
+            request, require_access_management=True
+        )
+        return render_locked_access_page(
+            request_context.page,
+            bootstrap_device=False,
+            approval_phrase_enabled=bool(context.config.access.approval_phrase),
+            preview=True,
+        )
+
     @context.route("GET", "/chats", "chats")
     async def chats(request: Request) -> FT:
         return await render_chat_page(request)
@@ -844,6 +858,16 @@ def _register_settings_routes(context: RouteContext) -> None:
 
 
 def _register_access_routes(context: RouteContext) -> None:
+    @context.route(
+        "POST", "/access/current-device/activity", "record_current_device_activity"
+    )
+    async def record_current_device_activity(request: Request) -> Response:
+        """Accept a CSRF-protected, visible-tab browser activity heartbeat."""
+
+        await require_csrf_token(request)
+        await context.access.record_current_device_activity(request)
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
     @context.route("POST", "/access/current-device/approve", "approve_current_device")
     async def approve_current_device(request: Request) -> Response:
         async def operation() -> None:
@@ -944,6 +968,28 @@ def _register_access_routes(context: RouteContext) -> None:
                 device_id, form.flag("access_allowed")
             ),
             notice="Device access saved",
+            require_access_management=True,
+            dialog="access",
+        )
+
+    @context.route(
+        "POST", "/access/devices/{device_id}/forget", "forget_pending_device"
+    )
+    async def forget_pending_device(request: Request) -> Response:
+        device_id: str = _path_text(request, "device_id")
+
+        async def operation() -> None:
+            request_context: _RequestContext = await context.access.context(
+                request, register_device=False
+            )
+            if device_id == request_context.page.decision.device_id:
+                raise ValueError("the current browser cannot be forgotten")
+            await context.state.forget_pending_access_device(device_id)
+
+        return await context.mutations.perform(
+            request,
+            operation,
+            notice="Pending device forgotten",
             require_access_management=True,
             dialog="access",
         )

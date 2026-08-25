@@ -1,6 +1,7 @@
 import { CharacterEditorController } from './character-editor.js';
 import { ChatController } from './chat.js';
 import { ComposerController, currentComposerDraft } from './composer.js';
+import { DeviceActivityController } from './device-activity.js';
 import { DraftController } from './drafts.js';
 import { byId, localizeMessageUpdatedTimes } from './dom.js';
 import { addCsrfToken } from './forms.js';
@@ -92,6 +93,7 @@ export const startApplication = () => {
     const characters = new CharacterEditorController();
     const messages = new MessageController();
     const drafts = new DraftController(currentComposerDraft, notices.announce.bind(notices));
+    const deviceActivity = new DeviceActivityController();
     const panels = new PanelController();
     const hostStats = new HostStatsController();
     const chat = new ChatController({ composer, messages, drafts, notices, panels });
@@ -377,6 +379,7 @@ export const startApplication = () => {
     window.addEventListener('pagehide', () => drafts.persistOnPageHide());
 
     bootstrapDeviceCookie();
+    deviceActivity.start();
     const requestedDialogId = document.querySelector('[data-open-dialog]')?.getAttribute('data-open-dialog');
     if (requestedDialogId) {
         const dialog = byId(requestedDialogId);

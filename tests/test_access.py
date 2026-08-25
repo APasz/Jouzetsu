@@ -5,10 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 from jouzetsu.access import (
     access_decision,
+    forget_pending_device,
     is_device_access_approval_phrase,
+    refresh_seen_device,
     register_seen_device,
     set_device_access,
     set_device_label,
@@ -104,6 +107,24 @@ class AccessTests(unittest.TestCase):
 
         self.assertEqual(config.access.devices[device_id].label, "Phone")
 
+    def test_pending_device_can_be_forgotten_but_approved_device_cannot(self) -> None:
+        pending_device_id = "dvc_12345678-abcd-4000-abcd-123456789abc"
+        approved_device_id = "dvc_abcdef12-abcd-4000-abcd-123456789abc"
+        config = AppConfig()
+        config.access.devices[pending_device_id] = DeviceAccessSettings()
+        config.access.devices[approved_device_id] = DeviceAccessSettings(
+            access_allowed=True
+        )
+
+        forget_pending_device(config, device_id=pending_device_id)
+
+        self.assertNotIn(pending_device_id, config.access.devices)
+        with self.assertRaisesRegex(
+            ValueError, "approved devices must have access revoked instead"
+        ):
+            forget_pending_device(config, device_id=approved_device_id)
+        self.assertIn(approved_device_id, config.access.devices)
+
     def test_seen_device_records_network_details(self) -> None:
         device_id = "dvc_12345678-abcd-4000-abcd-123456789abc"
         config = AppConfig()
@@ -119,6 +140,124 @@ class AccessTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(config.access.devices[device_id].last_ip, "192.168.1.20")
         self.assertEqual(config.access.devices[device_id].hostname, "phone.local")
+
+    def test_device_activity_refresh_is_throttled_but_network_changes_persist(
+        self,
+    ) -> None:
+        device_id = "dvc_12345678-abcd-4000-abcd-123456789abc"
+        config = AppConfig()
+        config.access.devices[device_id] = DeviceAccessSettings(
+            label="Phone",
+            last_ip="192.168.1.20",
+            hostname="phone.local",
+            first_seen_at="2026-08-26T12:00:00Z",
+            last_seen_at="2026-08-26T12:00:00Z",
+        )
+
+        with patch(
+            "jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:01:00Z"
+        ):
+            changed = refresh_seen_device(
+                config,
+                device_id=device_id,
+                label="Phone",
+                last_ip="192.168.1.20",
+            )
+
+        self.assertFalse(changed)
+        self.assertEqual(
+            config.access.devices[device_id].last_seen_at, "2026-08-26T12:00:00Z"
+        )
+
+        with patch(
+            "jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:02:00Z"
+        ):
+            changed = refresh_seen_device(
+                config,
+                device_id=device_id,
+                label="Phone",
+                last_ip="192.168.1.20",
+            )
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            config.access.devices[device_id].last_seen_at, "2026-08-26T12:02:00Z"
+        )
+
+        with patch(
+            "jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:02:30Z"
+        ):
+            changed = refresh_seen_device(
+                config,
+                device_id=device_id,
+                label="Phone",
+                last_ip="192.168.1.21",
+                hostname="new-phone.local",
+            )
+
+        self.assertTrue(changed)
+        self.assertEqual(config.access.devices[device_id].last_ip, "192.168.1.21")
+        self.assertEqual(config.access.devices[device_id].hostname, "new-phone.local")
+        self.assertEqual(
+            config.access.devices[device_id].last_seen_at, "2026-08-26T12:02:30Z"
+        )
+
+        with patch(
+            "jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:03:00Z"
+        ):
+            changed = refresh_seen_device(
+                config,
+                device_id=device_id,
+                label="Phone",
+                last_ip="192.168.1.22",
+                hostname_observed=True,
+            )
+
+        self.assertTrue(changed)
+        self.assertEqual(config.access.devices[device_id].last_ip, "192.168.1.22")
+        self.assertEqual(config.access.devices[device_id].hostname, "")
+
+    def test_activity_refresh_does_not_recreate_a_forgotten_device(self) -> None:
+        device_id = "dvc_12345678-abcd-4000-abcd-123456789abc"
+        config = AppConfig()
+
+        changed = refresh_seen_device(
+            config,
+            device_id=device_id,
+            label="Phone",
+            last_ip="192.168.1.20",
+        )
+
+        self.assertFalse(changed)
+        self.assertNotIn(device_id, config.access.devices)
+
+    def test_activity_refresh_does_not_rewrite_an_unchanged_generic_label(self) -> None:
+        device_id = "dvc_12345678-abcd-4000-abcd-123456789abc"
+        config = AppConfig()
+        config.access.devices[device_id] = DeviceAccessSettings(
+            label="localhost",
+            last_ip="127.0.0.1",
+            hostname="localhost",
+            first_seen_at="2026-08-26T12:00:00Z",
+            last_seen_at="2026-08-26T12:00:00Z",
+        )
+
+        with patch(
+            "jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:01:00Z"
+        ):
+            changed = refresh_seen_device(
+                config,
+                device_id=device_id,
+                label="localhost",
+                last_ip="127.0.0.1",
+                hostname="localhost",
+                hostname_observed=True,
+            )
+
+        self.assertFalse(changed)
+        self.assertEqual(
+            config.access.devices[device_id].last_seen_at, "2026-08-26T12:00:00Z"
+        )
 
     def test_network_reassociation_is_disabled_by_default(self) -> None:
         old_device_id = "dvc_12345678-abcd-4000-abcd-123456789abc"

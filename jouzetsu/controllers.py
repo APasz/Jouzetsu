@@ -9,7 +9,13 @@ from dataclasses import dataclass, field
 from logging import Logger
 from typing import Protocol
 
-from .access import register_seen_device, set_device_access, set_device_label
+from .access import (
+    forget_pending_device,
+    refresh_seen_device,
+    register_seen_device,
+    set_device_access,
+    set_device_label,
+)
 from .config import AppConfig, ConfigStore
 from .events import StateChangeKind
 from .lmstudio import LMStudioClientProtocol
@@ -147,6 +153,7 @@ class AccessController:
 
     config: AppConfig
     persist_config: Callable[[], Awaitable[None]]
+    persist_activity: Callable[[], Awaitable[None]]
 
     async def set_defaults(
         self,
@@ -169,6 +176,10 @@ class AccessController:
         )
         await self.persist_config()
 
+    async def forget_pending_device(self, device_id: str) -> None:
+        forget_pending_device(self.config, device_id=device_id)
+        await self.persist_config()
+
     async def register_device(
         self,
         device_id: str,
@@ -187,6 +198,28 @@ class AccessController:
             return False
         await self.persist_config()
         return True
+
+    async def refresh_device_activity(
+        self,
+        device_id: str,
+        label: str,
+        *,
+        last_ip: str,
+        hostname: str,
+        hostname_observed: bool,
+    ) -> None:
+        """Persist an existing browser's activity without notifying every client."""
+
+        if not refresh_seen_device(
+            self.config,
+            device_id=device_id,
+            label=label,
+            last_ip=last_ip,
+            hostname=hostname,
+            hostname_observed=hostname_observed,
+        ):
+            return
+        await self.persist_activity()
 
     async def set_device_label(self, device_id: str, label: str) -> None:
         set_device_label(self.config, device_id=device_id, label=label)

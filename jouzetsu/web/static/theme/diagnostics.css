@@ -1,5 +1,4 @@
 /* Host statistics */
-.jouzetsu-device-card,
 .jouzetsu-model-card,
 .jouzetsu-log-panel,
 .jouzetsu-stats-section {
@@ -29,14 +28,12 @@
     border-top: 1px solid var(--jouzetsu-border);
 }
 
-.jouzetsu-device-card summary,
 .jouzetsu-model-card summary {
     padding: 9px 10px;
     cursor: pointer;
     color: var(--jouzetsu-secondary);
 }
 
-.jouzetsu-device-details,
 .jouzetsu-model-details {
     display: flex;
     flex-direction: column;
@@ -45,7 +42,6 @@
     border-top: 1px solid var(--jouzetsu-secondary-dim);
 }
 
-.jouzetsu-device-details p,
 .jouzetsu-model-details p {
     margin: 0;
     color: var(--jouzetsu-text-dim);
@@ -137,4 +133,3 @@
     font-family: var(--jouzetsu-font-mono);
     font-size: 11px;
 }
-

@@ -175,6 +175,211 @@
     gap: 7px;
 }
 
+.jouzetsu-device-list {
+    gap: 14px;
+}
+
+.jouzetsu-device-section {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.jouzetsu-device-section-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.jouzetsu-device-section-title {
+    margin: 0;
+    color: var(--jouzetsu-secondary);
+    font-family: var(--jouzetsu-font-display);
+    font-size: 13px;
+    letter-spacing: 0.035em;
+}
+
+.jouzetsu-device-section-header small {
+    color: var(--jouzetsu-text-dim);
+    font-size: 11px;
+}
+
+.jouzetsu-device-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid var(--jouzetsu-border);
+    background: var(--jouzetsu-surface-2);
+}
+
+.jouzetsu-device-card.is-pending {
+    border-left: 3px solid var(--jouzetsu-primary);
+}
+
+.jouzetsu-device-card.is-allowed {
+    border-left: 3px solid var(--jouzetsu-secondary-dim);
+}
+
+.jouzetsu-device-card.is-current {
+    border-color: var(--jouzetsu-secondary-dim);
+    border-left-color: var(--jouzetsu-secondary);
+}
+
+.jouzetsu-device-card-summary {
+    position: relative;
+    display: block;
+    padding-right: 28px;
+    list-style: none;
+    cursor: pointer;
+}
+
+.jouzetsu-device-card-summary::-webkit-details-marker {
+    display: none;
+}
+
+.jouzetsu-device-card-summary::after {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    color: var(--jouzetsu-secondary);
+    content: "+";
+    font-size: 18px;
+    line-height: 1;
+    transform: translateY(-50%);
+}
+
+.jouzetsu-device-card[open] > .jouzetsu-device-card-summary::after {
+    content: "−";
+}
+
+.jouzetsu-device-card-summary:focus-visible {
+    outline: 1px solid var(--jouzetsu-secondary);
+    outline-offset: 4px;
+}
+
+.jouzetsu-device-identity {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    gap: 3px;
+}
+
+.jouzetsu-device-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+    gap: 8px;
+}
+
+.jouzetsu-device-state {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 5px;
+}
+
+.jouzetsu-device-status,
+.jouzetsu-device-current-label {
+    display: inline-flex;
+    width: fit-content;
+    padding: 2px 5px;
+    border: 1px solid var(--jouzetsu-border-strong);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.jouzetsu-device-status.is-pending {
+    border-color: var(--jouzetsu-primary-dim);
+    background: var(--jouzetsu-primary-soft);
+    color: var(--jouzetsu-primary-hover);
+}
+
+.jouzetsu-device-status.is-allowed,
+.jouzetsu-device-current-label {
+    border-color: var(--jouzetsu-secondary-dim);
+    background: var(--jouzetsu-secondary-soft);
+    color: var(--jouzetsu-secondary);
+}
+
+.jouzetsu-device-current-label {
+    color: var(--jouzetsu-text-dim);
+}
+
+.jouzetsu-device-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--jouzetsu-text);
+    font-size: 13px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jouzetsu-device-network,
+.jouzetsu-device-last-active {
+    overflow-wrap: anywhere;
+    color: var(--jouzetsu-text-dim);
+    font-size: 11px;
+}
+
+.jouzetsu-device-card-details {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--jouzetsu-border);
+}
+
+.jouzetsu-device-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.jouzetsu-device-metadata {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    border: 1px solid var(--jouzetsu-border);
+    background: var(--jouzetsu-border);
+}
+
+.jouzetsu-device-metadata-item {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 3px;
+    padding: 7px 8px;
+    background: var(--jouzetsu-surface);
+}
+
+.jouzetsu-device-metadata-item:last-child {
+    grid-column: 1 / -1;
+}
+
+.jouzetsu-device-metadata-label {
+    color: var(--jouzetsu-text-dim);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.jouzetsu-device-metadata-value {
+    overflow-wrap: anywhere;
+    color: var(--jouzetsu-text);
+    font-size: 11px;
+}
+
 .jouzetsu-chat-list {
     flex: 1 1 auto;
     min-height: 0;
@@ -440,7 +645,7 @@
 }
 
 .jouzetsu-global-settings-form,
-.jouzetsu-device-details form {
+.jouzetsu-device-card-details form {
     display: flex;
     flex-direction: column;
     gap: 12px;

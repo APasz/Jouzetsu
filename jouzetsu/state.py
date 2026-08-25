@@ -79,7 +79,11 @@ class AppState:
             config_store or ConfigStore.for_paths(config.paths),
             storage,
         )
-        self._access: AccessController = AccessController(config, self._commit_config)
+        self._access: AccessController = AccessController(
+            config=config,
+            persist_config=self._commit_config,
+            persist_activity=self._commit_access_activity,
+        )
         self._host_stats: HostStatsMonitor = HostStatsMonitor()
         self._empty_chat_messages: EmptyChatMessageProvider = EmptyChatMessageProvider(
             config.data_dir
@@ -899,6 +903,12 @@ class AppState:
             access_allowed,
         )
 
+    async def forget_pending_access_device(self, device_id: str) -> None:
+        """Remove one rejected pending browser from the access configuration."""
+
+        await self._access.forget_pending_device(device_id)
+        log.info("pending device forgotten device_id=%s", device_id)
+
     async def register_access_device(
         self,
         device_id: str,
@@ -915,6 +925,25 @@ class AppState:
             hostname=hostname,
         ):
             return
+
+    async def refresh_access_device_activity(
+        self,
+        device_id: str,
+        label: str,
+        *,
+        last_ip: str = "",
+        hostname: str = "",
+        hostname_observed: bool = False,
+    ) -> None:
+        """Quietly persist a known browser's latest active time."""
+
+        await self._access.refresh_device_activity(
+            device_id,
+            label,
+            last_ip=last_ip,
+            hostname=hostname,
+            hostname_observed=hostname_observed,
+        )
 
     async def set_access_device_label(self, device_id: str, label: str) -> None:
         """Persist one known browser/device label."""
@@ -1075,6 +1104,11 @@ class AppState:
 
     async def _commit_config(self) -> None:
         await self._commit(config=True)
+
+    async def _commit_access_activity(self) -> None:
+        """Save a heartbeat without prompting every connected browser to refresh."""
+
+        await self._commit(config=True, notify=False)
 
     async def _commit(
         self,

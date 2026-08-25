@@ -6,9 +6,9 @@ import ipaddress
 import logging
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from logging import Logger
-from typing import Literal
+from typing import Final, Literal
 
 from .config import AppConfig, DeviceAccessSettings
 
@@ -18,6 +18,7 @@ DEVICE_ID_COOKIE_NAME: str = "jouzetsu_device_id"
 DEVICE_ID_MAX_AGE_SECONDS: int = 60 * 60 * 24 * 365
 _DEVICE_ID_PATTERN = re.compile(r"^dvc_[A-Za-z0-9_-]{8,160}$")
 _LOCALHOST_LABELS: frozenset[str] = frozenset({"127.0.0.1", "0.0.0.0", "localhost"})
+_DEVICE_ACTIVITY_PERSIST_INTERVAL: Final[timedelta] = timedelta(minutes=2)
 
 AccessReason = Literal[
     "public", "localhost", "approved_device", "pending_device", "missing_device_id"
@@ -209,7 +210,52 @@ def register_seen_device(
     last_ip: str = "",
     hostname: str = "",
 ) -> bool:
-    """Record or refresh a pending/known device. Returns whether config changed."""
+    """Record a new device or refresh a known device's activity."""
+
+    return _record_seen_device(
+        config,
+        device_id=device_id,
+        label=label,
+        last_ip=last_ip,
+        hostname=hostname,
+        register_missing=True,
+    )
+
+
+def refresh_seen_device(
+    config: AppConfig,
+    *,
+    device_id: str,
+    label: str,
+    last_ip: str = "",
+    hostname: str = "",
+    hostname_observed: bool = False,
+) -> bool:
+    """Refresh one existing device without recreating a forgotten request."""
+
+    return _record_seen_device(
+        config,
+        device_id=device_id,
+        label=label,
+        last_ip=last_ip,
+        hostname=hostname,
+        hostname_observed=hostname_observed,
+        register_missing=False,
+    )
+
+
+def _record_seen_device(
+    config: AppConfig,
+    *,
+    device_id: str,
+    label: str,
+    last_ip: str,
+    hostname: str,
+    register_missing: bool,
+    hostname_observed: bool = False,
+) -> bool:
+    """Apply one browser observation, throttling activity-only config writes."""
+
     normalised_device_id: str = normalise_device_id(device_id)
     if not normalised_device_id:
         return False
@@ -218,13 +264,27 @@ def register_seen_device(
     clean_label: str = label.strip()
     clean_last_ip: str = last_ip.strip()
     clean_hostname: str = hostname.strip()
-    canonical_device_id, device, changed = _known_device_for_registration(
-        config,
-        device_id=normalised_device_id,
-        last_ip=clean_last_ip,
-        hostname=clean_hostname,
+    if register_missing:
+        canonical_device_id, device, changed = _known_device_for_registration(
+            config,
+            device_id=normalised_device_id,
+            last_ip=clean_last_ip,
+            hostname=clean_hostname,
+        )
+    else:
+        canonical_device_id = normalised_device_id
+        device = config.access.devices.get(canonical_device_id)
+        changed = False
+        if device is None:
+            return False
+    should_apply_label: bool = device is None or (
+        bool(clean_label)
+        and device.label != clean_label
+        and (not device.label or is_replaceable_localhost_label(device.label))
     )
-    if _label_conflict(config, device_id=normalised_device_id, label=clean_label):
+    if should_apply_label and _label_conflict(
+        config, device_id=canonical_device_id, label=clean_label
+    ):
         log.warning(
             "device label %r already belongs to another device; keeping existing label",
             clean_label,
@@ -246,22 +306,41 @@ def register_seen_device(
         )
         return True
 
-    should_update_label: bool = bool(clean_label) and (
-        not device.label or is_replaceable_localhost_label(device.label)
-    )
-    if should_update_label:
+    if should_apply_label and clean_label:
         device.label = clean_label
         changed = True
     if clean_last_ip and device.last_ip != clean_last_ip:
         device.last_ip = clean_last_ip
         changed = True
-    if clean_hostname and device.hostname != clean_hostname:
+    if (clean_hostname or hostname_observed) and device.hostname != clean_hostname:
         device.hostname = clean_hostname
         changed = True
-    if device.last_seen_at != now:
+    if changed or _is_device_activity_update_due(device.last_seen_at, now=now):
         device.last_seen_at = now
         changed = True
     return changed
+
+
+def _is_device_activity_update_due(last_seen_at: str, *, now: str) -> bool:
+    """Return whether a browser observation merits a persisted activity update."""
+
+    previous: datetime | None = _parse_utc_timestamp(last_seen_at)
+    observed: datetime | None = _parse_utc_timestamp(now)
+    if previous is None or observed is None:
+        return True
+    return observed - previous >= _DEVICE_ACTIVITY_PERSIST_INTERVAL
+
+
+def _parse_utc_timestamp(value: str) -> datetime | None:
+    """Parse a stored ISO timestamp, rejecting legacy naive values."""
+
+    try:
+        timestamp: datetime = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    if timestamp.tzinfo is None:
+        return None
+    return timestamp.astimezone(UTC)
 
 
 def _require_device(
@@ -284,6 +363,15 @@ def set_device_access(
     """Update one known device's allow flag."""
     _, device = _require_device(config, device_id=device_id)
     device.access_allowed = access_allowed
+
+
+def forget_pending_device(config: AppConfig, *, device_id: str) -> None:
+    """Remove one pending device record so a later request starts fresh."""
+
+    normalised_device_id, device = _require_device(config, device_id=device_id)
+    if device.access_allowed:
+        raise ValueError("approved devices must have access revoked instead")
+    del config.access.devices[normalised_device_id]
 
 
 def set_device_label(config: AppConfig, *, device_id: str, label: str) -> None:

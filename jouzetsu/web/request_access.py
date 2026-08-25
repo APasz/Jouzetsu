@@ -18,7 +18,7 @@ from ..access import (
     is_localhost_ip,
 )
 from ..async_workers import run_in_worker
-from ..config import AppConfig
+from ..config import AppConfig, DeviceAccessSettings
 from ..state import AppState
 from .security import csrf_token_for_request, require_csrf_token
 from .views.context import PageContext
@@ -63,7 +63,7 @@ class RequestAccess:
             and self._config.access.default_private
             and decision.device_id
         ):
-            await self._register_pending_device(
+            await self._record_device_activity(
                 decision.device_id,
                 client_ip=client_ip,
                 client_label=client_label,
@@ -107,6 +107,76 @@ class RequestAccess:
         if require_access_management and not decision.can_manage_access:
             raise HTTPException(403, "access management is localhost-only")
         return context
+
+    async def record_current_device_activity(self, request: Request) -> None:
+        """Record a visible browser's activity without granting it any access."""
+
+        context: RequestContext = await self.context(request, register_device=False)
+        if not self._config.access.default_private:
+            return
+        device_id: str = context.page.decision.device_id
+        if not device_id:
+            return
+        await self._refresh_known_device_activity(
+            device_id,
+            client_ip=context.client_ip,
+            client_label=context.page.client_label,
+            is_localhost=context.page.decision.is_localhost,
+        )
+
+    async def _record_device_activity(
+        self,
+        device_id: str,
+        *,
+        client_ip: str,
+        client_label: str,
+        is_localhost: bool,
+    ) -> None:
+        """Register an unknown browser or quietly refresh a known one."""
+
+        if device_id in self._config.access.devices:
+            await self._refresh_known_device_activity(
+                device_id,
+                client_ip=client_ip,
+                client_label=client_label,
+                is_localhost=is_localhost,
+            )
+            return
+        await self._register_pending_device(
+            device_id,
+            client_ip=client_ip,
+            client_label=client_label,
+            is_localhost=is_localhost,
+        )
+
+    async def _refresh_known_device_activity(
+        self,
+        device_id: str,
+        *,
+        client_ip: str,
+        client_label: str,
+        is_localhost: bool,
+    ) -> None:
+        """Refresh an existing device, resolving hostname only after an IP change."""
+
+        device: DeviceAccessSettings | None = self._config.access.devices.get(device_id)
+        if device is None:
+            return
+        hostname: str = ""
+        hostname_observed: bool = False
+        if is_localhost:
+            hostname = _host_label()
+            hostname_observed = True
+        elif device.last_ip != client_ip:
+            hostname = await _reverse_hostname(client_ip)
+            hostname_observed = True
+        await self._state.refresh_access_device_activity(
+            device_id,
+            client_label,
+            last_ip=client_ip,
+            hostname=hostname,
+            hostname_observed=hostname_observed,
+        )
 
     async def _register_pending_device(
         self,

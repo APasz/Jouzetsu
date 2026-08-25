@@ -154,6 +154,19 @@
         grid-template-columns: 1fr;
     }
 
+    .jouzetsu-device-card-actions .jouzetsu-inline-form,
+    .jouzetsu-device-card-actions .jouzetsu-button {
+        width: 100%;
+    }
+
+    .jouzetsu-device-metadata {
+        grid-template-columns: 1fr;
+    }
+
+    .jouzetsu-device-metadata-item:last-child {
+        grid-column: auto;
+    }
+
     .jouzetsu-spelling-row {
         grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     }

@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from dataclasses import replace
 from pathlib import Path
 from typing import Final
+from unittest.mock import patch
 
 import httpx
 
@@ -225,6 +226,16 @@ def test_character_client_refreshes_only_for_character_events() -> None:
         in script
     )
     assert "payload?.kind === 'characters'" in script
+
+
+def test_device_activity_client_uses_visible_tab_heartbeats() -> None:
+    script: str = _chat_client_source()
+
+    assert "DeviceActivityController" in script
+    assert "document.visibilityState !== 'visible'" in script
+    assert "window.addEventListener('focus', heartbeatIfVisible)" in script
+    assert "5 * 60 * 1000" in script
+    assert "/access/current-device/activity" in script
 
 
 def test_character_client_adds_template_fields_without_duplicate_or_destructive_updates() -> (
@@ -594,7 +605,7 @@ def test_chat_page_renders_the_message_details_context_menu_and_dialog() -> None
                 assert "demo-model" in details.text
                 assert 'data-testid="message-details-reasoning"' in details.text
                 assert "Reviewed the available context." in details.text
-                assert 'data-message-details-fork-action' not in details.text
+                assert "data-message-details-fork-action" not in details.text
         finally:
             await _close_web_application(web, state)
 
@@ -1595,6 +1606,7 @@ def test_access_and_logs_dialog_separates_access_and_log_file_tabs() -> None:
                 transport=_transport(web, client_ip="127.0.0.1"),
                 base_url="http://testserver",
             ) as client:
+                _set_device_cookie(client, _LOCAL_DEVICE_ID)
                 page: httpx.Response = await client.get("/chats")
                 assert "Access &amp; Logs" in page.text
                 assert 'data-testid="access-dialog-access-tab"' in page.text
@@ -1606,13 +1618,254 @@ def test_access_and_logs_dialog_separates_access_and_log_file_tabs() -> None:
                 assert 'data-testid="access-log-panel-1"' in page.text
                 assert "error log contents" in page.text
                 assert "system log contents" in page.text
+                assert 'data-testid="access-denied-page-button"' in page.text
+                assert 'href="/access/denied"' in page.text
+                assert 'target="_blank"' in page.text
+
+                access_denied_page: httpx.Response = await client.get("/access/denied")
+                assert access_denied_page.status_code == 200
+                assert 'data-testid="access-locked-page"' in access_denied_page.text
+                assert (
+                    "This is the page shown to browsers awaiting approval."
+                    in access_denied_page.text
+                )
+                assert (
+                    'data-testid="approve-current-device-button"'
+                    not in access_denied_page.text
+                )
+                assert (
+                    'data-testid="access-current-device-label-input"'
+                    not in access_denied_page.text
+                )
 
                 models_page: httpx.Response = await client.get("/chats?dialog=models")
                 assert 'data-open-dialog="models-dialog"' in models_page.text
                 assert 'data-testid="models-tab"' in models_page.text
                 assert 'data-testid="models-stdout-tab"' not in models_page.text
                 assert "Models &amp; logs" not in models_page.text
+
+            async with httpx.AsyncClient(
+                transport=_transport(web, client_ip="192.0.2.10"),
+                base_url="http://testserver",
+            ) as remote_client:
+                forbidden: httpx.Response = await remote_client.get("/access/denied")
+                assert forbidden.status_code == 403
         finally:
+            await _close_web_application(web, state)
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        asyncio.run(scenario(Path(temporary_directory)))
+
+
+def test_access_device_list_groups_devices_and_uses_explicit_actions() -> None:
+    pending_device_id: str = "dvc_pending-device-0001"
+    forgotten_device_id: str = "dvc_forgotten-device-0001"
+    approved_device_id: str = "dvc_approved-device-0001"
+
+    async def scenario(root: Path) -> None:
+        state: AppState = _build_state(root, private=False)
+        state.config.access.devices[_LOCAL_DEVICE_ID] = DeviceAccessSettings(
+            access_allowed=True,
+            label="Local Mac",
+            last_ip="127.0.0.1",
+            hostname="localhost",
+            first_seen_at="2026-08-24T08:00:00Z",
+            last_seen_at="2026-08-25T08:00:00Z",
+        )
+        state.config.access.devices[pending_device_id] = DeviceAccessSettings(
+            label="Kitchen tablet",
+            last_ip="192.0.2.10",
+            hostname="tablet.local",
+            first_seen_at="2026-08-23T08:00:00Z",
+            last_seen_at="2026-08-25T09:00:00Z",
+        )
+        state.config.access.devices[forgotten_device_id] = DeviceAccessSettings(
+            label="Old phone",
+            last_ip="192.0.2.12",
+            hostname="phone.local",
+            first_seen_at="2026-08-21T08:00:00Z",
+            last_seen_at="2026-08-25T06:00:00Z",
+        )
+        state.config.access.devices[approved_device_id] = DeviceAccessSettings(
+            access_allowed=True,
+            label="Office laptop",
+            last_ip="192.0.2.11",
+            hostname="laptop.local",
+            first_seen_at="2026-08-22T08:00:00Z",
+            last_seen_at="2026-08-25T07:00:00Z",
+        )
+        web: WebApplication = WebApplication(
+            state.config, state, on_startup=_noop, on_shutdown=_noop
+        )
+        try:
+            async with httpx.AsyncClient(
+                transport=_transport(web, client_ip="127.0.0.1"),
+                base_url="http://testserver",
+            ) as client:
+                _set_device_cookie(client, _LOCAL_DEVICE_ID)
+                page: httpx.Response = await client.get("/chats?dialog=access")
+                csrf_headers: dict[str, str] = _csrf_headers(page)
+
+                assert 'data-testid="access-current-device"' in page.text
+                assert 'data-testid="access-pending-devices"' in page.text
+                assert 'data-testid="access-approved-devices"' in page.text
+                assert page.text.index(
+                    'data-testid="access-pending-devices"'
+                ) < page.text.index('data-testid="access-approved-devices"')
+                assert "Kitchen tablet" in page.text
+                assert "tablet.local · 192.0.2.10" in page.text
+                assert "Last active 2026-08-25T09:00:00Z" in page.text
+                assert (
+                    f'data-testid="device-card-toggle-{pending_device_id}"' in page.text
+                )
+                assert "Manage device" not in page.text
+                assert f'data-testid="approve-device-{pending_device_id}"' in page.text
+                assert f'data-testid="forget-device-{pending_device_id}"' in page.text
+                assert page.text.index(
+                    f'data-testid="approve-device-{pending_device_id}"'
+                ) < page.text.index(f'data-testid="forget-device-{pending_device_id}"')
+                assert f'data-testid="revoke-device-{approved_device_id}"' in page.text
+                assert (
+                    f'data-testid="forget-device-{approved_device_id}"' not in page.text
+                )
+                assert (
+                    f'data-testid="revoke-device-{_LOCAL_DEVICE_ID}"' not in page.text
+                )
+                assert 'data-confirm="Revoke this device' in page.text
+                assert 'data-confirm="Forget this pending device' in page.text
+
+                forgotten: httpx.Response = await client.post(
+                    f"/access/devices/{forgotten_device_id}/forget",
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert forgotten.status_code == 303
+                assert (
+                    forgotten.headers["location"]
+                    == "/chats?dialog=access&notice=Pending+device+forgotten"
+                )
+                assert forgotten_device_id not in state.config.access.devices
+
+                current_forget: httpx.Response = await client.post(
+                    f"/access/devices/{_LOCAL_DEVICE_ID}/forget",
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert current_forget.status_code == 303
+                assert current_forget.headers["location"].startswith(
+                    "/chats?dialog=access&error=the+current+browser+cannot+be+forgotten"
+                )
+                assert _LOCAL_DEVICE_ID in state.config.access.devices
+
+                approved: httpx.Response = await client.post(
+                    f"/access/devices/{pending_device_id}",
+                    data={"access_allowed": "true"},
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert approved.status_code == 303
+                assert (
+                    approved.headers["location"]
+                    == "/chats?dialog=access&notice=Device+access+saved"
+                )
+                assert state.config.access.devices[pending_device_id].access_allowed
+
+                revoked: httpx.Response = await client.post(
+                    f"/access/devices/{approved_device_id}",
+                    data={"access_allowed": "false"},
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert revoked.status_code == 303
+                assert (
+                    revoked.headers["location"]
+                    == "/chats?dialog=access&notice=Device+access+saved"
+                )
+                assert not state.config.access.devices[
+                    approved_device_id
+                ].access_allowed
+        finally:
+            await _close_web_application(web, state)
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        asyncio.run(scenario(Path(temporary_directory)))
+
+
+def test_device_activity_heartbeat_updates_known_pending_devices() -> None:
+    async def scenario(root: Path) -> None:
+        state: AppState = _build_state(root, private=True)
+        state.config.access.devices[_REMOTE_DEVICE_ID] = DeviceAccessSettings(
+            label="Remote browser",
+            last_ip="192.0.2.10",
+            hostname="remote.local",
+            first_seen_at="2026-08-25T08:00:00Z",
+            last_seen_at="2026-08-25T08:00:00Z",
+        )
+        web: WebApplication = WebApplication(
+            state.config, state, on_startup=_noop, on_shutdown=_noop
+        )
+        state_change_kinds: list[StateChangeKind] = []
+
+        async def record_state_change(kind: StateChangeKind) -> None:
+            state_change_kinds.append(kind)
+
+        remove_state_change_listener = state.add_listener(record_state_change)
+        try:
+            async with httpx.AsyncClient(
+                transport=_transport(web, client_ip="192.0.2.10"),
+                base_url="http://testserver",
+            ) as client:
+                _set_device_cookie(client, _REMOTE_DEVICE_ID)
+                with patch(
+                    "jouzetsu.access.utc_timestamp",
+                    return_value="2026-08-26T12:00:00Z",
+                ):
+                    page: httpx.Response = await client.get("/")
+                csrf_headers: dict[str, str] = _csrf_headers(page)
+                assert page.status_code == 200
+                assert (
+                    state.config.access.devices[_REMOTE_DEVICE_ID].last_seen_at
+                    == "2026-08-26T12:00:00Z"
+                )
+
+                with patch(
+                    "jouzetsu.access.utc_timestamp",
+                    return_value="2026-08-26T12:01:00Z",
+                ):
+                    throttled: httpx.Response = await client.post(
+                        "/access/current-device/activity",
+                        headers=csrf_headers,
+                    )
+                assert throttled.status_code == 204
+                assert (
+                    state.config.access.devices[_REMOTE_DEVICE_ID].last_seen_at
+                    == "2026-08-26T12:00:00Z"
+                )
+
+                with patch(
+                    "jouzetsu.access.utc_timestamp",
+                    return_value="2026-08-26T12:02:00Z",
+                ):
+                    refreshed: httpx.Response = await client.post(
+                        "/access/current-device/activity",
+                        headers=csrf_headers,
+                    )
+                assert refreshed.status_code == 204
+                assert (
+                    state.config.access.devices[_REMOTE_DEVICE_ID].last_seen_at
+                    == "2026-08-26T12:02:00Z"
+                )
+                assert not state_change_kinds
+
+                await state.forget_pending_access_device(_REMOTE_DEVICE_ID)
+                forgotten: httpx.Response = await client.post(
+                    "/access/current-device/activity",
+                    headers=csrf_headers,
+                )
+                assert forgotten.status_code == 204
+                assert _REMOTE_DEVICE_ID not in state.config.access.devices
+        finally:
+            remove_state_change_listener()
             await _close_web_application(web, state)
 
     with tempfile.TemporaryDirectory() as temporary_directory:

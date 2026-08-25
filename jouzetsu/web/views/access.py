@@ -36,10 +36,12 @@ def render_locked_access_page(
     *,
     bootstrap_device: bool,
     approval_phrase_enabled: bool,
+    preview: bool = False,
 ) -> HTML:
-    """Render the deliberately data-free page shown to unapproved browsers."""
+    """Render the page shown to unapproved browsers or localhost previewers."""
 
     decision: AccessDecision = context.decision
+    show_device_controls: bool = not preview and bool(decision.device_id)
     current_device: HTML | None = (
         Div(
             Small("Browser device ID"),
@@ -49,7 +51,7 @@ def render_locked_access_page(
                 data_testid="access-device-id",
             ),
         )
-        if decision.device_id
+        if show_device_controls
         else None
     )
     approve_current_device: HTML | None = (
@@ -59,7 +61,7 @@ def render_locked_access_page(
             marker="approve-current-device-button",
             classes="jouzetsu-button jouzetsu-button-primary",
         )
-        if decision.can_manage_access and decision.device_id
+        if not preview and decision.can_manage_access and decision.device_id
         else None
     )
 
@@ -68,10 +70,13 @@ def render_locked_access_page(
         Div(
             Span("🔒", cls="jouzetsu-access-icon", aria_hidden="true"),
             H1("Access pending", cls="jouzetsu-access-title"),
-            P(_locked_page_message(decision), cls="jouzetsu-access-message"),
+            P(
+                _locked_page_message(decision, preview=preview),
+                cls="jouzetsu-access-message",
+            ),
             current_device,
             _pending_device_form(context, approval_phrase_enabled)
-            if decision.device_id
+            if show_device_controls
             else None,
             approve_current_device,
             A(
@@ -89,7 +94,9 @@ def render_locked_access_page(
     )
 
 
-def _locked_page_message(decision: AccessDecision) -> str:
+def _locked_page_message(decision: AccessDecision, *, preview: bool = False) -> str:
+    if preview:
+        return "This is the page shown to browsers awaiting approval."
     if decision.reason == "missing_device_id":
         return "Setting up this browser for approval…"
     if decision.can_manage_access:
@@ -159,6 +166,7 @@ def render_access_dialog(
             _access_panel(state, context),
             _logs_panel(state),
             Div(
+                _access_denied_page_button() if context.decision.is_localhost else None,
                 close_dialog_button(
                     "access-dialog", marker="access-settings-close-button"
                 ),
@@ -170,6 +178,19 @@ def render_access_dialog(
         cls="jouzetsu-dialog",
         aria_labelledby="access-dialog-title",
         aria_describedby="access-dialog-description",
+    )
+
+
+def _access_denied_page_button() -> HTML:
+    """Link localhost administrators to the unapproved-browser page preview."""
+
+    return A(
+        "Open access denied page",
+        href="/access/denied",
+        target="_blank",
+        rel="noopener",
+        cls="jouzetsu-button",
+        data_testid="access-denied-page-button",
     )
 
 
@@ -247,7 +268,7 @@ def _access_panel(state: AppState, context: PageContext) -> HTML:
         ),
         H3("Known devices", cls="jouzetsu-section-title"),
         Div(
-            *_device_rows(state, context),
+            *_device_sections(state, context),
             cls="jouzetsu-device-list",
             data_testid="access-device-list",
         ),
@@ -259,63 +280,309 @@ def _access_panel(state: AppState, context: PageContext) -> HTML:
     )
 
 
-def _device_rows(state: AppState, context: PageContext) -> tuple[HTML, ...]:
+def _device_sections(state: AppState, context: PageContext) -> tuple[HTML, ...]:
     sorted_devices: list[tuple[str, DeviceAccessSettings]] = sorted(
         state.config.access.devices.items(),
         key=lambda item: item[1].last_seen_at or item[1].first_seen_at,
         reverse=True,
     )
-    # The current localhost browser remains the recovery path if policy changes.
-    return tuple(
-        _device_row(device_id, device)
+    current_device_id: str = context.decision.device_id
+    current_device: DeviceAccessSettings | None = state.config.access.devices.get(
+        current_device_id
+    )
+    other_devices: tuple[tuple[str, DeviceAccessSettings], ...] = tuple(
+        (device_id, device)
         for device_id, device in sorted_devices
-        if device_id != context.decision.device_id
+        if device_id != current_device_id
+    )
+    pending_devices: tuple[tuple[str, DeviceAccessSettings], ...] = tuple(
+        (device_id, device)
+        for device_id, device in other_devices
+        if not device.access_allowed
+    )
+    approved_devices: tuple[tuple[str, DeviceAccessSettings], ...] = tuple(
+        (device_id, device)
+        for device_id, device in other_devices
+        if device.access_allowed
+    )
+    sections: list[HTML] = []
+    if current_device is not None:
+        sections.append(
+            Div(
+                H3("This browser", cls="jouzetsu-device-section-title"),
+                _device_row(
+                    current_device_id,
+                    current_device,
+                    is_current_browser=True,
+                ),
+                cls="jouzetsu-device-section is-current",
+                data_testid="access-current-device",
+            )
+        )
+    if pending_devices:
+        sections.append(
+            _device_section(
+                "Needs review",
+                pending_devices,
+                data_testid="access-pending-devices",
+            )
+        )
+    if approved_devices:
+        sections.append(
+            _device_section(
+                "Approved",
+                approved_devices,
+                data_testid="access-approved-devices",
+            )
+        )
+    if sections:
+        return tuple(sections)
+    return (
+        P(
+            "No browser devices have requested access yet.",
+            cls="jouzetsu-form-help",
+            data_testid="access-device-empty-state",
+        ),
     )
 
 
-def _device_row(device_id: str, device: DeviceAccessSettings) -> HTML:
+def _device_section(
+    title: str,
+    devices: tuple[tuple[str, DeviceAccessSettings], ...],
+    *,
+    data_testid: str,
+) -> HTML:
+    """Render one status group while preserving the last-active sort order."""
+
+    return Div(
+        Div(
+            H3(title, cls="jouzetsu-device-section-title"),
+            Small(f"{len(devices)} device" + ("s" if len(devices) != 1 else "")),
+            cls="jouzetsu-device-section-header",
+        ),
+        *(_device_row(device_id, device) for device_id, device in devices),
+        cls="jouzetsu-device-section",
+        data_testid=data_testid,
+    )
+
+
+def _device_row(
+    device_id: str,
+    device: DeviceAccessSettings,
+    *,
+    is_current_browser: bool = False,
+) -> HTML:
+    """Render one device with immediately visible security state and identity."""
+
+    status: str = "Allowed" if device.access_allowed else "Pending"
+    state_class: str = "is-allowed" if device.access_allowed else "is-pending"
+    card_classes: str = " ".join(
+        (
+            "jouzetsu-device-card",
+            state_class,
+            "is-current" if is_current_browser else "",
+        )
+    ).strip()
     return Details(
         Summary(
-            Span(device.label or device_id, data_live_device_label="true"),
-            Span(
-                " · allowed" if device.access_allowed else " · pending",
-                data_live_device_access_status="true",
+            Div(
+                Div(
+                    Span(
+                        device.label or device_id,
+                        cls="jouzetsu-device-name",
+                        data_testid=f"device-access-{device_id}",
+                    ),
+                    Div(
+                        Span(status, cls=f"jouzetsu-device-status {state_class}"),
+                        Span(
+                            "This browser",
+                            cls="jouzetsu-device-current-label",
+                        )
+                        if is_current_browser
+                        else None,
+                        cls="jouzetsu-device-state",
+                    ),
+                    cls="jouzetsu-device-heading",
+                ),
+                Span(
+                    _device_network_summary(device),
+                    cls="jouzetsu-device-network",
+                ),
+                Small(
+                    _device_last_active_summary(device),
+                    cls="jouzetsu-device-last-active",
+                ),
+                cls="jouzetsu-device-identity",
+            ),
+            cls="jouzetsu-device-card-summary",
+            data_testid=f"device-card-toggle-{device_id}",
+        ),
+        _device_details(
+            device_id,
+            device,
+            is_current_browser=is_current_browser,
+        ),
+        cls=card_classes,
+    )
+
+
+def _device_network_summary(device: DeviceAccessSettings) -> str:
+    """Summarise the network identity without exposing empty placeholder fields."""
+
+    details: list[str] = [
+        detail for detail in (device.hostname, device.last_ip) if detail
+    ]
+    return " · ".join(details) if details else "Network details unavailable"
+
+
+def _device_last_active_summary(device: DeviceAccessSettings) -> str:
+    """Return a useful activity label for records that lack recent timestamps."""
+
+    timestamp: str = device.last_seen_at or device.first_seen_at
+    return f"Last active {timestamp}" if timestamp else "Activity time unknown"
+
+
+def _device_access_action(device_id: str, *, access_allowed: bool) -> HTML:
+    """Render the one intentional access-state transition for a non-local device."""
+
+    next_access_allowed: bool = not access_allowed
+    return Form(
+        Input(
+            type="hidden",
+            name="access_allowed",
+            value="true" if next_access_allowed else "false",
+        ),
+        Button(
+            "Approve" if next_access_allowed else "Revoke access",
+            type="submit",
+            cls=(
+                "jouzetsu-button jouzetsu-button-primary"
+                if next_access_allowed
+                else "jouzetsu-button jouzetsu-button-danger"
+            ),
+            data_confirm=(
+                "Revoke this device's access? It will need approval to return."
+                if not next_access_allowed
+                else None
+            ),
+            data_testid=(
+                f"approve-device-{device_id}"
+                if next_access_allowed
+                else f"revoke-device-{device_id}"
             ),
         ),
-        Div(
-            P(f"IP: {device.last_ip or 'Unknown'}"),
-            P(f"Hostname: {device.hostname or 'Unknown'}"),
-            P(device_id, cls="jouzetsu-mono", data_testid=f"device-access-{device_id}"),
-            Form(
-                checkbox(
-                    "access_allowed",
-                    checked=device.access_allowed,
-                    label="Allowed",
-                    marker=f"device-access-toggle-{device_id}",
-                    live_autosave=True,
-                ),
-                action=f"/access/devices/{device_id}",
-                method="post",
-                data_live_submit="true",
-                data_live_notice="Device access saved",
-                data_live_device_access="true",
-            ),
-            Form(
+        action=f"/access/devices/{device_id}",
+        method="post",
+        cls="jouzetsu-inline-form",
+    )
+
+
+def _device_details(
+    device_id: str,
+    device: DeviceAccessSettings,
+    *,
+    is_current_browser: bool,
+) -> HTML:
+    """Render the expanded identity and access controls for one device card."""
+
+    actions: HTML | None = _device_actions(
+        device_id,
+        access_allowed=device.access_allowed,
+        is_current_browser=is_current_browser,
+    )
+    return Div(
+        actions,
+        _device_metadata(device_id, device),
+        Form(
+            field(
+                "Device name",
                 Input(
                     value=device.label,
                     name="label",
-                    aria_label="Device label",
-                    data_live_autosave="true",
+                    autocomplete="off",
+                    data_testid=f"device-label-{device_id}",
                 ),
-                action=f"/access/devices/{device_id}/label",
-                method="post",
-                data_live_submit="true",
-                data_live_notice="Device label saved",
-                data_live_device_fallback=device_id,
             ),
-            cls="jouzetsu-device-details",
+            Button(
+                "Save name",
+                type="submit",
+                cls="jouzetsu-button",
+                data_testid=f"save-device-label-{device_id}",
+            ),
+            action=f"/access/devices/{device_id}/label",
+            method="post",
+            cls="jouzetsu-device-form",
         ),
-        cls="jouzetsu-device-card",
+        cls="jouzetsu-device-card-details",
+    )
+
+
+def _device_actions(
+    device_id: str,
+    *,
+    access_allowed: bool,
+    is_current_browser: bool,
+) -> HTML | None:
+    """Render non-local device actions, including pending-request dismissal."""
+
+    if is_current_browser:
+        return None
+    actions: list[HTML] = [
+        _device_access_action(device_id, access_allowed=access_allowed)
+    ]
+    if not access_allowed:
+        actions.append(_forget_pending_device_action(device_id))
+    return Div(*actions, cls="jouzetsu-device-card-actions")
+
+
+def _forget_pending_device_action(device_id: str) -> HTML:
+    """Render the confirmed discard action beside a pending-device approval."""
+
+    return Form(
+        Button(
+            "Forget",
+            type="submit",
+            cls="jouzetsu-button jouzetsu-button-danger",
+            data_confirm=(
+                "Forget this pending device? Its access request will be removed."
+            ),
+            data_testid=f"forget-device-{device_id}",
+        ),
+        action=f"/access/devices/{device_id}/forget",
+        method="post",
+        cls="jouzetsu-inline-form",
+    )
+
+
+def _device_metadata(device_id: str, device: DeviceAccessSettings) -> HTML:
+    """Render the complete stored identity data in a compact, scannable grid."""
+
+    return Div(
+        _device_metadata_item("Hostname", device.hostname or "Unknown"),
+        _device_metadata_item("IP address", device.last_ip or "Unknown"),
+        _device_metadata_item("First seen", device.first_seen_at or "Unknown"),
+        _device_metadata_item("Last active", device.last_seen_at or "Unknown"),
+        _device_metadata_item("Device ID", device_id, is_monospace=True),
+        cls="jouzetsu-device-metadata",
+    )
+
+
+def _device_metadata_item(
+    label: str, value: str, *, is_monospace: bool = False
+) -> HTML:
+    """Render one labelled device identity value."""
+
+    return Div(
+        Span(label, cls="jouzetsu-device-metadata-label"),
+        Span(
+            value,
+            cls=(
+                "jouzetsu-device-metadata-value jouzetsu-mono"
+                if is_monospace
+                else "jouzetsu-device-metadata-value"
+            ),
+        ),
+        cls="jouzetsu-device-metadata-item",
     )
 
 
