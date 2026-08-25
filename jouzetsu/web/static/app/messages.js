@@ -117,6 +117,9 @@ export class MessageController {
     openContextMenu(message, clientX, clientY) {
         const menu = byId('message-context-menu');
         if (!(menu instanceof HTMLElement)) return;
+        const messageId = message.dataset.messageId || '';
+        menu.dataset.messageId = messageId;
+        this.#syncContextMenuForkAction(menu, messageId);
         const bounds = message.getBoundingClientRect();
         const defaultX = bounds.left + Math.min(bounds.width / 2, 24);
         const defaultY = bounds.top + Math.min(bounds.height / 2, 24);
@@ -125,8 +128,7 @@ export class MessageController {
         const margin = 8;
         menu.style.left = `${Math.max(margin, Math.min(clientX || defaultX, window.innerWidth - menuBounds.width - margin))}px`;
         menu.style.top = `${Math.max(margin, Math.min(clientY || defaultY, window.innerHeight - menuBounds.height - margin))}px`;
-        menu.dataset.messageId = message.dataset.messageId || '';
-        const action = menu.querySelector('[data-message-details-open]');
+        const action = menu.querySelector('[data-message-copy]');
         if (action instanceof HTMLButtonElement) action.focus({ preventScroll: true });
     }
 
@@ -139,6 +141,16 @@ export class MessageController {
         this.closeContextMenu();
         dialog.showModal();
         void this.#loadDetails(dialog, messageId);
+    }
+
+    async copySelectedMessage() {
+        const menu = byId('message-context-menu');
+        if (!(menu instanceof HTMLElement)) return false;
+        const message = this.#messageById(menu.dataset.messageId || '');
+        const content = message?.querySelector('.jouzetsu-message-text');
+        this.closeContextMenu();
+        if (!(content instanceof HTMLElement)) return false;
+        return this.#copyText(content.innerText);
     }
 
     refreshOpenDetails() {
@@ -279,6 +291,14 @@ export class MessageController {
         return message instanceof HTMLElement ? message : null;
     }
 
+    #messageById(messageId) {
+        if (!messageId) return null;
+        for (const message of document.querySelectorAll('[data-message-id]')) {
+            if (message instanceof HTMLElement && message.dataset.messageId === messageId) return message;
+        }
+        return null;
+    }
+
     #scrollMessageTo(message, block) {
         const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
         message.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block, inline: 'nearest' });
@@ -298,20 +318,50 @@ export class MessageController {
         content.replaceChildren(status);
     }
 
-    #syncDetailsForkAction(dialog, action) {
-        const form = dialog.querySelector('[data-message-details-fork-form]');
+    #syncContextMenuForkAction(menu, messageId) {
+        const form = menu.querySelector('[data-message-context-fork-form]');
         const button = form?.querySelector('button');
         if (!(form instanceof HTMLFormElement) || !(button instanceof HTMLButtonElement)) return;
-        form.action = action;
-        form.hidden = !action;
-        button.disabled = !action;
+        const composer = document.querySelector('.jouzetsu-composer-form');
+        const isGenerating = composer instanceof HTMLFormElement && composer.dataset.composerGenerating === 'true';
+        const canFork = Boolean(messageId) && !isGenerating;
+        form.action = canFork ? `/messages/${encodeURIComponent(messageId)}/fork` : '';
+        form.hidden = !canFork;
+        button.disabled = !canFork;
+    }
+
+    async #copyText(text) {
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch {
+                // Local HTTP instances may not expose the modern Clipboard API.
+            }
+        }
+        if (!document.body) return false;
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.setAttribute('aria-hidden', 'true');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.append(textarea);
+        try {
+            textarea.focus({ preventScroll: true });
+            textarea.select();
+            return document.execCommand('copy');
+        } catch {
+            return false;
+        } finally {
+            textarea.remove();
+        }
     }
 
     async #loadDetails(dialog, messageId) {
         const request = this.#detailsRequest + 1;
         this.#detailsRequest = request;
         dialog.dataset.messageDetailsMessageId = messageId;
-        this.#syncDetailsForkAction(dialog, '');
         this.#setDetailsStatus(dialog, 'Loading message details…');
         try {
             const response = await window.fetch(`/fragments/messages/${encodeURIComponent(messageId)}/details`, {
@@ -330,7 +380,6 @@ export class MessageController {
             const current = this.#detailsContent(dialog);
             if (!current) return;
             current.replaceWith(next);
-            this.#syncDetailsForkAction(dialog, next.dataset.messageDetailsForkAction || '');
             localizeMessageDetailsTimes(next);
         } catch {
             if (request === this.#detailsRequest && dialog.open && dialog.dataset.messageDetailsMessageId === messageId) {

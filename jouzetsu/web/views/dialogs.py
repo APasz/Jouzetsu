@@ -77,6 +77,15 @@ def render_message_context_menu() -> HTML:
 
     return Div(
         Button(
+            "Copy",
+            type="button",
+            role="menuitem",
+            cls="jouzetsu-message-context-menu-item",
+            data_message_copy="true",
+            data_testid="message-copy-context-action",
+        ),
+        _message_context_fork_form(),
+        Button(
             "Message details",
             type="button",
             role="menuitem",
@@ -90,6 +99,28 @@ def render_message_context_menu() -> HTML:
         cls="jouzetsu-message-context-menu",
         hidden=True,
         data_testid="message-context-menu",
+    )
+
+
+def _message_context_fork_form() -> HTML:
+    """Render the menu action whose target is set for the selected message."""
+
+    return Form(
+        Button(
+            "Fork chat",
+            type="submit",
+            role="menuitem",
+            cls="jouzetsu-message-context-menu-item",
+            disabled=True,
+            title="Fork a chat through this message",
+        ),
+        action="",
+        method="post",
+        cls="jouzetsu-message-context-menu-form",
+        hidden=True,
+        data_chat_mutation="true",
+        data_message_context_fork_form="true",
+        data_testid="message-fork-context-action",
     )
 
 
@@ -110,12 +141,10 @@ def render_message_details_dialog() -> HTML:
             ),
             render_message_details_content(),
             Div(
-                _message_details_fork_form(),
                 close_dialog_button(
                     "message-details-dialog", marker="message-details-close-button"
                 ),
                 cls="jouzetsu-dialog-actions",
-                data_message_details_actions="true",
             ),
             cls="jouzetsu-modal-card jouzetsu-message-details-card",
         ),
@@ -127,28 +156,7 @@ def render_message_details_dialog() -> HTML:
     )
 
 
-def _message_details_fork_form() -> HTML:
-    return Form(
-        Button(
-            "Fork chat",
-            type="submit",
-            cls="jouzetsu-button",
-            disabled=True,
-            title="Fork a chat through this message",
-        ),
-        action="",
-        method="post",
-        cls="jouzetsu-inline-form",
-        hidden=True,
-        data_chat_mutation="true",
-        data_message_details_fork_form="true",
-        data_testid="message-details-fork-action",
-    )
-
-
-def render_message_details_content(
-    message: Message | None = None, *, can_fork: bool = True
-) -> HTML:
+def render_message_details_content(message: Message | None = None) -> HTML:
     """Render one message's detailed metadata, fetched only when requested."""
 
     if message is None:
@@ -201,9 +209,6 @@ def render_message_details_content(
         id="message-details-content",
         cls="jouzetsu-message-details",
         data_testid="message-details-content",
-        data_message_details_fork_action=f"/messages/{message.id}/fork"
-        if can_fork
-        else None,
     )
 
 

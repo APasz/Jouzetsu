@@ -149,6 +149,13 @@ export const startApplication = () => {
             if (dialog instanceof HTMLDialogElement) panels.closeDialog(dialog);
             return;
         }
+        if (target.closest('[data-message-copy]')) {
+            event.preventDefault();
+            void messages.copySelectedMessage().then((copied) => {
+                notices.announce(copied ? 'Message copied' : 'Could not copy message', !copied);
+            });
+            return;
+        }
         if (target.closest('[data-message-details-open]')) {
             event.preventDefault();
             messages.openDetails();

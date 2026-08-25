@@ -549,7 +549,9 @@ def test_message_context_menu_opens_a_details_dialog_with_reasoning() -> None:
     assert "document.addEventListener('contextmenu'" in script
     assert "openDetails()" in script
     assert "async #loadDetails(dialog, messageId)" in script
-    assert "#syncDetailsForkAction(dialog, action)" in script
+    assert "async copySelectedMessage()" in script
+    assert "navigator.clipboard?.writeText" in script
+    assert "#syncContextMenuForkAction(menu, messageId)" in script
     assert "formatTimestamp" in script
     assert "data-message-details-timestamp" in script
     assert ".jouzetsu-message-context-menu" in styles
@@ -575,10 +577,11 @@ def test_chat_page_renders_the_message_details_context_menu_and_dialog() -> None
                 page: httpx.Response = await client.get("/chats")
 
                 assert 'data-testid="message-context-menu"' in page.text
+                assert 'data-testid="message-copy-context-action"' in page.text
+                assert 'data-testid="message-fork-context-action"' in page.text
                 assert 'data-testid="message-details-context-action"' in page.text
                 assert 'data-testid="message-details-dialog"' in page.text
-                assert 'data-testid="message-details-fork-action"' in page.text
-                assert 'data-message-details-actions="true"' in page.text
+                assert 'data-testid="message-details-fork-action"' not in page.text
                 assert f'data-message-id="{assistant.id}"' in page.text
                 assert "Reviewed the available context." not in page.text
 
@@ -591,10 +594,7 @@ def test_chat_page_renders_the_message_details_context_menu_and_dialog() -> None
                 assert "demo-model" in details.text
                 assert 'data-testid="message-details-reasoning"' in details.text
                 assert "Reviewed the available context." in details.text
-                assert (
-                    f'data-message-details-fork-action="/messages/{assistant.id}/fork"'
-                    in details.text
-                )
+                assert 'data-message-details-fork-action' not in details.text
         finally:
             await _close_web_application(web, state)
 

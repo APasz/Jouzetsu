@@ -260,9 +260,7 @@ def _register_page_routes(context: RouteContext) -> None:
             message: Message = context.mutations.require_visible_message(message_id)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
-        return render_message_details_content(
-            message, can_fork=not context.state.is_generating()
-        )
+        return render_message_details_content(message)
 
     @context.route("GET", "/fragments/navigation", "navigation_fragment")
     async def navigation_fragment(request: Request) -> FT:

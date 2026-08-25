@@ -450,6 +450,11 @@
     outline: none;
 }
 
+.jouzetsu-message-context-menu-form {
+    display: block;
+    margin: 0;
+}
+
 .jouzetsu-message-details {
     display: flex;
     flex-direction: column;
@@ -501,4 +506,3 @@
     color: var(--jouzetsu-text-dim);
     font-size: 12px;
 }
-
