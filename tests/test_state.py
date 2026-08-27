@@ -620,6 +620,54 @@ class AppStateTests(unittest.TestCase):
         self.assertEqual(messages[-1].content, "Fresh answer")
         self.assertEqual(change_kinds.count(StateChangeKind.FULL), 2)
 
+    def test_regenerate_last_continuation_reuses_the_continuation_prompt(
+        self,
+    ) -> None:
+        captured_history: list[tuple[str, str]] = []
+        self.state.config.generation.continuity_review = False
+
+        async def regenerated_stream(
+            chat: Chat,
+            model: str,
+            generation: GenerationSettings,
+        ) -> AsyncIterator[ChatStreamEvent]:
+            _ = generation
+            captured_history.extend(
+                (message.role, message.content) for message in chat.messages
+            )
+            yield ModelReady(model, "Demo Model", 4096)
+            yield FirstToken()
+            yield PredictionFragment("Fresh continuation", 1, False)
+            yield PredictionComplete(GenerationMetrics(output_tokens=1))
+
+        async def scenario() -> str:
+            _ = await self.state.send_user_message("Ask again")
+            await self._wait_for_generation()
+            previous_continuation: Message = self.state.active_chat.add_message(
+                "assistant", "Previous continuation"
+            )
+            self.client.stream_chat = regenerated_stream
+            await self.state.regenerate_last()
+            await self._wait_for_generation()
+            return previous_continuation.id
+
+        previous_continuation_id = asyncio.run(scenario())
+
+        messages = self.state.active_chat.messages
+        self.assertEqual(
+            [message.role for message in messages], ["user", "assistant", "assistant"]
+        )
+        self.assertNotEqual(messages[-1].id, previous_continuation_id)
+        self.assertEqual(messages[-1].content, "Fresh continuation")
+        self.assertEqual(
+            captured_history[:2],
+            [("user", "Ask again"), ("assistant", "Hello world")],
+        )
+        self.assertEqual(captured_history[2][0], "user")
+        self.assertIn(
+            "Continue the previous assistant response", captured_history[2][1]
+        )
+
     def test_continue_last_response_requires_a_completed_assistant_message(
         self,
     ) -> None:

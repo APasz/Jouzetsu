@@ -132,6 +132,7 @@ def test_last_assistant_message_renders_only_valid_actions_in_display_order() ->
     assert "truncate-message-assistant-2" not in markup
     assert "fork-message-assistant-2" not in markup
     assert 'data-delete-choice-open="assistant-2"' in markup
+    assert 'data-delete-choice-has-following="false"' in markup
     assert 'class="jouzetsu-svg-icon"' in markup
 
 
@@ -160,6 +161,17 @@ def test_nonfinal_user_message_hides_resend() -> None:
     ]
 
     assert "resend-message-user-1" not in _render_message(messages, 0)
+
+
+def test_nonfinal_message_delete_action_marks_following_messages() -> None:
+    messages: list[Message] = [
+        Message(id="user-1", role="user", content="Question"),
+        Message(id="assistant-1", role="assistant", content="Answer"),
+    ]
+
+    markup: str = _render_message(messages, 0)
+
+    assert 'data-delete-choice-has-following="true"' in markup
 
 
 def test_nonfinal_assistant_message_hides_its_continuity_rewrite_action() -> None:

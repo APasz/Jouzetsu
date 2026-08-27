@@ -81,9 +81,11 @@ const openDeleteDialog = (target) => {
     const single = dialog.querySelector('[data-delete-choice-form="single"]');
     const following = dialog.querySelector('[data-delete-choice-form="following"]');
     if (!(single instanceof HTMLFormElement) || !(following instanceof HTMLFormElement)) return;
+    const hasFollowing = target.dataset.deleteChoiceHasFollowing === 'true';
     const encodedId = encodeURIComponent(messageId);
     single.action = `/messages/${encodedId}/delete`;
     following.action = `/messages/${encodedId}/delete-following`;
+    following.hidden = !hasFollowing;
     dialog.showModal();
 };
 

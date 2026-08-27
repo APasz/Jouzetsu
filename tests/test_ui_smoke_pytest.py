@@ -397,6 +397,13 @@ def test_chat_client_keeps_the_stop_generation_control_enabled() -> None:
     assert "primary.disabled = !isGenerating && !input.value.trim();" in script
 
 
+def test_delete_dialog_hides_the_tail_delete_choice_for_the_last_message() -> None:
+    script: str = _chat_client_source()
+
+    assert "const hasFollowing = target.dataset.deleteChoiceHasFollowing === 'true';" in script
+    assert "following.hidden = !hasFollowing;" in script
+
+
 def test_chat_client_stops_streaming_scroll_when_the_message_reaches_the_top() -> None:
     script: str = _chat_client_source()
 

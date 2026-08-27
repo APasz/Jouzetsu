@@ -824,6 +824,7 @@ def render_message(
                 type="button",
                 cls="jouzetsu-message-action is-delete",
                 data_delete_choice_open=message.id,
+                data_delete_choice_has_following="true" if not is_last else "false",
                 data_testid=f"delete-message-{message.id}",
                 title="Delete this message",
                 aria_label="Delete this message",

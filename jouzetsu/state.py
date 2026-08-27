@@ -559,7 +559,7 @@ class AppState:
         return user_message
 
     async def regenerate_last(self) -> None:
-        """Replace the final assistant turn with one fresh response."""
+        """Replace the final assistant turn with one fresh response or continuation."""
         st: ChatSession = self._idle_active_state("regenerate")
         chat: Chat = st.chat
         if not chat.messages or chat.messages[-1].role != "assistant":
@@ -567,6 +567,12 @@ class AppState:
                 "regeneration requires the last message to be an assistant response"
             )
         removed_message: Message = chat.messages.pop()
+        regenerating_continuation: bool = bool(
+            chat.messages and chat.messages[-1].role == "assistant"
+        )
+        request_chat: Chat | None = (
+            chat_with_continuation_prompt(chat) if regenerating_continuation else None
+        )
         chat_log.info(
             "message_deleted chat_id=%s message_id=%s role=assistant reason=regenerate_last",
             chat.id,
@@ -575,7 +581,7 @@ class AppState:
         # _start_generation adds and persists the replacement assistant turn in
         # one state publication. Publishing the removal first permits an older
         # browser fragment request to restore the deleted reply visually.
-        await self._start_generation()
+        await self._start_generation(request_chat=request_chat)
 
     async def resend_user_message(self, message_id: str) -> Message:
         """Generate a reply to the active chat's final user message without duplicating it."""
