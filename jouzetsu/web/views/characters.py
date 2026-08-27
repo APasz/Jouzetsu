@@ -4,12 +4,25 @@ from __future__ import annotations
 
 from ...character_presets import CharacterFieldPreset, CharacterPresetCatalog
 from ...models import (
+    CHARACTER_ASSISTANT_CAST_PROMPT_INTRO,
+    CHARACTER_ASSISTANT_PROMPT_CLOSING,
+    CHARACTER_ASSISTANT_PROMPT_NAME_TEMPLATE,
+    CHARACTER_CAST_HEADING,
+    CHARACTER_CAST_MEMBER_TEMPLATE,
+    CHARACTER_CAST_PROMPT_CLOSING,
+    CHARACTER_CAST_PROMPT_INTRO,
+    CHARACTER_CUSTOM_PROMPT_PREVIEW_EMPTY,
     CHARACTER_PROMPT_CLOSING,
     CHARACTER_PROMPT_EMPTY_PROFILE,
     CHARACTER_PROMPT_NAME_TEMPLATE,
     CHARACTER_PROMPT_PROFILE_HEADING,
+    CHARACTER_STORY_CAST_PROMPT_INTRO,
+    CHARACTER_STORY_DIRECTION_HEADING,
+    CHARACTER_STORY_PROMPT_CLOSING,
+    CHARACTER_STORY_PROMPT_NAME_TEMPLATE,
     Character,
     CharacterField,
+    ChatPromptMode,
 )
 from ...state import AppState
 from ..html import (
@@ -66,7 +79,12 @@ def render_character_page(
         None,
     )
     editor: HTML = (
-        _render_character_editor(selected_character, context, preset_catalog)
+        _render_character_editor(
+            selected_character,
+            characters,
+            context,
+            preset_catalog,
+        )
         if selected_character is not None
         else _character_empty_state()
     )
@@ -181,6 +199,7 @@ def _character_empty_state() -> HTML:
 
 def _render_character_editor(
     character: Character,
+    characters: list[Character],
     context: PageContext,
     preset_catalog: CharacterPresetCatalog,
 ) -> HTML:
@@ -257,6 +276,7 @@ def _render_character_editor(
                 cls="jouzetsu-character-fields-editor",
                 data_character_fields_editor="true",
             ),
+            _render_character_cast_controls(character, characters),
             Div(
                 Button(
                     "Save character",
@@ -269,6 +289,7 @@ def _render_character_editor(
                     cls="jouzetsu-button",
                     formaction=f"/characters/{character.id}/chat",
                     formmethod="post",
+                    data_character_start_chat="true",
                 ),
                 cls="jouzetsu-character-editor-actions",
             ),
@@ -280,9 +301,9 @@ def _render_character_editor(
         ),
         Details(
             Summary(
-                Span("Live compiled chat prompt"),
+                Span("Live chat prompt"),
                 Small(
-                    "Updates as you edit · blank fields are omitted",
+                    "Updates as you edit and select cast members",
                     cls="jouzetsu-character-prompt-summary-help",
                 ),
             ),
@@ -294,6 +315,18 @@ def _render_character_editor(
                 data_character_prompt_profile_heading=CHARACTER_PROMPT_PROFILE_HEADING,
                 data_character_prompt_empty_profile=CHARACTER_PROMPT_EMPTY_PROFILE,
                 data_character_prompt_closing=CHARACTER_PROMPT_CLOSING,
+                data_character_prompt_cast_intro=CHARACTER_CAST_PROMPT_INTRO,
+                data_character_prompt_cast_heading=CHARACTER_CAST_HEADING,
+                data_character_prompt_cast_member_template=CHARACTER_CAST_MEMBER_TEMPLATE,
+                data_character_prompt_cast_closing=CHARACTER_CAST_PROMPT_CLOSING,
+                data_character_prompt_assistant_name_template=CHARACTER_ASSISTANT_PROMPT_NAME_TEMPLATE,
+                data_character_prompt_assistant_cast_intro=CHARACTER_ASSISTANT_CAST_PROMPT_INTRO,
+                data_character_prompt_assistant_closing=CHARACTER_ASSISTANT_PROMPT_CLOSING,
+                data_character_prompt_story_name_template=CHARACTER_STORY_PROMPT_NAME_TEMPLATE,
+                data_character_prompt_story_cast_intro=CHARACTER_STORY_CAST_PROMPT_INTRO,
+                data_character_prompt_story_direction_heading=CHARACTER_STORY_DIRECTION_HEADING,
+                data_character_prompt_story_closing=CHARACTER_STORY_PROMPT_CLOSING,
+                data_character_prompt_custom_empty=CHARACTER_CUSTOM_PROMPT_PREVIEW_EMPTY,
             ),
             cls="jouzetsu-character-prompt-details",
         ),
@@ -309,6 +342,150 @@ def _render_character_editor(
             cls="jouzetsu-character-delete-form",
         ),
         cls="jouzetsu-character-editor",
+    )
+
+
+def _render_character_cast_controls(
+    character: Character, characters: list[Character]
+) -> HTML:
+    """Let an editor start a cast chat while always retaining its own profile."""
+
+    other_characters: tuple[Character, ...] = tuple(
+        candidate for candidate in characters if candidate.id != character.id
+    )
+    other_member_controls: tuple[HTML, ...] = tuple(
+        Label(
+            Input(
+                type="checkbox",
+                name="cast_member_id",
+                value=candidate.id,
+                data_character_cast_member="true",
+                data_character_cast_member_name=candidate.name.strip(),
+                data_character_cast_member_profile=candidate.compiled_profile(),
+                data_testid=f"character-cast-member-{candidate.id}",
+            ),
+            Span(candidate.name, cls="jouzetsu-character-cast-member-name"),
+            Small(
+                f"Revision {candidate.revision}",
+                cls="jouzetsu-character-cast-member-revision",
+            ),
+            cls="jouzetsu-character-cast-member",
+        )
+        for candidate in other_characters
+    )
+    return Div(
+        _render_character_prompt_mode_controls(),
+        Div(
+            H2("Chat cast", cls="jouzetsu-section-title"),
+            P(
+                (
+                    "This character is always included. Select any additional "
+                    "characters to start an ensemble chat."
+                    if other_characters
+                    else (
+                        "This character is included. Create another character to "
+                        "start an ensemble chat."
+                    )
+                ),
+                cls="jouzetsu-character-field-help",
+            ),
+            cls="jouzetsu-character-cast-heading",
+        ),
+        Div(
+            Label(
+                Input(
+                    type="checkbox",
+                    checked=True,
+                    disabled=True,
+                    data_testid="character-cast-primary",
+                ),
+                Span(character.name, cls="jouzetsu-character-cast-member-name"),
+                Small(
+                    f"Revision {character.revision} · included",
+                    cls="jouzetsu-character-cast-member-revision",
+                ),
+                cls="jouzetsu-character-cast-member is-required",
+            ),
+            *other_member_controls,
+            cls="jouzetsu-character-cast-members",
+            data_testid="character-cast-selector",
+        ),
+        cls="jouzetsu-character-cast-editor",
+    )
+
+
+def _render_character_prompt_mode_controls() -> HTML:
+    """Render mode-specific framing controls shared by single and cast chats."""
+
+    mode_options: tuple[HTML, ...] = tuple(
+        Option(
+            mode.label,
+            value=mode.value,
+            selected=mode is ChatPromptMode.ROLEPLAY,
+        )
+        for mode in ChatPromptMode
+    )
+    return Div(
+        H2("Prompt mode", cls="jouzetsu-section-title"),
+        P(
+            "Roleplay keeps the cast in character. Assistant uses the profiles as a "
+            "helpful persona or team. Story narrates scenes featuring the cast. "
+            "Custom starts with your instruction, then adds the selected profiles.",
+            cls="jouzetsu-character-field-help",
+        ),
+        field(
+            "Mode",
+            Select(
+                *mode_options,
+                name="prompt_mode",
+                data_character_prompt_mode="true",
+                data_character_prompt_mode_assistant=ChatPromptMode.ASSISTANT.value,
+                data_character_prompt_mode_story=ChatPromptMode.STORY.value,
+                data_character_prompt_mode_custom=ChatPromptMode.CUSTOM.value,
+                data_testid="character-prompt-mode",
+            ),
+        ),
+        Div(
+            field(
+                "Custom instruction",
+                Textarea(
+                    name="custom_instruction",
+                    rows=5,
+                    placeholder="Describe how this chat should behave.",
+                    data_character_custom_prompt_input="true",
+                    data_testid="character-custom-instruction",
+                ),
+            ),
+            Small(
+                "Required for Custom mode. It is saved only in the started chat's "
+                "prompt snapshot.",
+                cls="jouzetsu-character-field-help",
+            ),
+            cls="jouzetsu-character-custom-prompt",
+            data_character_custom_prompt="true",
+            data_testid="character-custom-prompt",
+        ),
+        Div(
+            field(
+                "Story direction",
+                Textarea(
+                    name="story_direction",
+                    rows=5,
+                    placeholder="e.g. A cozy mystery aboard an airship.",
+                    data_character_story_direction_input="true",
+                    data_testid="character-story-direction",
+                ),
+            ),
+            Small(
+                "Optional. Set the genre, setting, tone, or premise. It is saved only "
+                "in the started chat's prompt snapshot.",
+                cls="jouzetsu-character-field-help",
+            ),
+            cls="jouzetsu-character-story-direction",
+            data_character_story_direction="true",
+            data_testid="character-story-direction-panel",
+        ),
+        cls="jouzetsu-character-prompt-mode-editor",
     )
 
 

@@ -422,22 +422,7 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                 cls="jouzetsu-panel-header",
             ),
             H3("Chat", cls="jouzetsu-section-title"),
-            (
-                Div(
-                    Span(
-                        f"Character: {chat.character.name} (revision {chat.character.revision})",
-                        cls="jouzetsu-form-help",
-                    ),
-                    A(
-                        "Open character",
-                        href=f"/characters/{chat.character.id}",
-                        cls="jouzetsu-settings-character-link",
-                    ),
-                    cls="jouzetsu-settings-character-source",
-                )
-                if chat.character is not None
-                else None
-            ),
+            _render_character_cast_source(chat),
             Form(
                 _field(
                     "Title",
@@ -663,6 +648,47 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
         aria_hidden="true",
         inert=True,
         data_panel_name="settings",
+    )
+
+
+def _render_character_cast_source(chat: Chat) -> HTML | None:
+    """Render the immutable profile revisions that supplied this chat's prompt."""
+
+    if not chat.character_cast:
+        return None
+    member_sources: tuple[HTML, ...] = tuple(
+        Div(
+            Span(
+                f"{binding.name} (revision {binding.revision})",
+                cls="jouzetsu-form-help",
+            ),
+            A(
+                "Open character",
+                href=f"/characters/{binding.id}",
+                cls="jouzetsu-settings-character-link",
+            ),
+            cls="jouzetsu-settings-character-cast-member",
+        )
+        for binding in chat.character_cast
+    )
+    return Div(
+        Span(
+            "Character" if len(chat.character_cast) == 1 else "Cast",
+            cls="jouzetsu-form-help",
+        ),
+        (
+            Span(
+                f"Started as: {chat.prompt_mode.label}",
+                cls="jouzetsu-form-help",
+            )
+            if chat.prompt_mode is not None
+            else None
+        ),
+        Div(
+            *member_sources,
+            cls="jouzetsu-settings-character-cast-members",
+        ),
+        cls="jouzetsu-settings-character-source",
     )
 
 

@@ -14,9 +14,14 @@ from jouzetsu.models import (
     CharacterField,
     CharacterPresetSelection,
     Chat,
+    ChatPromptMode,
     ChatSamplingOverrides,
     ChatTitleSource,
     Message,
+    character_cast_chat_title,
+    chat_prompt_mode_from_text,
+    compiled_character_cast_system_prompt,
+    compiled_character_chat_system_prompt,
 )
 
 
@@ -344,7 +349,7 @@ def test_character_revised_profile_advances_revision_when_template_choices_chang
 
 def test_character_chat_binding_round_trips_with_chat_and_fork() -> None:
     binding = CharacterChatBinding(id="abc123", name="Mira", revision=2)
-    chat = Chat(character=binding)
+    chat = Chat(character_cast=(binding,))
     message = chat.add_message("user", "Hello")
 
     reloaded = Chat.from_dict(chat.to_dict())
@@ -352,3 +357,130 @@ def test_character_chat_binding_round_trips_with_chat_and_fork() -> None:
 
     assert reloaded.character == binding
     assert forked.character == binding
+    assert reloaded.character_cast == (binding,)
+    assert forked.character_cast == (binding,)
+    assert reloaded.prompt_mode is ChatPromptMode.ROLEPLAY
+    assert forked.prompt_mode is ChatPromptMode.ROLEPLAY
+
+
+def test_chat_migrates_a_legacy_single_character_binding_to_a_cast() -> None:
+    binding = CharacterChatBinding(id="abc123", name="Mira", revision=2)
+    chat = Chat(character_cast=(binding,))
+    legacy_document: dict[str, object] = dict(chat.to_dict())
+    _ = legacy_document.pop("character_cast")
+    _ = legacy_document.pop("prompt_mode")
+    legacy_document["character"] = binding.to_dict()
+
+    reloaded = Chat.from_dict(legacy_document)
+
+    assert reloaded.character_cast == (binding,)
+    assert reloaded.character == binding
+    assert reloaded.prompt_mode is ChatPromptMode.ROLEPLAY
+    assert "character" not in reloaded.to_dict()
+
+
+def test_character_chat_prompt_mode_round_trips_with_its_prompt_snapshot() -> None:
+    binding = CharacterChatBinding(id="abc123", name="Mira", revision=2)
+    chat = Chat(
+        character_cast=(binding,),
+        prompt_mode=ChatPromptMode.CUSTOM,
+        system_prompt="Answer in nautical metaphors.\n\nCharacter profile:\nRole: Pilot",
+    )
+
+    reloaded = Chat.from_dict(chat.to_dict())
+
+    assert reloaded.prompt_mode is ChatPromptMode.CUSTOM
+    assert reloaded.system_prompt == chat.system_prompt
+
+
+def test_character_cast_compiles_one_collective_prompt_and_concise_title() -> None:
+    mira = Character(
+        id="mira123",
+        name="Mira",
+        fields=[CharacterField(label="Role", value="Cartographer")],
+    )
+    ren = Character(
+        id="ren123",
+        name="Ren",
+        fields=[CharacterField(label="Role", value="Pilot")],
+    )
+
+    prompt = compiled_character_cast_system_prompt((mira, ren))
+
+    assert "You are roleplaying as the following characters." in prompt
+    assert "Mira:\nCharacter profile:\nRole: Cartographer" in prompt
+    assert "Ren:\nCharacter profile:\nRole: Pilot" in prompt
+    assert "Clearly attribute each speaker" in prompt
+    assert character_cast_chat_title((mira, ren)) == "Mira & Ren"
+    assert (
+        compiled_character_cast_system_prompt((mira,)) == mira.compiled_system_prompt()
+    )
+
+
+def test_character_cast_rejects_duplicate_profiles() -> None:
+    mira = Character(id="mira123", name="Mira")
+
+    with pytest.raises(ValueError, match="duplicate characters"):
+        _ = compiled_character_cast_system_prompt((mira, mira))
+    with pytest.raises(ValueError, match="duplicate characters"):
+        _ = Chat(character_cast=(mira.chat_binding(), mira.chat_binding()))
+
+
+def test_character_prompt_modes_compile_assistant_story_and_custom_casts() -> None:
+    mira = Character(
+        id="mira123",
+        name="Mira",
+        fields=[CharacterField(label="Role", value="Cartographer")],
+    )
+    ren = Character(
+        id="ren123",
+        name="Ren",
+        fields=[CharacterField(label="Role", value="Pilot")],
+    )
+
+    assistant_prompt = compiled_character_chat_system_prompt(
+        (mira, ren), mode=ChatPromptMode.ASSISTANT
+    )
+    story_prompt = compiled_character_chat_system_prompt(
+        (mira, ren),
+        mode=ChatPromptMode.STORY,
+        story_direction="A cozy mystery aboard an airship.",
+    )
+    single_story_prompt = compiled_character_chat_system_prompt(
+        (mira,), mode=ChatPromptMode.STORY
+    )
+    custom_prompt = compiled_character_chat_system_prompt(
+        (mira, ren),
+        mode=ChatPromptMode.CUSTOM,
+        custom_instruction="Answer in concise mission briefings.",
+    )
+
+    assert "collaborative assistant team" in assistant_prompt
+    assert "Do not roleplay a scene unless the user asks." in assistant_prompt
+    assert "Mira:\nCharacter profile:\nRole: Cartographer" in assistant_prompt
+    assert story_prompt.startswith(
+        "You are the narrator of an immersive collaborative story featuring the "
+        "following characters."
+    )
+    assert "Story direction:\nA cozy mystery aboard an airship." in story_prompt
+    assert "Ren:\nCharacter profile:\nRole: Pilot" in story_prompt
+    assert "Write in third person" in story_prompt
+    assert "featuring Mira." in single_story_prompt
+    assert "Story direction:" not in single_story_prompt
+    assert custom_prompt.startswith("Answer in concise mission briefings.")
+    assert "Ren:\nCharacter profile:\nRole: Pilot" in custom_prompt
+    assert "You are roleplaying" not in custom_prompt
+
+
+def test_custom_prompt_mode_requires_an_instruction_and_modes_are_parsed_explicitly() -> (
+    None
+):
+    mira = Character(id="mira123", name="Mira")
+
+    with pytest.raises(ValueError, match="custom instruction cannot be empty"):
+        _ = compiled_character_chat_system_prompt((mira,), mode=ChatPromptMode.CUSTOM)
+    with pytest.raises(ValueError, match="unknown chat prompt mode"):
+        _ = chat_prompt_mode_from_text("narrator")
+
+    assert chat_prompt_mode_from_text(" assistant ") is ChatPromptMode.ASSISTANT
+    assert chat_prompt_mode_from_text(" story ") is ChatPromptMode.STORY

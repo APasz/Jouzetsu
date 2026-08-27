@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Literal, TypedDict, cast
@@ -21,6 +21,38 @@ CHARACTER_PROMPT_EMPTY_PROFILE: str = "No additional profile details are defined
 CHARACTER_PROMPT_CLOSING: str = (
     "Stay consistent with this profile while responding naturally to the user."
 )
+CHARACTER_CAST_PROMPT_INTRO: str = "You are roleplaying as the following characters."
+CHARACTER_CAST_HEADING: str = "Character cast:"
+CHARACTER_CAST_MEMBER_TEMPLATE: str = "{name}:"
+CHARACTER_CAST_PROMPT_CLOSING: str = (
+    "Portray the character or characters who would naturally respond. Clearly "
+    "attribute each speaker when more than one responds. Do not speak or act for "
+    "the user. Stay consistent with every profile while responding naturally."
+)
+CHARACTER_ASSISTANT_PROMPT_NAME_TEMPLATE: str = "You are {name}, a helpful assistant."
+CHARACTER_ASSISTANT_CAST_PROMPT_INTRO: str = (
+    "You are a collaborative assistant team guided by the following character profiles."
+)
+CHARACTER_ASSISTANT_PROMPT_CLOSING: str = (
+    "Use the profile information to guide your expertise, tone, and boundaries. "
+    "Answer as one clear assistant by default; identify a specific character only "
+    "when it genuinely helps. Do not roleplay a scene unless the user asks."
+)
+CHARACTER_STORY_PROMPT_NAME_TEMPLATE: str = (
+    "You are the narrator of an immersive collaborative story featuring {name}."
+)
+CHARACTER_STORY_CAST_PROMPT_INTRO: str = (
+    "You are the narrator of an immersive collaborative story featuring the "
+    "following characters."
+)
+CHARACTER_STORY_DIRECTION_HEADING: str = "Story direction:"
+CHARACTER_STORY_PROMPT_CLOSING: str = (
+    "Write in third person, weaving setting, action, pacing, and dialogue into "
+    "scenes. Keep every character consistent with their profile. Preserve the "
+    "user's agency: do not decide their dialogue, actions, thoughts, or outcomes "
+    "unless they ask you to."
+)
+CHARACTER_CUSTOM_PROMPT_PREVIEW_EMPTY: str = "Enter a custom instruction."
 
 
 class ChatTitleSource(str, Enum):
@@ -28,6 +60,27 @@ class ChatTitleSource(str, Enum):
 
     AUTO = "auto"
     MANUAL = "manual"
+
+
+class ChatPromptMode(str, Enum):
+    """How a character cast frames the system prompt for its chat."""
+
+    ROLEPLAY = "roleplay"
+    ASSISTANT = "assistant"
+    STORY = "story"
+    CUSTOM = "custom"
+
+    @property
+    def label(self) -> str:
+        """Return the short UI label for this prompt mode."""
+
+        if self is ChatPromptMode.ROLEPLAY:
+            return "Roleplay"
+        if self is ChatPromptMode.ASSISTANT:
+            return "Assistant"
+        if self is ChatPromptMode.STORY:
+            return "Story"
+        return "Custom"
 
 
 class MessageJSON(TypedDict):
@@ -65,11 +118,12 @@ class ChatJSON(TypedDict):
     updated_at: float
     model: str
     system_prompt: str
+    prompt_mode: ChatPromptMode | None
     sampling_overrides: ChatSamplingOverridesJSON
     postprocess_british_spellings: bool
     save_reasoning: bool
     draft: str
-    character: CharacterChatBindingJSON | None
+    character_cast: list[CharacterChatBindingJSON]
     messages: list[MessageJSON]
 
 
@@ -296,6 +350,75 @@ class CharacterChatBinding:
         )
 
 
+def _character_cast_from_dict(
+    raw: object, *, field_name: str
+) -> tuple[CharacterChatBinding, ...]:
+    """Load an ordered cast of immutable profile revision bindings."""
+
+    if not isinstance(raw, list):
+        raise TypeError(f"{field_name} must be a list")
+    character_bindings: tuple[CharacterChatBinding, ...] = tuple(
+        CharacterChatBinding.from_dict(
+            _string_mapping(item, field_name=f"{field_name} item")
+        )
+        for item in cast(list[object], raw)
+    )
+    character_ids: tuple[str, ...] = tuple(binding.id for binding in character_bindings)
+    if len(character_ids) != len(set(character_ids)):
+        raise ValueError(f"{field_name} cannot contain duplicate characters")
+    return character_bindings
+
+
+def _character_cast_from_chat(
+    raw: Mapping[str, object],
+) -> tuple[CharacterChatBinding, ...]:
+    """Load the current cast format or migrate the historical single binding."""
+
+    if "character_cast" in raw:
+        if "character" in raw:
+            raise ValueError("chat cannot define both character and character_cast")
+        return _character_cast_from_dict(
+            raw["character_cast"], field_name="chat.character_cast"
+        )
+
+    raw_character: object = raw.get("character")
+    if raw_character is None:
+        return ()
+    return (
+        CharacterChatBinding.from_dict(
+            _string_mapping(raw_character, field_name="chat.character")
+        ),
+    )
+
+
+def chat_prompt_mode_from_text(raw: str) -> ChatPromptMode:
+    """Parse a browser-submitted prompt mode with an actionable error message."""
+
+    mode_text: str = raw.strip()
+    try:
+        return ChatPromptMode(mode_text)
+    except ValueError as exc:
+        raise ValueError(f"unknown chat prompt mode: {raw!r}") from exc
+
+
+def _chat_prompt_mode_from_chat(
+    raw: Mapping[str, object], *, has_character_cast: bool
+) -> ChatPromptMode | None:
+    """Load a saved mode, treating pre-mode character chats as roleplay chats."""
+
+    raw_mode: object = raw.get("prompt_mode")
+    if raw_mode is None:
+        return ChatPromptMode.ROLEPLAY if has_character_cast else None
+    if not isinstance(raw_mode, str):
+        raise TypeError("chat.prompt_mode must be text or null")
+    if raw_mode != raw_mode.strip():
+        raise ValueError("chat.prompt_mode must not have surrounding whitespace")
+    try:
+        return ChatPromptMode(raw_mode)
+    except ValueError as exc:
+        raise ValueError(f"unknown chat prompt mode: {raw_mode!r}") from exc
+
+
 @dataclass(frozen=True, slots=True)
 class CharacterField:
     """A named profile value, including the widget used to edit it."""
@@ -462,6 +585,25 @@ class Character:
     def compiled_system_prompt(self) -> str:
         """Compile the character's current structured profile for one chat snapshot."""
 
+        profile: str = self.compiled_profile()
+        return (
+            f"{CHARACTER_PROMPT_NAME_TEMPLATE.format(name=self.name.strip())}\n\n"
+            f"{CHARACTER_PROMPT_PROFILE_HEADING}\n{profile}\n\n"
+            f"{CHARACTER_PROMPT_CLOSING}"
+        )
+
+    def chat_binding(self) -> CharacterChatBinding:
+        """Capture the profile identity represented by this exact revision."""
+
+        return CharacterChatBinding(
+            id=self.id,
+            name=self.name,
+            revision=self.revision,
+        )
+
+    def compiled_profile(self) -> str:
+        """Return only the populated profile lines shared by prompt compilers."""
+
         populated_fields: list[CharacterField] = [
             profile_field
             for profile_field in self.fields
@@ -471,15 +613,10 @@ class Character:
             f"{profile_field.label.strip()}: {profile_field.value.strip()}"
             for profile_field in populated_fields
         ]
-        profile: str = (
+        return (
             "\n".join(profile_lines)
             if profile_lines
             else CHARACTER_PROMPT_EMPTY_PROFILE
-        )
-        return (
-            f"{CHARACTER_PROMPT_NAME_TEMPLATE.format(name=self.name.strip())}\n\n"
-            f"{CHARACTER_PROMPT_PROFILE_HEADING}\n{profile}\n\n"
-            f"{CHARACTER_PROMPT_CLOSING}"
         )
 
     def to_dict(self) -> CharacterJSON:
@@ -519,6 +656,162 @@ class Character:
             fields=fields,
             presets=presets,
         )
+
+
+def compiled_character_chat_system_prompt(
+    characters: Sequence[Character],
+    *,
+    mode: ChatPromptMode = ChatPromptMode.ROLEPLAY,
+    custom_instruction: str = "",
+    story_direction: str = "",
+) -> str:
+    """Compile a mode-specific system prompt for an ordered character cast."""
+
+    character_cast: tuple[Character, ...] = _validated_character_cast(characters)
+    prompt_mode: ChatPromptMode = _validated_chat_prompt_mode(mode)
+    if prompt_mode is ChatPromptMode.ROLEPLAY:
+        return _compiled_roleplay_character_prompt(character_cast)
+    if prompt_mode is ChatPromptMode.ASSISTANT:
+        return _compiled_assistant_character_prompt(character_cast)
+    if prompt_mode is ChatPromptMode.STORY:
+        return _compiled_story_character_prompt(character_cast, story_direction)
+    instruction: str = _required_custom_instruction(custom_instruction)
+    return f"{instruction}\n\n{_compiled_character_cast_profiles(character_cast)}"
+
+
+def compiled_character_cast_system_prompt(characters: Sequence[Character]) -> str:
+    """Compile the legacy default roleplay prompt for an ordered character cast."""
+
+    return compiled_character_chat_system_prompt(
+        characters, mode=ChatPromptMode.ROLEPLAY
+    )
+
+
+def _compiled_roleplay_character_prompt(
+    character_cast: tuple[Character, ...],
+) -> str:
+    """Compile the original roleplay framing, preserving single-profile prompts."""
+
+    if len(character_cast) == 1:
+        return character_cast[0].compiled_system_prompt()
+    return (
+        f"{CHARACTER_CAST_PROMPT_INTRO}\n\n"
+        f"{_compiled_character_cast_profiles(character_cast)}\n\n"
+        f"{CHARACTER_CAST_PROMPT_CLOSING}"
+    )
+
+
+def _compiled_assistant_character_prompt(
+    character_cast: tuple[Character, ...],
+) -> str:
+    """Compile a profile-guided assistant prompt for one or more characters."""
+
+    intro: str = (
+        CHARACTER_ASSISTANT_PROMPT_NAME_TEMPLATE.format(
+            name=character_cast[0].name.strip()
+        )
+        if len(character_cast) == 1
+        else CHARACTER_ASSISTANT_CAST_PROMPT_INTRO
+    )
+    return (
+        f"{intro}\n\n{_compiled_character_cast_profiles(character_cast)}\n\n"
+        f"{CHARACTER_ASSISTANT_PROMPT_CLOSING}"
+    )
+
+
+def _compiled_story_character_prompt(
+    character_cast: tuple[Character, ...], story_direction: str
+) -> str:
+    """Compile third-person narrative guidance for one or more cast members."""
+
+    intro: str = (
+        CHARACTER_STORY_PROMPT_NAME_TEMPLATE.format(name=character_cast[0].name.strip())
+        if len(character_cast) == 1
+        else CHARACTER_STORY_CAST_PROMPT_INTRO
+    )
+    direction: str = _normalized_story_direction(story_direction)
+    direction_block: str = (
+        f"{CHARACTER_STORY_DIRECTION_HEADING}\n{direction}\n\n" if direction else ""
+    )
+    return (
+        f"{intro}\n\n{direction_block}"
+        f"{_compiled_character_cast_profiles(character_cast)}\n\n"
+        f"{CHARACTER_STORY_PROMPT_CLOSING}"
+    )
+
+
+def _compiled_character_cast_profiles(
+    character_cast: tuple[Character, ...],
+) -> str:
+    """Format one or more populated profile blocks for a system prompt."""
+
+    if len(character_cast) == 1:
+        character: Character = character_cast[0]
+        return f"{CHARACTER_PROMPT_PROFILE_HEADING}\n{character.compiled_profile()}"
+    member_blocks: list[str] = [
+        (
+            f"{CHARACTER_CAST_MEMBER_TEMPLATE.format(name=character.name.strip())}\n"
+            f"{CHARACTER_PROMPT_PROFILE_HEADING}\n{character.compiled_profile()}"
+        )
+        for character in character_cast
+    ]
+    return f"{CHARACTER_CAST_HEADING}\n\n{'\n\n'.join(member_blocks)}"
+
+
+def _validated_chat_prompt_mode(mode: ChatPromptMode) -> ChatPromptMode:
+    """Reject untyped callers instead of silently accepting prompt-mode strings."""
+
+    raw_mode: object = cast(object, mode)
+    if not isinstance(raw_mode, ChatPromptMode):
+        raise TypeError("chat prompt mode must be a ChatPromptMode")
+    return raw_mode
+
+
+def _required_custom_instruction(custom_instruction: str) -> str:
+    """Validate the custom prompt boundary before it is saved into a chat snapshot."""
+
+    raw_instruction: object = cast(object, custom_instruction)
+    if not isinstance(raw_instruction, str):
+        raise TypeError("custom instruction must be text")
+    instruction: str = raw_instruction.strip()
+    if not instruction:
+        raise ValueError("custom instruction cannot be empty")
+    return instruction
+
+
+def _normalized_story_direction(story_direction: str) -> str:
+    """Normalize optional narrative direction before including it in a prompt."""
+
+    raw_direction: object = cast(object, story_direction)
+    if not isinstance(raw_direction, str):
+        raise TypeError("story direction must be text")
+    return raw_direction.strip()
+
+
+def character_cast_chat_title(characters: Sequence[Character]) -> str:
+    """Return a concise, stable title for a manually started cast chat."""
+
+    character_cast: tuple[Character, ...] = _validated_character_cast(characters)
+    names: tuple[str, ...] = tuple(
+        character.name.strip() for character in character_cast
+    )
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} & {names[1]}"
+    return f"{names[0]}, {names[1]} +{len(names) - 2}"
+
+
+def _validated_character_cast(characters: Sequence[Character]) -> tuple[Character, ...]:
+    """Return a non-empty cast whose profiles are each represented once."""
+
+    character_cast: tuple[Character, ...] = tuple(characters)
+    if not character_cast:
+        raise ValueError("character cast must contain at least one character")
+    character_ids: tuple[str, ...] = tuple(character.id for character in character_cast)
+    if len(character_ids) != len(set(character_ids)):
+        raise ValueError("character cast cannot contain duplicate characters")
+    return character_cast
 
 
 @dataclass
@@ -661,13 +954,14 @@ class Chat:
     updated_at: float = field(default_factory=time.time)
     model: str = ""
     system_prompt: str = ""
+    prompt_mode: ChatPromptMode | None = None
     sampling_overrides: ChatSamplingOverrides = field(
         default_factory=ChatSamplingOverrides
     )
     postprocess_british_spellings: bool = True
     save_reasoning: bool = True
     draft: str = ""
-    character: CharacterChatBinding | None = None
+    character_cast: tuple[CharacterChatBinding, ...] = ()
     messages: list[Message] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -675,6 +969,33 @@ class Chat:
             raise ValueError("chat id cannot be empty")
         if not self.title.strip():
             raise ValueError("chat title cannot be empty")
+        raw_character_cast: object = cast(object, self.character_cast)
+        if not isinstance(raw_character_cast, tuple):
+            raise TypeError("chat character cast must be an immutable tuple")
+        raw_bindings: tuple[object, ...] = cast(tuple[object, ...], raw_character_cast)
+        if not all(
+            isinstance(binding, CharacterChatBinding) for binding in raw_bindings
+        ):
+            raise TypeError("chat character cast must contain character bindings")
+        character_ids: tuple[str, ...] = tuple(
+            binding.id for binding in self.character_cast
+        )
+        if len(character_ids) != len(set(character_ids)):
+            raise ValueError("chat character cast cannot contain duplicate characters")
+        raw_prompt_mode: object = cast(object, self.prompt_mode)
+        if raw_prompt_mode is None:
+            if self.character_cast:
+                self.prompt_mode = ChatPromptMode.ROLEPLAY
+        elif not isinstance(raw_prompt_mode, ChatPromptMode):
+            raise TypeError("chat prompt mode must be a ChatPromptMode or null")
+        elif not self.character_cast:
+            raise ValueError("chat prompt mode requires a character cast")
+
+    @property
+    def character(self) -> CharacterChatBinding | None:
+        """Return the sole cast member for compatibility with single-character chats."""
+
+        return self.character_cast[0] if len(self.character_cast) == 1 else None
 
     def touch(self) -> None:
         self.updated_at = time.time()
@@ -787,10 +1108,11 @@ class Chat:
             title_source=self.title_source,
             model=self.model,
             system_prompt=self.system_prompt,
+            prompt_mode=self.prompt_mode,
             sampling_overrides=self.sampling_overrides,
             postprocess_british_spellings=self.postprocess_british_spellings,
             save_reasoning=self.save_reasoning,
-            character=self.character,
+            character_cast=self.character_cast,
             messages=copied_messages,
         )
 
@@ -828,13 +1150,12 @@ class Chat:
             "updated_at": self.updated_at,
             "model": self.model,
             "system_prompt": self.system_prompt,
+            "prompt_mode": self.prompt_mode,
             "sampling_overrides": self.sampling_overrides.to_dict(),
             "postprocess_british_spellings": self.postprocess_british_spellings,
             "save_reasoning": self.save_reasoning,
             "draft": self.draft,
-            "character": self.character.to_dict()
-            if self.character is not None
-            else None,
+            "character_cast": [binding.to_dict() for binding in self.character_cast],
             "messages": [m.to_dict() for m in self.messages],
         }
 
@@ -860,13 +1181,11 @@ class Chat:
                 )
             )
         )
-        raw_character: object = raw.get("character")
-        character: CharacterChatBinding | None = (
-            None
-            if raw_character is None
-            else CharacterChatBinding.from_dict(
-                _string_mapping(raw_character, field_name="chat.character")
-            )
+        character_cast: tuple[CharacterChatBinding, ...] = _character_cast_from_chat(
+            raw
+        )
+        prompt_mode: ChatPromptMode | None = _chat_prompt_mode_from_chat(
+            raw, has_character_cast=bool(character_cast)
         )
         title: str = str(raw.get("title", "New chat"))
         title_source: ChatTitleSource = (
@@ -884,6 +1203,7 @@ class Chat:
             updated_at=_float_from_json(raw.get("updated_at"), default=now),
             model=str(raw.get("model", "")),
             system_prompt=str(raw.get("system_prompt", "")),
+            prompt_mode=prompt_mode,
             sampling_overrides=sampling_overrides,
             postprocess_british_spellings=_bool_from_json(
                 raw.get("postprocess_british_spellings"),
@@ -891,7 +1211,7 @@ class Chat:
             ),
             save_reasoning=_bool_from_json(raw.get("save_reasoning"), default=True),
             draft=str(raw.get("draft", "")),
-            character=character,
+            character_cast=character_cast,
             messages=messages,
         )
 

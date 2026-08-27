@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from logging import Logger
+from typing import cast
 
 from .character_storage import CharacterStorage
 from .config import (
@@ -31,13 +32,15 @@ from .lmstudio import LMStudioClientProtocol
 from .logging_config import chat_logger
 from .models import (
     Character,
-    CharacterChatBinding,
     CharacterField,
     CharacterPresetSelection,
     Chat,
+    ChatPromptMode,
     ChatSamplingOverrides,
     ChatTitleSource,
     Message,
+    character_cast_chat_title,
+    compiled_character_chat_system_prompt,
 )
 from .runtime import ModelDescriptor, RuntimeStatus
 from .state_events import ChangeListener, StateNotifier
@@ -433,29 +436,87 @@ class AppState:
         await self._notify(StateChangeKind.CHARACTERS)
         log.info("character_deleted character_id=%s", character.id)
 
-    async def start_chat_from_character(self, character_id: str) -> Chat:
-        """Start a conversation using an immutable copy of the character's current prompt."""
+    async def start_chat_from_character(
+        self,
+        character_id: str,
+        *,
+        prompt_mode: ChatPromptMode = ChatPromptMode.ROLEPLAY,
+        custom_instruction: str = "",
+        story_direction: str = "",
+    ) -> Chat:
+        """Start a single-character conversation through the cast-based workflow."""
 
-        character: Character = self.character(character_id)
+        return await self.start_chat_from_characters(
+            (character_id,),
+            prompt_mode=prompt_mode,
+            custom_instruction=custom_instruction,
+            story_direction=story_direction,
+        )
+
+    async def start_chat_from_characters(
+        self,
+        character_ids: Sequence[str],
+        *,
+        prompt_mode: ChatPromptMode = ChatPromptMode.ROLEPLAY,
+        custom_instruction: str = "",
+        story_direction: str = "",
+    ) -> Chat:
+        """Start a mode-specific chat from immutable snapshots of an ordered cast."""
+
+        characters: tuple[Character, ...] = self._characters_for_cast(character_ids)
         chat: Chat = Chat(
-            title=character.name,
+            title=character_cast_chat_title(characters),
             title_source=ChatTitleSource.MANUAL,
-            system_prompt=character.compiled_system_prompt(),
-            character=CharacterChatBinding(
-                id=character.id,
-                name=character.name,
-                revision=character.revision,
+            system_prompt=compiled_character_chat_system_prompt(
+                characters,
+                mode=prompt_mode,
+                custom_instruction=custom_instruction,
+                story_direction=story_direction,
             ),
+            prompt_mode=prompt_mode,
+            character_cast=tuple(character.chat_binding() for character in characters),
         )
         self._add_and_activate_chat(chat)
         await self._commit_chat(chat, config=True)
-        chat_log.info(
-            "chat_created chat_id=%s reason=character character_id=%s character_revision=%d",
-            chat.id,
-            character.id,
-            character.revision,
-        )
+        if len(characters) == 1:
+            character: Character = characters[0]
+            chat_log.info(
+                "chat_created chat_id=%s reason=character prompt_mode=%s character_id=%s character_revision=%d",
+                chat.id,
+                prompt_mode.value,
+                character.id,
+                character.revision,
+            )
+        else:
+            chat_log.info(
+                "chat_created chat_id=%s reason=character_cast prompt_mode=%s character_count=%d character_ids=%s character_revisions=%s",
+                chat.id,
+                prompt_mode.value,
+                len(characters),
+                [character.id for character in characters],
+                [character.revision for character in characters],
+            )
         return chat
+
+    def _characters_for_cast(
+        self, character_ids: Sequence[str]
+    ) -> tuple[Character, ...]:
+        """Resolve a non-empty, duplicate-free ordered set of current profiles."""
+
+        normalized_ids: list[str] = []
+        for candidate_id in character_ids:
+            raw_character_id: object = cast(object, candidate_id)
+            if not isinstance(raw_character_id, str):
+                raise TypeError("character cast ids must be text")
+            character_id: str = raw_character_id.strip()
+            if not character_id:
+                raise ValueError("character cast ids cannot be empty")
+            normalized_ids.append(character_id)
+        if not normalized_ids:
+            raise ValueError("character cast must contain at least one character")
+        if len(normalized_ids) != len(set(normalized_ids)):
+            raise ValueError("character cast cannot contain duplicate characters")
+        return tuple(self.character(character_id) for character_id in normalized_ids)
 
     async def fork_chat_at_message(self, message_id: str) -> Chat:
         """Fork the active chat through a message and select the new chat."""

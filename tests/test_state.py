@@ -27,6 +27,7 @@ from jouzetsu.models import (
     CharacterField,
     Chat,
     ChatJSON,
+    ChatPromptMode,
     ChatSamplingOverrides,
     Message,
 )
@@ -302,6 +303,122 @@ class AppStateTests(unittest.TestCase):
             _ = await self.state.send_user_message("Hello Mira")
             await self._wait_for_generation()
             self.assertEqual(chat.title, "Mira")
+
+        asyncio.run(scenario())
+
+    def test_character_cast_captures_each_selected_profile_revision(self) -> None:
+        async def scenario() -> None:
+            mira: Character = await self.state.new_character()
+            ren: Character = await self.state.new_character()
+            saved_mira: Character = await self.state.update_character(
+                mira.id,
+                expected_revision=mira.revision,
+                name="Mira",
+                fields=[CharacterField(label="Role", value="Cartographer")],
+            )
+            saved_ren: Character = await self.state.update_character(
+                ren.id,
+                expected_revision=ren.revision,
+                name="Ren",
+                fields=[CharacterField(label="Role", value="Pilot")],
+            )
+
+            chat: Chat = await self.state.start_chat_from_characters(
+                (saved_mira.id, saved_ren.id)
+            )
+
+            self.assertEqual(chat.title, "Mira & Ren")
+            self.assertEqual(
+                tuple(
+                    (binding.id, binding.revision) for binding in chat.character_cast
+                ),
+                (
+                    (saved_mira.id, saved_mira.revision),
+                    (saved_ren.id, saved_ren.revision),
+                ),
+            )
+            self.assertIsNone(chat.character)
+            self.assertIn(
+                "Mira:\nCharacter profile:\nRole: Cartographer", chat.system_prompt
+            )
+            self.assertIn("Ren:\nCharacter profile:\nRole: Pilot", chat.system_prompt)
+            self.assertIn("Clearly attribute each speaker", chat.system_prompt)
+
+            updated_mira: Character = await self.state.update_character(
+                saved_mira.id,
+                expected_revision=saved_mira.revision,
+                name="Mira",
+                fields=[CharacterField(label="Role", value="Navigator")],
+            )
+
+            self.assertEqual(updated_mira.revision, saved_mira.revision + 1)
+            self.assertIn("Role: Cartographer", chat.system_prompt)
+            self.assertNotIn("Role: Navigator", chat.system_prompt)
+            self.assertEqual(chat.character_cast[0].revision, saved_mira.revision)
+
+        asyncio.run(scenario())
+
+    def test_character_cast_requires_unique_known_profile_ids(self) -> None:
+        async def scenario() -> None:
+            character: Character = await self.state.new_character()
+
+            with self.assertRaisesRegex(ValueError, "at least one character"):
+                _ = await self.state.start_chat_from_characters(())
+            with self.assertRaisesRegex(ValueError, "duplicate characters"):
+                _ = await self.state.start_chat_from_characters(
+                    (character.id, character.id)
+                )
+            with self.assertRaisesRegex(ValueError, "unknown character"):
+                _ = await self.state.start_chat_from_characters(("missing",))
+
+        asyncio.run(scenario())
+
+    def test_character_cast_prompt_modes_snapshot_the_selected_framing(self) -> None:
+        async def scenario() -> None:
+            mira: Character = await self.state.new_character()
+            ren: Character = await self.state.new_character()
+            mira = await self.state.update_character(
+                mira.id,
+                expected_revision=mira.revision,
+                name="Mira",
+                fields=[],
+            )
+            ren = await self.state.update_character(
+                ren.id,
+                expected_revision=ren.revision,
+                name="Ren",
+                fields=[],
+            )
+
+            assistant_chat: Chat = await self.state.start_chat_from_characters(
+                (mira.id, ren.id), prompt_mode=ChatPromptMode.ASSISTANT
+            )
+            story_chat: Chat = await self.state.start_chat_from_characters(
+                (mira.id, ren.id),
+                prompt_mode=ChatPromptMode.STORY,
+                story_direction="A tense rescue on an ocean moon.",
+            )
+            custom_chat: Chat = await self.state.start_chat_from_character(
+                mira.id,
+                prompt_mode=ChatPromptMode.CUSTOM,
+                custom_instruction="Use terse technical summaries.",
+            )
+
+            self.assertIs(assistant_chat.prompt_mode, ChatPromptMode.ASSISTANT)
+            self.assertIn("collaborative assistant team", assistant_chat.system_prompt)
+            self.assertIs(story_chat.prompt_mode, ChatPromptMode.STORY)
+            self.assertIn("A tense rescue on an ocean moon.", story_chat.system_prompt)
+            self.assertIn("Write in third person", story_chat.system_prompt)
+            self.assertIs(custom_chat.prompt_mode, ChatPromptMode.CUSTOM)
+            self.assertTrue(
+                custom_chat.system_prompt.startswith("Use terse technical summaries.")
+            )
+            with self.assertRaisesRegex(
+                ValueError, "custom instruction cannot be empty"
+            ):
+                _ = await self.state.start_chat_from_character(
+                    mira.id, prompt_mode=ChatPromptMode.CUSTOM
+                )
 
         asyncio.run(scenario())
 
@@ -775,6 +892,31 @@ class AppStateTests(unittest.TestCase):
             ):
                 await self.state.set_active_chat_save_reasoning(False)
             await self.state.stop_generation()
+
+        asyncio.run(scenario())
+
+    def test_stop_generation_recovers_when_a_task_is_cancelled_before_it_starts(
+        self,
+    ) -> None:
+        async def never_started() -> None:
+            await asyncio.Event().wait()
+
+        async def scenario() -> None:
+            chat_id: str = self.state.active_chat.id
+            session = self.state._by_id(chat_id)  # pyright: ignore[reportPrivateUsage]
+            expected_idle_status: RuntimeStatus = session.runtime_status
+            task: asyncio.Task[None] = asyncio.create_task(never_started())
+            _ = task.cancel()
+            await asyncio.sleep(0)
+            session.is_generating = True
+            session.generation_task = task
+            session.runtime_status = RuntimeStatus(RuntimePhase.STARTING)
+
+            await self.state.stop_generation()
+
+            self.assertFalse(session.is_generating)
+            self.assertIsNone(session.generation_task)
+            self.assertEqual(session.runtime_status, expected_idle_status)
 
         asyncio.run(scenario())
 

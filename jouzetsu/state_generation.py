@@ -168,10 +168,17 @@ class GenerationController:
             if not session.is_generating:
                 return True
             log.error("generation is active without a task chat_id=%s", session.chat.id)
+            await self._recover_orphaned_generation(session)
             return False
 
         if task.done():
             session.generation_task = None
+            if session.is_generating:
+                log.warning(
+                    "generation task completed before final cleanup chat_id=%s",
+                    session.chat.id,
+                )
+                await self._recover_orphaned_generation(session)
             return True
 
         session.cancellation_requested.set()
@@ -205,7 +212,7 @@ class GenerationController:
         cancellations: tuple[asyncio.Task[bool], ...] = tuple(
             asyncio.create_task(self.cancel(session))
             for session in sessions
-            if session.generation_task is not None
+            if session.is_generating or session.generation_task is not None
         )
         if not cancellations:
             return True
@@ -221,6 +228,15 @@ class GenerationController:
             if not result:
                 return False
         return True
+
+    async def _recover_orphaned_generation(self, session: ChatSession) -> None:
+        """Restore a usable idle session when a task ended before its finalizer ran."""
+
+        session.is_generating = False
+        session.live_reasoning = ""
+        if session.runtime_status.phase is not RuntimePhase.ERROR:
+            session.runtime_status = self._idle_status(session.chat)
+        await self._notify(StateChangeKind.STATUS)
 
     def request_stop(self, session: ChatSession) -> bool:
         """Publish the immediate stopping phase before awaiting task cancellation."""

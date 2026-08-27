@@ -8,7 +8,7 @@ from typing import cast
 
 from jouzetsu.access import AccessDecision
 from jouzetsu.config import AppConfig, MessageActionIconStyle, StarterPrompt
-from jouzetsu.models import Chat, Message
+from jouzetsu.models import CharacterChatBinding, Chat, ChatPromptMode, Message
 from jouzetsu.runtime import (
     ModelDescriptor,
     ModelInstanceDescriptor,
@@ -531,6 +531,32 @@ def test_generating_chat_disables_every_generation_sensitive_setting() -> None:
             markup.rfind("<", 0, marker_index) : markup.index(">", marker_index)
         ]
         assert "disabled" in opening_tag
+
+
+def test_settings_panel_lists_every_character_in_a_cast() -> None:
+    chat = Chat(
+        id="chat-cast-settings",
+        character_cast=(
+            CharacterChatBinding(id="mira123", name="Mira", revision=2),
+            CharacterChatBinding(id="ren123", name="Ren", revision=4),
+        ),
+        prompt_mode=ChatPromptMode.STORY,
+    )
+    view: ChatSettingsView = ChatSettingsView(
+        chat=chat,
+        generating=False,
+        generation_defaults=AppConfig().generation,
+        model_choices=(),
+    )
+
+    markup: str = repr(render_settings_panel(view))
+
+    assert "Cast" in markup
+    assert "Started as: Story" in markup
+    assert "Mira (revision 2)" in markup
+    assert "Ren (revision 4)" in markup
+    assert 'href="/characters/mira123"' in markup
+    assert 'href="/characters/ren123"' in markup
 
 
 def test_generating_model_cannot_be_unloaded_from_the_models_dialog() -> None:

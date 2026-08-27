@@ -36,8 +36,8 @@ jouzetsu --home /path/to/Jouzetsu
   forked, merged, or undone.
 - Downloaded-model discovery and loading through LM Studio, including an
   optional idle unload time-to-live.
-- Character profiles and JSON preset packs; starting a character chat records
-  that profile's compiled prompt in the new conversation.
+- Character profiles and JSON preset packs; start immutable single-character or
+  multi-character chats in Roleplay, Assistant, Story, or Custom prompt modes.
 - Optional post-reply continuity review, proposed rewrites requiring user
   approval, host statistics, local-only assets, and SSE updates.
 - Default-private browser access with localhost device approval controls.

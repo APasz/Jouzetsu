@@ -201,11 +201,11 @@ export const startApplication = () => {
     document.addEventListener('submit', (event) => {
         const form = event.target;
         if (!(form instanceof HTMLFormElement)) return;
-        if (!characters.validateForm(form)) {
+        const submitter = event.submitter;
+        if (!characters.validateForm(form, submitter)) {
             event.preventDefault();
             return;
         }
-        const submitter = event.submitter;
         const confirmation = submitter instanceof HTMLElement ? submitter.dataset.confirm : '';
         if (confirmation && !window.confirm(confirmation)) {
             event.preventDefault();

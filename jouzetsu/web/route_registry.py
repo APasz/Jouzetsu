@@ -32,7 +32,14 @@ from ..config import (
     MessageActionIconStyle,
     ServerSettings,
 )
-from ..models import Character, CharacterField, ChatSamplingOverrides, Message
+from ..models import (
+    Character,
+    CharacterField,
+    ChatPromptMode,
+    ChatSamplingOverrides,
+    Message,
+    chat_prompt_mode_from_text,
+)
 from ..state import AppState, ChatMessageUndo
 from .form_data import (
     FormValues as _FormValues,
@@ -417,7 +424,15 @@ def _register_character_routes(context: RouteContext) -> None:
         try:
             _ = await context.access.require(request, require_csrf=True)
             character: Character = await context.update_character(character_id, form)
-            chat = await context.state.start_chat_from_character(character.id)
+            prompt_mode: ChatPromptMode = chat_prompt_mode_from_text(
+                form.text("prompt_mode", default=ChatPromptMode.ROLEPLAY.value)
+            )
+            chat = await context.state.start_chat_from_characters(
+                (character.id, *form.texts("cast_member_id")),
+                prompt_mode=prompt_mode,
+                custom_instruction=form.text("custom_instruction"),
+                story_direction=form.text("story_direction"),
+            )
         except HTTPException:
             raise
         except Exception as exc:

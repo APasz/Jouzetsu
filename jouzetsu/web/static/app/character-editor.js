@@ -184,6 +184,26 @@ const addPresetRows = (fields, definitions) => {
     return addedRows;
 };
 
+const selectedCastProfiles = (form, primaryName, primaryProfile) => {
+    const members = [{ name: primaryName, profile: primaryProfile }];
+    form.querySelectorAll('[data-character-cast-member]:checked').forEach((control) => {
+        if (!(control instanceof HTMLInputElement)) return;
+        const name = control.dataset.characterCastMemberName;
+        const profile = control.dataset.characterCastMemberProfile;
+        if (name === undefined || profile === undefined) return;
+        members.push({ name, profile });
+    });
+    return members;
+};
+
+const compiledCastProfiles = (members, profileHeading, castHeading, memberTemplate) => {
+    if (members.length === 1) return `${profileHeading}\n${members[0].profile}`;
+    const memberBlocks = members.map(({ name, profile }) => (
+        `${memberTemplate.replace('{name}', () => name)}\n${profileHeading}\n${profile}`
+    ));
+    return `${castHeading}\n\n${memberBlocks.join('\n\n')}`;
+};
+
 export class CharacterEditorController {
     #dirty = false;
     #submitting = false;
@@ -191,7 +211,9 @@ export class CharacterEditorController {
 
     initialize() {
         document.querySelectorAll('[data-character-editor-form]').forEach((form) => {
-            if (form instanceof HTMLFormElement) this.#syncPromptPreview(form);
+            if (!(form instanceof HTMLFormElement)) return;
+            this.#syncPromptMode(form);
+            this.#syncPromptPreview(form);
         });
         this.#syncResponsiveState();
     }
@@ -262,6 +284,9 @@ export class CharacterEditorController {
 
     handleInput(target) {
         if (!(target instanceof Element)) return;
+        if (target instanceof HTMLTextAreaElement && target.matches('[data-character-custom-prompt-input]')) {
+            target.setCustomValidity('');
+        }
         const form = target.closest('[data-character-editor-form]');
         if (form instanceof HTMLFormElement) {
             this.markDirty();
@@ -274,7 +299,10 @@ export class CharacterEditorController {
     handleChange(target) {
         if (!(target instanceof Element)) return;
         const form = target.closest('[data-character-editor-form]');
-        if (form instanceof HTMLFormElement) this.markDirty();
+        if (form instanceof HTMLFormElement) {
+            this.markDirty();
+            this.#syncPromptMode(form);
+        }
         const style = target.closest('select[name="field_kind"]');
         if (style instanceof HTMLSelectElement) this.#syncFieldValueControl(style.closest('[data-character-field]'));
         if (form instanceof HTMLFormElement) this.#syncPromptPreview(form);
@@ -294,7 +322,8 @@ export class CharacterEditorController {
         return true;
     }
 
-    validateForm(form) {
+    validateForm(form, submitter) {
+        if (!this.#validateCustomInstruction(form, submitter)) return false;
         const editor = form.querySelector('[data-spelling-editor]');
         if (editor instanceof HTMLElement && !this.syncSpellingEditor(editor)) return false;
         return true;
@@ -373,7 +402,38 @@ export class CharacterEditorController {
         const profileHeading = preview.dataset.characterPromptProfileHeading;
         const emptyProfile = preview.dataset.characterPromptEmptyProfile;
         const closing = preview.dataset.characterPromptClosing;
-        if (!nameTemplate || !profileHeading || !emptyProfile || !closing) return;
+        const castIntro = preview.dataset.characterPromptCastIntro;
+        const castHeading = preview.dataset.characterPromptCastHeading;
+        const castMemberTemplate = preview.dataset.characterPromptCastMemberTemplate;
+        const castClosing = preview.dataset.characterPromptCastClosing;
+        const assistantNameTemplate = preview.dataset.characterPromptAssistantNameTemplate;
+        const assistantCastIntro = preview.dataset.characterPromptAssistantCastIntro;
+        const assistantClosing = preview.dataset.characterPromptAssistantClosing;
+        const storyNameTemplate = preview.dataset.characterPromptStoryNameTemplate;
+        const storyCastIntro = preview.dataset.characterPromptStoryCastIntro;
+        const storyDirectionHeading = preview.dataset.characterPromptStoryDirectionHeading;
+        const storyClosing = preview.dataset.characterPromptStoryClosing;
+        const customEmpty = preview.dataset.characterPromptCustomEmpty;
+        const mode = form.querySelector('[data-character-prompt-mode]');
+        if (
+            !nameTemplate
+            || !profileHeading
+            || !emptyProfile
+            || !closing
+            || !castIntro
+            || !castHeading
+            || !castMemberTemplate
+            || !castClosing
+            || !assistantNameTemplate
+            || !assistantCastIntro
+            || !assistantClosing
+            || !storyNameTemplate
+            || !storyCastIntro
+            || !storyDirectionHeading
+            || !storyClosing
+            || !customEmpty
+            || !(mode instanceof HTMLSelectElement)
+        ) return;
         const lines = [];
         form.querySelectorAll('[data-character-field]').forEach((row) => {
             const label = row.querySelector('[data-character-field-label]');
@@ -389,7 +449,89 @@ export class CharacterEditorController {
             }
         });
         const profile = lines.length ? lines.join('\n') : emptyProfile;
-        preview.textContent = `${nameTemplate.replace('{name}', () => name.value.trim())}\n\n${profileHeading}\n${profile}\n\n${closing}`;
+        const primaryName = name.value.trim();
+        const castProfiles = selectedCastProfiles(form, primaryName, profile);
+        const profiles = compiledCastProfiles(
+            castProfiles,
+            profileHeading,
+            castHeading,
+            castMemberTemplate,
+        );
+        const hasCast = castProfiles.length > 1;
+        if (mode.value === mode.dataset.characterPromptModeAssistant) {
+            const assistantIntro = hasCast
+                ? assistantCastIntro
+                : assistantNameTemplate.replace('{name}', () => primaryName);
+            preview.textContent = `${assistantIntro}\n\n${profiles}\n\n${assistantClosing}`;
+            return;
+        }
+        if (mode.value === mode.dataset.characterPromptModeStory) {
+            const storyDirectionInput = form.querySelector('[data-character-story-direction-input]');
+            const storyDirection = storyDirectionInput instanceof HTMLTextAreaElement
+                ? storyDirectionInput.value.trim()
+                : '';
+            const storyIntro = hasCast
+                ? storyCastIntro
+                : storyNameTemplate.replace('{name}', () => primaryName);
+            const directionBlock = storyDirection
+                ? `${storyDirectionHeading}\n${storyDirection}\n\n`
+                : '';
+            preview.textContent = `${storyIntro}\n\n${directionBlock}${profiles}\n\n${storyClosing}`;
+            return;
+        }
+        if (mode.value === mode.dataset.characterPromptModeCustom) {
+            const customInput = form.querySelector('[data-character-custom-prompt-input]');
+            const customInstruction = customInput instanceof HTMLTextAreaElement ? customInput.value.trim() : '';
+            preview.textContent = `${customInstruction || customEmpty}\n\n${profiles}`;
+            return;
+        }
+        if (!hasCast) {
+            preview.textContent = `${nameTemplate.replace('{name}', () => primaryName)}\n\n${profiles}\n\n${closing}`;
+            return;
+        }
+        preview.textContent = `${castIntro}\n\n${profiles}\n\n${castClosing}`;
+    }
+
+    #syncPromptMode(form) {
+        if (!(form instanceof HTMLFormElement)) return;
+        const mode = form.querySelector('[data-character-prompt-mode]');
+        const customPrompt = form.querySelector('[data-character-custom-prompt]');
+        const customInput = form.querySelector('[data-character-custom-prompt-input]');
+        const storyDirection = form.querySelector('[data-character-story-direction]');
+        if (
+            !(mode instanceof HTMLSelectElement)
+            || !(customPrompt instanceof HTMLElement)
+            || !(customInput instanceof HTMLTextAreaElement)
+            || !(storyDirection instanceof HTMLElement)
+        ) return;
+        const isCustom = mode.value === mode.dataset.characterPromptModeCustom;
+        const isStory = mode.value === mode.dataset.characterPromptModeStory;
+        customPrompt.hidden = !isCustom;
+        storyDirection.hidden = !isStory;
+        customInput.required = false;
+        if (!isCustom) customInput.setCustomValidity('');
+    }
+
+    #validateCustomInstruction(form, submitter) {
+        const mode = form.querySelector('[data-character-prompt-mode]');
+        const customInput = form.querySelector('[data-character-custom-prompt-input]');
+        if (!(mode instanceof HTMLSelectElement) || !(customInput instanceof HTMLTextAreaElement)) {
+            return true;
+        }
+        customInput.setCustomValidity('');
+        const startingChat = (
+            submitter instanceof HTMLButtonElement
+            && submitter.dataset.characterStartChat === 'true'
+        );
+        const isMissingCustomInstruction = (
+            startingChat
+            && mode.value === mode.dataset.characterPromptModeCustom
+            && !customInput.value.trim()
+        );
+        if (!isMissingCustomInstruction) return true;
+        customInput.setCustomValidity('Enter a custom instruction before starting this chat.');
+        customInput.reportValidity();
+        return false;
     }
 
     #toggleFieldMenu(toggle) {

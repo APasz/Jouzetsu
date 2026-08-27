@@ -237,16 +237,66 @@
 
 .jouzetsu-character-editor-form,
 .jouzetsu-character-fields-editor,
-.jouzetsu-character-preset-editor {
+.jouzetsu-character-preset-editor,
+.jouzetsu-character-cast-editor {
     display: flex;
     flex-direction: column;
     gap: 13px;
 }
 
-.jouzetsu-character-preset-editor {
+.jouzetsu-character-preset-editor,
+.jouzetsu-character-cast-editor {
     padding: 13px;
     border: 1px solid var(--jouzetsu-border);
     background: var(--jouzetsu-surface);
+}
+
+.jouzetsu-character-prompt-mode-editor,
+.jouzetsu-character-custom-prompt,
+.jouzetsu-character-story-direction {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.jouzetsu-character-custom-prompt[hidden],
+.jouzetsu-character-story-direction[hidden] {
+    display: none;
+}
+
+.jouzetsu-character-cast-members {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.jouzetsu-character-cast-member {
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    gap: 3px 7px;
+    padding: 7px 9px;
+    border: 1px solid var(--jouzetsu-border);
+    color: var(--jouzetsu-text-dim);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.jouzetsu-character-cast-member input {
+    grid-row: span 2;
+}
+
+.jouzetsu-character-cast-member.is-required {
+    cursor: default;
+}
+
+.jouzetsu-character-cast-member-name {
+    color: var(--jouzetsu-text);
+}
+
+.jouzetsu-character-cast-member-revision {
+    grid-column: 2;
+    color: var(--jouzetsu-text-dim);
 }
 
 .jouzetsu-character-preset-heading {
@@ -448,10 +498,23 @@
 
 .jouzetsu-settings-character-source {
     display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin: -2px 0 2px;
+}
+
+.jouzetsu-settings-character-cast-members {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.jouzetsu-settings-character-cast-member {
+    display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin: -2px 0 2px;
 }
 
 .jouzetsu-settings-character-link {

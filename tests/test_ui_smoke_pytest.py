@@ -26,7 +26,7 @@ from jouzetsu.config import (
     UiSettings,
 )
 from jouzetsu.events import StateChangeKind
-from jouzetsu.models import Chat, Message
+from jouzetsu.models import CharacterField, Chat, ChatPromptMode, Message
 from jouzetsu.runtime import (
     ChatStreamEvent,
     FirstToken,
@@ -256,6 +256,15 @@ def test_character_client_adds_template_fields_without_duplicate_or_destructive_
     )
     assert "removePresetRows" not in script
     assert "#syncPromptPreview(form)" in script
+    assert "#syncPromptMode(form)" in script
+    assert "customPrompt.hidden = !isCustom;" in script
+    assert "#validateCustomInstruction(form, submitter)" in script
+    assert "customInput.required = false;" in script
+    assert "storyDirection.hidden = !isStory;" in script
+    assert "storyDirectionHeading" in script
+    assert "const selectedCastProfiles" in script
+    assert "form.querySelectorAll('[data-character-cast-member]:checked')" in script
+    assert "const compiledCastProfiles" in script
 
 
 def test_character_client_preserves_literal_prompt_names_and_only_focuses_open_field_menus() -> (
@@ -263,7 +272,7 @@ def test_character_client_preserves_literal_prompt_names_and_only_focuses_open_f
 ):
     script: str = _chat_client_source()
 
-    assert "nameTemplate.replace('{name}', () => name.value.trim())" in script
+    assert "nameTemplate.replace('{name}', () => primaryName)" in script
     assert (
         "if (!menu.hidden && style instanceof HTMLSelectElement) style.focus();"
         in script
@@ -400,7 +409,10 @@ def test_chat_client_keeps_the_stop_generation_control_enabled() -> None:
 def test_delete_dialog_hides_the_tail_delete_choice_for_the_last_message() -> None:
     script: str = _chat_client_source()
 
-    assert "const hasFollowing = target.dataset.deleteChoiceHasFollowing === 'true';" in script
+    assert (
+        "const hasFollowing = target.dataset.deleteChoiceHasFollowing === 'true';"
+        in script
+    )
     assert "following.hidden = !hasFollowing;" in script
 
 
@@ -633,12 +645,15 @@ def test_chat_client_preserves_drafts_and_focuses_the_edit_composer() -> None:
 def test_cancelled_character_submission_does_not_clear_unsaved_editor_state() -> None:
     script: str = _chat_client_source()
 
+    submitter: int = script.index("const submitter = event.submitter;")
+    validation: int = script.index("if (!characters.validateForm(form, submitter))")
     confirmation: int = script.index(
         "if (confirmation && !window.confirm(confirmation))"
     )
     submitting: int = script.index("characters.beginSubmit(form);")
 
-    assert "validateForm(form)" in script
+    assert submitter < validation
+    assert "validateForm(form, submitter)" in script
     assert confirmation < submitting
 
 
@@ -1035,6 +1050,101 @@ def test_character_workspace_persists_a_custom_field_schema_and_starts_a_snapsho
                     "Occupation: Pilot and cartographer"
                     in state.active_chat.system_prompt
                 )
+        finally:
+            await _close_web_application(web, state)
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        asyncio.run(scenario(Path(temporary_directory)))
+
+
+def test_character_editor_starts_an_ensemble_chat_from_selected_cast() -> None:
+    async def scenario(root: Path) -> None:
+        state: AppState = _build_state(root, private=False)
+        mira = await state.new_character()
+        ren = await state.new_character()
+        mira = await state.update_character(
+            mira.id,
+            expected_revision=mira.revision,
+            name="Mira",
+            fields=[],
+        )
+        ren = await state.update_character(
+            ren.id,
+            expected_revision=ren.revision,
+            name="Ren",
+            fields=[CharacterField(label="Role", value="Pilot")],
+        )
+        web: WebApplication = WebApplication(
+            state.config, state, on_startup=_noop, on_shutdown=_noop
+        )
+        transport: httpx.ASGITransport = _transport(web, client_ip="127.0.0.1")
+        try:
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                editor: httpx.Response = await client.get(f"/characters/{mira.id}")
+
+                assert 'data-testid="character-cast-selector"' in editor.text
+                assert 'data-testid="character-cast-primary"' in editor.text
+                assert f'data-testid="character-cast-member-{ren.id}"' in editor.text
+                assert 'data-character-cast-member="true"' in editor.text
+                assert 'data-character-cast-member-name="Ren"' in editor.text
+                assert 'data-character-cast-member-profile="Role: Pilot"' in editor.text
+                assert 'data-testid="character-prompt-mode"' in editor.text
+                assert 'data-testid="character-custom-prompt"' in editor.text
+                assert 'data-testid="character-story-direction-panel"' in editor.text
+                assert 'data-character-start-chat="true"' in editor.text
+                assert "Roleplay" in editor.text
+                assert "Assistant" in editor.text
+                assert "Story" in editor.text
+                assert "Custom" in editor.text
+
+                started: httpx.Response = await client.post(
+                    f"/characters/{mira.id}/chat",
+                    data={
+                        "name": mira.name,
+                        "revision": str(mira.revision),
+                        "cast_member_id": ren.id,
+                        "prompt_mode": "custom",
+                        "custom_instruction": "Use concise mission briefings.",
+                    },
+                    headers=_csrf_headers(editor),
+                    follow_redirects=False,
+                )
+
+                assert started.status_code == 303
+                assert started.headers["location"].startswith("/chats?notice=")
+                assert state.active_chat.title == "Mira & Ren"
+                assert state.active_chat.prompt_mode is ChatPromptMode.CUSTOM
+                assert tuple(
+                    binding.id for binding in state.active_chat.character_cast
+                ) == (mira.id, ren.id)
+                assert state.active_chat.system_prompt.startswith(
+                    "Use concise mission briefings."
+                )
+                assert "Mira:" in state.active_chat.system_prompt
+                assert "Ren:" in state.active_chat.system_prompt
+
+                story_started: httpx.Response = await client.post(
+                    f"/characters/{mira.id}/chat",
+                    data={
+                        "name": mira.name,
+                        "revision": str(mira.revision),
+                        "cast_member_id": ren.id,
+                        "prompt_mode": "story",
+                        "story_direction": "A tense rescue on an ocean moon.",
+                    },
+                    headers=_csrf_headers(editor),
+                    follow_redirects=False,
+                )
+
+                assert story_started.status_code == 303
+                assert state.active_chat.prompt_mode is ChatPromptMode.STORY
+                assert (
+                    "A tense rescue on an ocean moon."
+                    in state.active_chat.system_prompt
+                )
+                assert "Write in third person" in state.active_chat.system_prompt
         finally:
             await _close_web_application(web, state)
 
