@@ -296,6 +296,22 @@ def test_character_client_keeps_template_fields_responsive() -> None:
     assert "#syncResponsiveState()" in script
 
 
+def test_character_library_can_shrink_to_the_mobile_viewport() -> None:
+    workspace_styles: str = (_THEME_DIRECTORY / "workspace.css").read_text(
+        encoding="utf-8"
+    )
+
+    for selector in (
+        ".jouzetsu-character-layout",
+        ".jouzetsu-character-library",
+        ".jouzetsu-character-library-list",
+    ):
+        assert re.search(
+            rf"{re.escape(selector)} \{{[^}}]*min-width: 0;",
+            workspace_styles,
+        )
+
+
 def test_character_field_actions_fill_desktop_rows_and_share_mobile_field_rows() -> (
     None
 ):
