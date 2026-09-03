@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from jouzetsu.character_storage import CharacterStorage
-from jouzetsu.models import Character, CharacterField
+from jouzetsu.models import Character, CharacterField, CharacterName
 
 
 def test_character_storage_persists_each_profile_in_its_own_file() -> None:
@@ -12,10 +12,12 @@ def test_character_storage_persists_each_profile_in_its_own_file() -> None:
         directory: Path = Path(temporary_directory) / "characters"
         storage = CharacterStorage(directory)
         first = Character(
-            name="Mira", fields=[CharacterField(label="Role", value="Pilot")]
+            name_parts=CharacterName("Mira"),
+            fields=[CharacterField(label="Role", value="Pilot")],
         )
         second = Character(
-            name="Sol", fields=[CharacterField(label="Species", value="Human")]
+            name_parts=CharacterName("Sol"),
+            fields=[CharacterField(label="Species", value="Human")],
         )
 
         storage.save(first)
@@ -31,7 +33,7 @@ def test_character_storage_quarantines_only_the_invalid_document() -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         directory: Path = Path(temporary_directory) / "characters"
         storage = CharacterStorage(directory)
-        valid = Character(name="Mira")
+        valid = Character(name_parts=CharacterName("Mira"))
         storage.save(valid)
         damaged: Path = directory / "bad.json"
         _ = damaged.write_text("{", encoding="utf-8")

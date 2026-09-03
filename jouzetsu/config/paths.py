@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Final
 
 APP_HOME_ENVIRONMENT_VARIABLE: Final[str] = "JOUZETSU_HOME"
+CHARACTER_NAME_SUGGESTIONS_FILE_NAME: Final[str] = "character-names.json"
 _SOURCE_CHECKOUT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 
@@ -45,6 +46,7 @@ class AppPaths:
     chats_file: Path
     characters_directory: Path
     character_presets_directory: Path
+    character_name_suggestions_file: Path
     log_directory: Path
 
     @classmethod
@@ -60,6 +62,9 @@ class AppPaths:
             chats_file=data_dir / "chats.json",
             characters_directory=data_dir / "characters",
             character_presets_directory=data_dir / "character-presets",
+            character_name_suggestions_file=(
+                data_dir / CHARACTER_NAME_SUGGESTIONS_FILE_NAME
+            ),
             log_directory=data_dir / "logs",
         )
 

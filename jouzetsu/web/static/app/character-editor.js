@@ -3,6 +3,42 @@ const CHARACTER_FIELD_KINDS = new Map([
     ['long_text', 'Long text'],
 ]);
 
+const isCharacterNameList = (names) => (
+    Array.isArray(names)
+    && names.length > 0
+    && names.every((name) => typeof name === 'string' && Boolean(name.trim()))
+);
+
+const randomCharacterNameSuggestions = (control) => {
+    if (!(control instanceof HTMLElement)) return null;
+    try {
+        const names = JSON.parse(control.dataset.characterRandomNames || '{}');
+        return (
+            names
+            && typeof names === 'object'
+            && !Array.isArray(names)
+            && isCharacterNameList(names.given_names)
+            && isCharacterNameList(names.family_names)
+        ) ? names : null;
+    } catch {
+        return null;
+    }
+};
+
+const randomCharacterNamePart = (names, currentName) => {
+    if (names.length === 1) return names[0];
+    const currentIndex = names.indexOf(currentName);
+    if (currentIndex < 0) return names[Math.floor(Math.random() * names.length)];
+    const offset = 1 + Math.floor(Math.random() * (names.length - 1));
+    return names[(currentIndex + offset) % names.length];
+};
+
+const characterDisplayName = (givenName, familyName) => {
+    const given = givenName.trim();
+    const family = familyName.trim();
+    return given ? (family ? `${given} ${family}` : given) : '';
+};
+
 const createSpellingRow = (source = '', replacement = '') => {
     const row = document.createElement('div');
     row.className = 'jouzetsu-spelling-row';
@@ -240,6 +276,31 @@ export class CharacterEditorController {
             this.#togglePresetEditor(button);
             return true;
         }
+        if (button instanceof HTMLButtonElement && button.matches('[data-character-randomize-name-part]')) {
+            const namePart = button.dataset.characterRandomizeNamePart;
+            const isGivenName = namePart === 'given_name';
+            if (!isGivenName && namePart !== 'family_name') return true;
+            const form = button.closest('[data-character-editor-form]');
+            const input = form?.querySelector(`input[name="${namePart}"]`);
+            const nameControl = button.closest('[data-character-name-control]');
+            if (
+                !(form instanceof HTMLFormElement)
+                || !(input instanceof HTMLInputElement)
+            ) return true;
+            const suggestions = randomCharacterNameSuggestions(nameControl);
+            if (!suggestions) return true;
+            const names = isGivenName
+                ? suggestions.given_names
+                : suggestions.family_names;
+            const nextName = randomCharacterNamePart(names, input.value.trim());
+            if (!nextName) return true;
+            input.value = nextName;
+            this.markDirty();
+            this.#syncPromptPreview(form);
+            input.focus();
+            input.select();
+            return true;
+        }
         if (button instanceof HTMLButtonElement && button.matches('[data-character-add-field]')) {
             const fields = button.closest('[data-character-fields-editor]')?.querySelector('[data-character-fields]');
             if (!(fields instanceof HTMLElement)) return true;
@@ -396,8 +457,13 @@ export class CharacterEditorController {
         if (!(form instanceof HTMLFormElement)) return;
         const editor = form.closest('.jouzetsu-character-editor');
         const preview = editor?.querySelector('[data-character-prompt-preview]');
-        const name = form.querySelector('input[name="name"]');
-        if (!(preview instanceof HTMLElement) || !(name instanceof HTMLInputElement)) return;
+        const givenName = form.querySelector('input[name="given_name"]');
+        const familyName = form.querySelector('input[name="family_name"]');
+        if (
+            !(preview instanceof HTMLElement)
+            || !(givenName instanceof HTMLInputElement)
+            || !(familyName instanceof HTMLInputElement)
+        ) return;
         const nameTemplate = preview.dataset.characterPromptNameTemplate;
         const profileHeading = preview.dataset.characterPromptProfileHeading;
         const emptyProfile = preview.dataset.characterPromptEmptyProfile;
@@ -449,7 +515,7 @@ export class CharacterEditorController {
             }
         });
         const profile = lines.length ? lines.join('\n') : emptyProfile;
-        const primaryName = name.value.trim();
+        const primaryName = characterDisplayName(givenName.value, familyName.value);
         const castProfiles = selectedCastProfiles(form, primaryName, profile);
         const profiles = compiledCastProfiles(
             castProfiles,

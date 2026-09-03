@@ -65,6 +65,33 @@ chats move to `data/chats/trash/`; legacy `data/chats.json` is migrated on
 startup and retained as a timestamped recovery copy. Add custom empty-chat
 messages to `data/empty-chat-messages.txt`, one line per message.
 
+Add name suggestions to `data/character-names.json`. The file supplements the
+built-in pools by default, accepts an empty pool when you only want to add one
+name part, and uses this shape:
+
+```json
+{
+  "schema_version": 1,
+  "given_names": ["Ayla"],
+  "family_names": ["Khan"]
+}
+```
+
+Set `"disable_vanilla": true` to use only the supplied names instead. In this
+mode, both pools must be non-empty so each randomise button remains usable:
+
+```json
+{
+  "schema_version": 1,
+  "disable_vanilla": true,
+  "given_names": ["Ayla"],
+  "family_names": ["Khan"]
+}
+```
+
+Malformed custom name files are ignored with a visible editor warning and a log
+entry, so the built-in randomiser remains available.
+
 Custom character preset packs are JSON files in `data/character-presets/`.
 They are data only and are never executed; malformed packs are skipped and
 reported in the character editor and logs.

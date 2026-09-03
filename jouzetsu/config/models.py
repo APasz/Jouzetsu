@@ -414,6 +414,10 @@ class AppConfig:
         return self.paths.character_presets_directory
 
     @property
+    def character_name_suggestions_file(self) -> Path:
+        return self.paths.character_name_suggestions_file
+
+    @property
     def log_directory(self) -> Path:
         return self.logging.directory or self.paths.log_directory
 

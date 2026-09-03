@@ -1,4 +1,4 @@
-"""Validated declarative field templates for the character profile editor."""
+"""Validated declarative data for the character profile editor."""
 
 from __future__ import annotations
 
@@ -25,6 +25,9 @@ _PACK_IDENTIFIER_PATTERN: Final[re.Pattern[str]] = re.compile(
 )
 _BUILTIN_PACK_PATH: Final[Path] = (
     Path(__file__).with_name("character_preset_data") / "builtin.json"
+)
+_BUILTIN_CHARACTER_NAMES_PATH: Final[Path] = (
+    Path(__file__).with_name("character_preset_data") / "names.json"
 )
 
 
@@ -83,6 +86,99 @@ class CharacterPresetLoadIssue:
 
     path: Path
     message: str
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterNameSuggestions:
+    """The independently selectable name parts used by the onboarding randomiser."""
+
+    given_names: tuple[str, ...]
+    family_names: tuple[str, ...]
+
+    def to_client_json(self) -> str:
+        """Encode the compact, validated shape consumed by the browser editor."""
+
+        return json.dumps(
+            {
+                "given_names": self.given_names,
+                "family_names": self.family_names,
+            },
+            separators=(",", ":"),
+        )
+
+    def with_additions(
+        self, additions: CharacterNameSuggestions
+    ) -> CharacterNameSuggestions:
+        """Append distinct user-provided suggestions without weighting duplicates."""
+
+        return CharacterNameSuggestions(
+            given_names=_merged_character_name_suggestions(
+                self.given_names, additions.given_names
+            ),
+            family_names=_merged_character_name_suggestions(
+                self.family_names, additions.family_names
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _CharacterNameSuggestionDocument:
+    """One validated custom-name document and its built-in-pool policy."""
+
+    suggestions: CharacterNameSuggestions
+    disable_vanilla: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterNameSuggestionLoadIssue:
+    """An actionable reason optional user-supplied names were not included."""
+
+    path: Path
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterNameSuggestionsCatalog:
+    """Built-in name suggestions plus one optional user-supplied JSON file."""
+
+    suggestions: CharacterNameSuggestions
+    load_issue: CharacterNameSuggestionLoadIssue | None = None
+
+    @classmethod
+    def load(cls, custom_path: Path) -> CharacterNameSuggestionsCatalog:
+        """Load custom names without preventing the built-in randomiser from working."""
+
+        try:
+            document: _CharacterNameSuggestionDocument = (
+                _load_character_name_suggestion_document(
+                    custom_path, allow_empty_pools=True
+                )
+            )
+            additions: CharacterNameSuggestions = document.suggestions
+            if not additions.given_names and not additions.family_names:
+                raise ValueError(
+                    f"{custom_path.name} must define at least one name suggestion"
+                )
+            if document.disable_vanilla:
+                if not additions.given_names or not additions.family_names:
+                    raise ValueError(
+                        f"{custom_path.name} must define non-empty given_names and "
+                        "family_names when disable_vanilla is true"
+                    )
+                return cls(additions)
+        except FileNotFoundError:
+            return cls(BUILTIN_CHARACTER_NAME_SUGGESTIONS)
+        except (OSError, TypeError, ValueError) as exc:
+            issue: CharacterNameSuggestionLoadIssue = CharacterNameSuggestionLoadIssue(
+                path=custom_path, message=str(exc)
+            )
+            log.warning(
+                "ignored character name suggestions path=%s reason=%s",
+                custom_path,
+                issue.message,
+            )
+            return cls(BUILTIN_CHARACTER_NAME_SUGGESTIONS, load_issue=issue)
+        return cls(BUILTIN_CHARACTER_NAME_SUGGESTIONS.with_additions(additions))
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,11 +326,7 @@ def _parse_preset_pack(raw: object, *, source_name: str) -> CharacterPresetPack:
     _reject_unexpected_keys(
         pack, {"schema_version", "id", "label", "presets"}, path=source_name
     )
-    version: object = pack.get("schema_version")
-    if isinstance(version, bool) or not isinstance(version, int):
-        raise TypeError(f"{source_name}.schema_version must be an integer")
-    if version != 1:
-        raise ValueError(f"{source_name}.schema_version must be 1")
+    _require_schema_version(pack, path=source_name)
 
     pack_id: str = _preset_identifier(pack.get("id"), path=f"{source_name}.id")
     pack_label: str = _required_text(pack.get("label"), path=f"{source_name}.label")
@@ -287,6 +379,92 @@ def _parse_preset_pack(raw: object, *, source_name: str) -> CharacterPresetPack:
     return CharacterPresetPack(id=pack_id, label=pack_label, presets=tuple(presets))
 
 
+def load_character_name_suggestions(path: Path) -> CharacterNameSuggestions:
+    """Load distinct, non-empty JSON pools for given and family-name suggestions."""
+
+    return _load_character_name_suggestion_document(
+        path, allow_empty_pools=False
+    ).suggestions
+
+
+def _load_character_name_suggestion_document(
+    path: Path, *, allow_empty_pools: bool
+) -> _CharacterNameSuggestionDocument:
+    """Read one name-suggestion document with the caller's empty-pool policy."""
+
+    try:
+        raw: object = cast(object, json.loads(path.read_text(encoding="utf-8")))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path.name} is not valid JSON: {exc.msg}") from exc
+    document: dict[str, object] = _json_object(raw, path=path.name)
+    _reject_unexpected_keys(
+        document,
+        {"schema_version", "given_names", "family_names", "disable_vanilla"},
+        path=path.name,
+    )
+    _require_schema_version(document, path=path.name)
+    return _CharacterNameSuggestionDocument(
+        suggestions=CharacterNameSuggestions(
+            given_names=_character_name_suggestions(
+                document.get("given_names"),
+                path=f"{path.name}.given_names",
+                description="given name",
+                allow_empty=allow_empty_pools,
+            ),
+            family_names=_character_name_suggestions(
+                document.get("family_names"),
+                path=f"{path.name}.family_names",
+                description="family name",
+                allow_empty=allow_empty_pools,
+            ),
+        ),
+        disable_vanilla=_boolean(
+            document.get("disable_vanilla", False),
+            path=f"{path.name}.disable_vanilla",
+        ),
+    )
+
+
+def _character_name_suggestions(
+    raw_names: object, *, path: str, description: str, allow_empty: bool
+) -> tuple[str, ...]:
+    """Validate one distinct name pool from a JSON document."""
+
+    if not isinstance(raw_names, list):
+        raise TypeError(f"{path} must be an array")
+    if not raw_names:
+        if allow_empty:
+            return ()
+        raise ValueError(f"{path} must be a non-empty array")
+    name_values: list[object] = cast(list[object], raw_names)
+    names: list[str] = []
+    known_names: set[str] = set()
+    for index, raw_name in enumerate(name_values):
+        name_path: str = f"{path}[{index}]"
+        name: str = _required_text(raw_name, path=name_path)
+        name_key: str = name.casefold()
+        if name_key in known_names:
+            raise ValueError(f"{name_path} duplicates {description} {name!r}")
+        names.append(name)
+        known_names.add(name_key)
+    return tuple(names)
+
+
+def _merged_character_name_suggestions(
+    base: tuple[str, ...], additions: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Append names that do not already exist, case-insensitively, in the base pool."""
+
+    merged: list[str] = list(base)
+    known_names: set[str] = {name.casefold() for name in base}
+    for name in additions:
+        if name.casefold() in known_names:
+            continue
+        merged.append(name)
+        known_names.add(name.casefold())
+    return tuple(merged)
+
+
 def _parse_preset_fields(
     raw_fields: list[object], *, path: str
 ) -> tuple[CharacterPresetField, ...]:
@@ -336,6 +514,24 @@ def _reject_unexpected_keys(
     unexpected: list[str] = sorted(set(values).difference(allowed))
     if unexpected:
         raise ValueError(f"{path} contains unsupported key {unexpected[0]!r}")
+
+
+def _require_schema_version(values: Mapping[str, object], *, path: str) -> None:
+    """Require the one supported version for bundled character-data documents."""
+
+    version: object = values.get("schema_version")
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise TypeError(f"{path}.schema_version must be an integer")
+    if version != 1:
+        raise ValueError(f"{path}.schema_version must be 1")
+
+
+def _boolean(raw: object, *, path: str) -> bool:
+    """Return a JSON boolean without accepting integer lookalikes."""
+
+    if not isinstance(raw, bool):
+        raise TypeError(f"{path} must be a boolean")
+    return raw
 
 
 def _preset_identifier(raw: object, *, path: str) -> str:
@@ -408,6 +604,12 @@ def _load_builtin_character_preset_catalog() -> CharacterPresetCatalog:
 
 BUILTIN_CHARACTER_PRESET_CATALOG: Final[CharacterPresetCatalog] = (
     _load_builtin_character_preset_catalog()
+)
+BUILTIN_CHARACTER_NAME_SUGGESTIONS: Final[CharacterNameSuggestions] = (
+    load_character_name_suggestions(_BUILTIN_CHARACTER_NAMES_PATH)
+)
+BUILTIN_CHARACTER_NAME_SUGGESTIONS_JSON: Final[str] = (
+    BUILTIN_CHARACTER_NAME_SUGGESTIONS.to_client_json()
 )
 BASE_CHARACTER_PRESETS: Final[tuple[CharacterFieldPreset, ...]] = (
     BUILTIN_CHARACTER_PRESET_CATALOG.base_presets

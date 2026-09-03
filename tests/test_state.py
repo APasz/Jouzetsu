@@ -25,6 +25,7 @@ from jouzetsu.lmstudio import LMStudioClient, LMStudioError
 from jouzetsu.models import (
     Character,
     CharacterField,
+    CharacterName,
     Chat,
     ChatJSON,
     ChatPromptMode,
@@ -252,7 +253,7 @@ class AppStateTests(unittest.TestCase):
                 _ = await self.state.update_character(
                     character.id,
                     expected_revision=character.revision,
-                    name="Mira",
+                    name=CharacterName("Mira"),
                     fields=[CharacterField(label="Role", value="Pilot")],
                 )
 
@@ -277,7 +278,7 @@ class AppStateTests(unittest.TestCase):
             updated: Character = await self.state.update_character(
                 character.id,
                 expected_revision=character.revision,
-                name="Mira",
+                name=CharacterName("Mira"),
                 fields=[CharacterField(label="Role", value="Pilot")],
             )
 
@@ -285,7 +286,7 @@ class AppStateTests(unittest.TestCase):
                 _ = await self.state.update_character(
                     character.id,
                     expected_revision=character.revision,
-                    name="Stale Mira",
+                    name=CharacterName("Stale", "Mira"),
                     fields=[],
                 )
 
@@ -313,13 +314,13 @@ class AppStateTests(unittest.TestCase):
             saved_mira: Character = await self.state.update_character(
                 mira.id,
                 expected_revision=mira.revision,
-                name="Mira",
+                name=CharacterName("Mira"),
                 fields=[CharacterField(label="Role", value="Cartographer")],
             )
             saved_ren: Character = await self.state.update_character(
                 ren.id,
                 expected_revision=ren.revision,
-                name="Ren",
+                name=CharacterName("Ren"),
                 fields=[CharacterField(label="Role", value="Pilot")],
             )
 
@@ -347,7 +348,7 @@ class AppStateTests(unittest.TestCase):
             updated_mira: Character = await self.state.update_character(
                 saved_mira.id,
                 expected_revision=saved_mira.revision,
-                name="Mira",
+                name=CharacterName("Mira"),
                 fields=[CharacterField(label="Role", value="Navigator")],
             )
 
@@ -380,13 +381,13 @@ class AppStateTests(unittest.TestCase):
             mira = await self.state.update_character(
                 mira.id,
                 expected_revision=mira.revision,
-                name="Mira",
+                name=CharacterName("Mira"),
                 fields=[],
             )
             ren = await self.state.update_character(
                 ren.id,
                 expected_revision=ren.revision,
-                name="Ren",
+                name=CharacterName("Ren"),
                 fields=[],
             )
 

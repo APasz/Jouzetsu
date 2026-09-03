@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from ...character_presets import CharacterFieldPreset, CharacterPresetCatalog
+from typing import Literal
+
+from ...character_presets import (
+    CharacterFieldPreset,
+    CharacterNameSuggestionsCatalog,
+    CharacterPresetCatalog,
+)
 from ...models import (
     CHARACTER_ASSISTANT_CAST_PROMPT_INTRO,
     CHARACTER_ASSISTANT_PROMPT_CLOSING,
@@ -20,8 +26,10 @@ from ...models import (
     CHARACTER_STORY_DIRECTION_HEADING,
     CHARACTER_STORY_PROMPT_CLOSING,
     CHARACTER_STORY_PROMPT_NAME_TEMPLATE,
+    DEFAULT_CHARACTER_NAME,
     Character,
     CharacterField,
+    CharacterName,
     ChatPromptMode,
 )
 from ...state import AppState
@@ -57,11 +65,14 @@ from .controls import csrf_context, field
 from .feedback import render_notice_area
 from .icons import render_icon
 
+type CharacterNamePart = Literal["given_name", "family_name"]
+
 
 def render_character_page(
     state: AppState,
     context: PageContext,
     preset_catalog: CharacterPresetCatalog,
+    name_suggestions: CharacterNameSuggestionsCatalog,
     *,
     selected_character_id: str = "",
     notice: str = "",
@@ -84,6 +95,7 @@ def render_character_page(
             characters,
             context,
             preset_catalog,
+            name_suggestions,
         )
         if selected_character is not None
         else _character_empty_state()
@@ -202,14 +214,14 @@ def _render_character_editor(
     characters: list[Character],
     context: PageContext,
     preset_catalog: CharacterPresetCatalog,
+    name_suggestions: CharacterNameSuggestionsCatalog,
 ) -> HTML:
     """Render profile metadata from the character's own field definitions."""
 
-    is_onboarding: bool = (
-        character.revision == 1
-        and character.name == "New character"
-        and not character.fields
-    )
+    # Server-rendered field and preset actions retain the draft-name sentinel while
+    # they add profile data. Keep the name controls in their initial state until a
+    # real name is saved, rather than exposing the sentinel after such an action.
+    is_onboarding: bool = character.name_parts == DEFAULT_CHARACTER_NAME
     fields: tuple[HTML, ...] = tuple(
         _render_character_field(profile_field) for profile_field in character.fields
     )
@@ -236,15 +248,10 @@ def _render_character_editor(
             ),
             Input(type="hidden", name="revision", value=character.revision),
             Input(type="hidden", name=CSRF_FORM_FIELD, value=context.csrf_token),
-            field(
-                "Name",
-                Input(
-                    name="name",
-                    value=character.name,
-                    autocomplete="off",
-                    required=True,
-                    data_testid="character-name-input",
-                ),
+            _render_character_name_control(
+                character,
+                name_suggestions,
+                is_onboarding=is_onboarding,
             ),
             _render_character_preset_controls(
                 character, preset_catalog, is_onboarding=is_onboarding
@@ -486,6 +493,85 @@ def _render_character_prompt_mode_controls() -> HTML:
             data_testid="character-story-direction-panel",
         ),
         cls="jouzetsu-character-prompt-mode-editor",
+    )
+
+
+def _render_character_name_control(
+    character: Character,
+    name_suggestions: CharacterNameSuggestionsCatalog,
+    *,
+    is_onboarding: bool,
+) -> HTML:
+    """Render the editable name parts and onboarding-only random-name control."""
+
+    name: CharacterName = character.name_parts
+    given_name: str = "" if is_onboarding else name.given_name
+    family_name: str = "" if is_onboarding else name.family_name
+    return Div(
+        _render_character_name_field(
+            "Given Name",
+            "given_name",
+            given_name,
+            is_onboarding=is_onboarding,
+        ),
+        _render_character_name_field(
+            "Family Name",
+            "family_name",
+            family_name,
+            is_onboarding=is_onboarding,
+        ),
+        P(
+            f"Custom name suggestions could not be loaded: "
+            f"{name_suggestions.load_issue.message}",
+            cls="jouzetsu-character-field-help",
+        )
+        if is_onboarding and name_suggestions.load_issue is not None
+        else None,
+        cls="jouzetsu-character-name-control",
+        data_character_name_control="true",
+        data_character_random_names=(
+            name_suggestions.suggestions.to_client_json() if is_onboarding else None
+        ),
+    )
+
+
+def _render_character_name_field(
+    label: str,
+    name_part: CharacterNamePart,
+    value: str,
+    *,
+    is_onboarding: bool,
+) -> HTML:
+    """Render one name part and, during onboarding, its dedicated randomiser."""
+
+    marker: str = name_part.replace("_", "-")
+    return Div(
+        field(
+            label,
+            Input(
+                name=name_part,
+                value=value,
+                autocomplete="off",
+                required=name_part == "given_name",
+                data_testid=f"character-{marker}-input",
+            ),
+        ),
+        Button(
+            render_icon("refresh"),
+            type="button",
+            cls="jouzetsu-button jouzetsu-character-name-randomize",
+            title=f"Generate a random {label.casefold()}",
+            aria_label=f"Generate a random {label.casefold()}",
+            data_character_randomize_name_part=name_part,
+            data_testid=f"character-{marker}-randomize",
+        )
+        if is_onboarding
+        else None,
+        cls=(
+            "jouzetsu-character-name-row is-randomizable"
+            if is_onboarding
+            else "jouzetsu-character-name-row"
+        ),
     )
 
 

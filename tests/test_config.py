@@ -34,6 +34,10 @@ class ConfigStoreTests(unittest.TestCase):
             self.assertEqual(
                 config.character_presets_directory, home / "data" / "character-presets"
             )
+            self.assertEqual(
+                config.character_name_suggestions_file,
+                home / "data" / "character-names.json",
+            )
             self.assertEqual(config.log_directory, home / "data" / "logs")
             content = config.config_file.read_text(encoding="utf-8")
             self.assertIn('\n    "version": 1,', content)

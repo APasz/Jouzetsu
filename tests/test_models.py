@@ -12,6 +12,7 @@ from jouzetsu.models import (
     Character,
     CharacterChatBinding,
     CharacterField,
+    CharacterName,
     CharacterPresetSelection,
     Chat,
     ChatPromptMode,
@@ -242,7 +243,7 @@ def test_character_uses_its_own_field_schema_and_compiles_only_populated_values(
     None
 ):
     character = Character(
-        name="Mira",
+        name_parts=CharacterName("Mira"),
         fields=[
             CharacterField(
                 label="Personality", kind="long_text", value="Warm and observant."
@@ -260,11 +261,41 @@ def test_character_uses_its_own_field_schema_and_compiles_only_populated_values(
     assert reloaded == character
 
 
+def test_character_name_supports_an_optional_family_name() -> None:
+    full_name = CharacterName.from_display_name("Mira Ash")
+    mononym = CharacterName(given_name=" Mira ", family_name=" ")
+    character = Character(name_parts=mononym)
+
+    assert full_name.given_name == "Mira"
+    assert full_name.family_name == "Ash"
+    assert full_name.display_name == "Mira Ash"
+    assert mononym.display_name == "Mira"
+    assert character.name_parts == CharacterName(given_name="Mira")
+    assert character.compiled_system_prompt().startswith(
+        "You are roleplaying as Mira.\n\n"
+    )
+
+
+def test_character_name_round_trips_multiword_parts_and_loads_legacy_display_names() -> (
+    None
+):
+    name = CharacterName(given_name="Mary Jane", family_name="van Helsing")
+    character = Character(name_parts=name)
+    serialized = character.to_dict()
+    reloaded = Character.from_dict(serialized)
+    legacy = Character.from_dict({"id": "legacy123", "name": "Mira Ash"})
+
+    assert serialized["name"] == {"given": "Mary Jane", "family": "van Helsing"}
+    assert reloaded.name_parts == name
+    assert reloaded.name == "Mary Jane van Helsing"
+    assert legacy.name_parts == CharacterName(given_name="Mira", family_name="Ash")
+
+
 def test_character_preserves_selected_profile_templates_and_loads_older_profiles() -> (
     None
 ):
     character = Character(
-        name="Mira",
+        name_parts=CharacterName("Mira"),
         presets=CharacterPresetSelection(
             base_id="builtin:humanoid",
             extra_ids=("builtin:identity", "builtin:voice"),
@@ -315,15 +346,16 @@ def test_character_field_presets_have_one_base_layer_and_composable_extra_layer(
 
 def test_character_revised_profile_only_advances_revision_when_data_changes() -> None:
     field = CharacterField(label="Role", value="Pilot")
-    character = Character(name="Mira", revision=3, fields=[field])
+    character = Character(name_parts=CharacterName("Mira"), revision=3, fields=[field])
 
-    unchanged = character.revised_profile("Mira", [field])
+    unchanged = character.revised_profile(CharacterName("Mira"), [field])
 
     assert unchanged is character
     assert character.revision == 3
 
     revised = character.revised_profile(
-        "Mira", [CharacterField(id=field.id, label="Role", value="Navigator")]
+        CharacterName("Mira"),
+        [CharacterField(id=field.id, label="Role", value="Navigator")],
     )
 
     assert revised is not character
@@ -335,10 +367,10 @@ def test_character_revised_profile_only_advances_revision_when_data_changes() ->
 def test_character_revised_profile_advances_revision_when_template_choices_change() -> (
     None
 ):
-    character = Character(name="Mira", revision=3)
+    character = Character(name_parts=CharacterName("Mira"), revision=3)
 
     revised = character.revised_profile(
-        "Mira",
+        CharacterName("Mira"),
         [],
         presets=CharacterPresetSelection(extra_ids=("builtin:identity",)),
     )
@@ -396,12 +428,12 @@ def test_character_chat_prompt_mode_round_trips_with_its_prompt_snapshot() -> No
 def test_character_cast_compiles_one_collective_prompt_and_concise_title() -> None:
     mira = Character(
         id="mira123",
-        name="Mira",
+        name_parts=CharacterName("Mira"),
         fields=[CharacterField(label="Role", value="Cartographer")],
     )
     ren = Character(
         id="ren123",
-        name="Ren",
+        name_parts=CharacterName("Ren"),
         fields=[CharacterField(label="Role", value="Pilot")],
     )
 
@@ -418,7 +450,7 @@ def test_character_cast_compiles_one_collective_prompt_and_concise_title() -> No
 
 
 def test_character_cast_rejects_duplicate_profiles() -> None:
-    mira = Character(id="mira123", name="Mira")
+    mira = Character(id="mira123", name_parts=CharacterName("Mira"))
 
     with pytest.raises(ValueError, match="duplicate characters"):
         _ = compiled_character_cast_system_prompt((mira, mira))
@@ -429,12 +461,12 @@ def test_character_cast_rejects_duplicate_profiles() -> None:
 def test_character_prompt_modes_compile_assistant_story_and_custom_casts() -> None:
     mira = Character(
         id="mira123",
-        name="Mira",
+        name_parts=CharacterName("Mira"),
         fields=[CharacterField(label="Role", value="Cartographer")],
     )
     ren = Character(
         id="ren123",
-        name="Ren",
+        name_parts=CharacterName("Ren"),
         fields=[CharacterField(label="Role", value="Pilot")],
     )
 
@@ -475,7 +507,7 @@ def test_character_prompt_modes_compile_assistant_story_and_custom_casts() -> No
 def test_custom_prompt_mode_requires_an_instruction_and_modes_are_parsed_explicitly() -> (
     None
 ):
-    mira = Character(id="mira123", name="Mira")
+    mira = Character(id="mira123", name_parts=CharacterName("Mira"))
 
     with pytest.raises(ValueError, match="custom instruction cannot be empty"):
         _ = compiled_character_chat_system_prompt((mira,), mode=ChatPromptMode.CUSTOM)

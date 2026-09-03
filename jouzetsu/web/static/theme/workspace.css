@@ -247,6 +247,38 @@
     gap: 13px;
 }
 
+.jouzetsu-character-name-control {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+}
+
+.jouzetsu-character-name-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: end;
+    gap: 9px;
+}
+
+.jouzetsu-character-name-row.is-randomizable {
+    grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.jouzetsu-character-name-randomize {
+    display: grid;
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    min-height: 34px;
+    padding: 7px;
+    place-items: center;
+}
+
+.jouzetsu-character-name-randomize .jouzetsu-svg-icon {
+    width: 16px;
+    height: 16px;
+}
+
 .jouzetsu-character-preset-editor,
 .jouzetsu-character-cast-editor {
     padding: 13px;

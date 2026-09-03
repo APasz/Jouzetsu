@@ -33,6 +33,7 @@ from .logging_config import chat_logger
 from .models import (
     Character,
     CharacterField,
+    CharacterName,
     CharacterPresetSelection,
     Chat,
     ChatPromptMode,
@@ -402,7 +403,7 @@ class AppState:
         character_id: str,
         *,
         expected_revision: int,
-        name: str,
+        name: CharacterName,
         fields: list[CharacterField],
         presets: CharacterPresetSelection | None = None,
     ) -> Character:

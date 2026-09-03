@@ -26,7 +26,7 @@ from jouzetsu.config import (
     UiSettings,
 )
 from jouzetsu.events import StateChangeKind
-from jouzetsu.models import CharacterField, Chat, ChatPromptMode, Message
+from jouzetsu.models import CharacterField, CharacterName, Chat, ChatPromptMode, Message
 from jouzetsu.runtime import (
     ChatStreamEvent,
     FirstToken,
@@ -267,6 +267,41 @@ def test_character_client_adds_template_fields_without_duplicate_or_destructive_
     assert "const compiledCastProfiles" in script
 
 
+def test_character_client_randomizes_an_unsaved_name() -> None:
+    script: str = _chat_client_source()
+
+    assert "const randomCharacterNameSuggestions = (control)" in script
+    assert "JSON.parse(control.dataset.characterRandomNames || '{}')" in script
+    assert "const randomCharacterNamePart = (names, currentName)" in script
+    assert "const characterDisplayName = (givenName, familyName)" in script
+    assert "return given ? (family ? `${given} ${family}` : given) : '';" in script
+    assert "button.matches('[data-character-randomize-name-part]')" in script
+    assert "const namePart = button.dataset.characterRandomizeNamePart;" in script
+    assert "const suggestions = randomCharacterNameSuggestions(nameControl);" in script
+    assert "input.value = nextName;" in script
+
+
+def test_character_name_parts_have_independent_randomizer_rows() -> None:
+    workspace_styles: str = (_THEME_DIRECTORY / "workspace.css").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        ".jouzetsu-character-name-control {\n"
+        "    display: flex;\n"
+        "    flex-direction: column;"
+    ) in workspace_styles
+    assert (
+        ".jouzetsu-character-name-row {\n"
+        "    display: grid;\n"
+        "    grid-template-columns: minmax(0, 1fr);"
+    ) in workspace_styles
+    assert (
+        ".jouzetsu-character-name-row.is-randomizable {\n"
+        "    grid-template-columns: minmax(0, 1fr) 34px;"
+    ) in workspace_styles
+
+
 def test_character_client_preserves_literal_prompt_names_and_only_focuses_open_field_menus() -> (
     None
 ):
@@ -466,7 +501,9 @@ def test_chat_client_preserves_message_scroll_when_generation_completion_replace
     assert scroll_capture < composer_replacement < scroll_restore
 
 
-def test_chat_client_cancels_stale_scroll_restoration_before_explicit_navigation() -> None:
+def test_chat_client_cancels_stale_scroll_restoration_before_explicit_navigation() -> (
+    None
+):
     script: str = _chat_client_source()
 
     assert "#scrollRestoreFrame = 0;" in script
@@ -483,7 +520,10 @@ def test_chat_client_keeps_a_pinned_message_list_at_bottom_when_its_viewport_res
     assert "const ResizeObserverConstructor = window.ResizeObserver;" in script
     assert "new ResizeObserverConstructor(() => {" in script
     assert "this.#scrollContainerPinned && this.#scrollContainer === messages" in script
-    assert "messages.addEventListener('scroll', this.#handleScrollContainerScroll, { passive: true });" in script
+    assert (
+        "messages.addEventListener('scroll', this.#handleScrollContainerScroll, { passive: true });"
+        in script
+    )
     assert "this.#messages.watchScrollContainer();" in script
 
 
@@ -1036,7 +1076,8 @@ def test_character_workspace_persists_a_custom_field_schema_and_starts_a_snapsho
                 saved: httpx.Response = await client.post(
                     character_url.split("?", maxsplit=1)[0],
                     data={
-                        "name": "Mira",
+                        "given_name": "Mira",
+                        "family_name": "Ash",
                         "revision": "1",
                         "field_id": ["personality", "occupation"],
                         "field_label": ["Personality", "Occupation"],
@@ -1048,6 +1089,7 @@ def test_character_workspace_persists_a_custom_field_schema_and_starts_a_snapsho
                 )
                 assert saved.headers["location"].startswith("/characters/")
                 character = state.character(character_id)
+                assert character.name == "Mira Ash"
                 assert [(field.label, field.kind) for field in character.fields] == [
                     ("Personality", "long_text"),
                     ("Occupation", "short_text"),
@@ -1065,7 +1107,8 @@ def test_character_workspace_persists_a_custom_field_schema_and_starts_a_snapsho
                 started: httpx.Response = await client.post(
                     f"/characters/{character_id}/chat",
                     data={
-                        "name": "Mira",
+                        "given_name": "Mira",
+                        "family_name": "Ash",
                         "revision": str(character.revision),
                         "field_id": ["personality", "occupation"],
                         "field_label": ["Personality", "Occupation"],
@@ -1079,7 +1122,7 @@ def test_character_workspace_persists_a_custom_field_schema_and_starts_a_snapsho
                     follow_redirects=False,
                 )
                 assert started.headers["location"].startswith(
-                    "/chats?notice=Chat+started+with+Mira"
+                    "/chats?notice=Chat+started+with+Mira+Ash"
                 )
                 assert state.active_chat.character is not None
                 assert state.active_chat.character.id == character_id
@@ -1103,13 +1146,13 @@ def test_character_editor_starts_an_ensemble_chat_from_selected_cast() -> None:
         mira = await state.update_character(
             mira.id,
             expected_revision=mira.revision,
-            name="Mira",
+            name=CharacterName("Mira"),
             fields=[],
         )
         ren = await state.update_character(
             ren.id,
             expected_revision=ren.revision,
-            name="Ren",
+            name=CharacterName("Ren"),
             fields=[CharacterField(label="Role", value="Pilot")],
         )
         web: WebApplication = WebApplication(
@@ -1214,20 +1257,49 @@ def test_character_onboarding_ends_after_the_initial_profile_is_saved() -> None:
                 editor: httpx.Response = await client.get(character_url)
                 assert "Create character" in editor.text
                 assert "Quick start" in editor.text
+                assert 'data-testid="character-given-name-input"' in editor.text
+                assert 'data-testid="character-family-name-input"' in editor.text
+                assert re.search(
+                    r'<input[^>]*name="given_name"[^>]*value=""', editor.text
+                )
+                assert re.search(
+                    r'<input[^>]*name="family_name"[^>]*value=""', editor.text
+                )
+                assert 'data-testid="character-given-name-randomize"' in editor.text
+                assert 'data-testid="character-family-name-randomize"' in editor.text
+                assert 'data-character-randomize-name-part="given_name"' in editor.text
+                assert 'data-character-randomize-name-part="family_name"' in editor.text
+                assert "data-character-random-names=" in editor.text
+                assert 'aria-label="Generate a random given name"' in editor.text
+                assert 'aria-label="Generate a random family name"' in editor.text
 
                 saved: httpx.Response = await client.post(
                     character_url,
-                    data={"name": "Mira", "revision": "1"},
+                    data={
+                        "given_name": "Mira",
+                        "family_name": "",
+                        "revision": "1",
+                    },
                     headers=_csrf_headers(editor),
                     follow_redirects=False,
                 )
                 assert saved.status_code == 303
+                character_id: str = character_url.rsplit("/", maxsplit=1)[1]
+                assert state.character(character_id).name == "Mira"
+                assert (
+                    state.character(character_id)
+                    .compiled_system_prompt()
+                    .startswith("You are roleplaying as Mira.\n\n")
+                )
 
                 updated_editor: httpx.Response = await client.get(
                     saved.headers["location"]
                 )
                 assert "Create character" not in updated_editor.text
+                assert "Mira" in updated_editor.text
                 assert "Profile templates" in updated_editor.text
+                assert 'value="Mira"' in updated_editor.text
+                assert "data-character-randomize-name-part=" not in updated_editor.text
         finally:
             await _close_web_application(web, state)
 
@@ -1262,7 +1334,8 @@ def test_character_field_actions_have_server_rendered_fallbacks() -> None:
                 added: httpx.Response = await client.post(
                     f"{character_url}/fields/add",
                     data={
-                        "name": "Mira",
+                        "given_name": "",
+                        "family_name": "",
                         "revision": "1",
                         "_jouzetsu_csrf": csrf_token,
                     },
@@ -1273,13 +1346,25 @@ def test_character_field_actions_have_server_rendered_fallbacks() -> None:
                 assert [(field.label, field.value) for field in character.fields] == [
                     ("New field", "")
                 ]
+                assert character.name == "New character"
 
                 editor = await client.get(added.headers["location"])
+                assert "Create character" in editor.text
+                assert "Quick start" in editor.text
+                assert re.search(
+                    r'<input[^>]*name="given_name"[^>]*value=""', editor.text
+                )
+                assert re.search(
+                    r'<input[^>]*name="family_name"[^>]*value=""', editor.text
+                )
+                assert 'data-testid="character-given-name-randomize"' in editor.text
+                assert 'data-testid="character-family-name-randomize"' in editor.text
                 csrf_token = _csrf_headers(editor)[CSRF_HEADER_NAME]
                 applied: httpx.Response = await client.post(
                     f"{character_url}/presets/apply",
                     data={
-                        "name": "Mira",
+                        "given_name": "",
+                        "family_name": "",
                         "revision": str(character.revision),
                         "field_id": [field.id for field in character.fields],
                         "field_label": [field.label for field in character.fields],
@@ -1300,9 +1385,19 @@ def test_character_field_actions_have_server_rendered_fallbacks() -> None:
                     "builtin:identity",
                     "builtin:voice",
                 )
+                assert character.name == "New character"
 
                 persisted_editor: httpx.Response = await client.get(
                     applied.headers["location"]
+                )
+                assert "Create character" in persisted_editor.text
+                assert re.search(
+                    r'<input[^>]*name="given_name"[^>]*value=""',
+                    persisted_editor.text,
+                )
+                assert re.search(
+                    r'<input[^>]*name="family_name"[^>]*value=""',
+                    persisted_editor.text,
                 )
                 assert re.search(
                     r'<option[^>]*value="builtin:humanoid"[^>]*selected',
@@ -1381,6 +1476,54 @@ def test_character_workspace_loads_and_applies_a_private_preset_pack() -> None:
                     ("Private note", "long_text")
                 ]
                 assert character.presets.extra_ids == ("private:notes",)
+        finally:
+            await _close_web_application(web, state)
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        asyncio.run(scenario(Path(temporary_directory)))
+
+
+def test_character_workspace_loads_user_supplied_name_suggestions() -> None:
+    async def scenario(root: Path) -> None:
+        names_path: Path = root / "data" / "character-names.json"
+        names_path.parent.mkdir(parents=True)
+        _ = names_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "disable_vanilla": True,
+                    "given_names": ["Ayla"],
+                    "family_names": ["Khan"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        state: AppState = _build_state(root, private=False)
+        web: WebApplication = WebApplication(
+            state.config, state, on_startup=_noop, on_shutdown=_noop
+        )
+        transport: httpx.ASGITransport = _transport(web, client_ip="127.0.0.1")
+        try:
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                assert web.character_name_suggestions.suggestions.given_names == (
+                    "Ayla",
+                )
+                assert web.character_name_suggestions.suggestions.family_names == (
+                    "Khan",
+                )
+
+                library: httpx.Response = await client.get("/characters")
+                created: httpx.Response = await client.post(
+                    "/characters/new",
+                    headers=_csrf_headers(library),
+                    follow_redirects=False,
+                )
+                editor: httpx.Response = await client.get(created.headers["location"])
+
+                assert "Ayla" in editor.text
+                assert "Khan" in editor.text
         finally:
             await _close_web_application(web, state)
 

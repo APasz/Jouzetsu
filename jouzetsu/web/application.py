@@ -16,15 +16,16 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from ..async_workers import run_in_worker
-from ..character_presets import CharacterPresetCatalog
+from ..character_presets import CharacterNameSuggestionsCatalog, CharacterPresetCatalog
 from ..config import (
     AppConfig,
 )
-from ..models import Character, CharacterField, CharacterPresetSelection
+from ..models import Character, CharacterField, CharacterName, CharacterPresetSelection
 from ..state import AppState
 from .form_data import (
     FormValues as _FormValues,
     character_fields_from_form as _character_fields_from_form,
+    character_name_from_form as _character_name_from_form,
     require_integer as _require_integer,
 )
 from .html import Link, Meta, Script
@@ -119,6 +120,9 @@ class WebApplication:
         self.character_preset_catalog: CharacterPresetCatalog = (
             CharacterPresetCatalog.load(config.character_presets_directory)
         )
+        self.character_name_suggestions: CharacterNameSuggestionsCatalog = (
+            CharacterNameSuggestionsCatalog.load(config.character_name_suggestions_file)
+        )
         self._on_startup: StartupCallback = on_startup
         self._on_shutdown: ShutdownCallback = on_shutdown
         self._event_broker: _UiEventBroker = _UiEventBroker(state)
@@ -169,6 +173,7 @@ class WebApplication:
                 config=config,
                 state=state,
                 character_presets=self.character_preset_catalog,
+                character_name_suggestions=self.character_name_suggestions,
                 events=self._event_broker,
                 access=self._access,
                 mutations=self._mutations,
@@ -244,6 +249,7 @@ class WebApplication:
         form: _FormValues,
         *,
         additional_fields: list[CharacterField] | None = None,
+        preserve_existing_name_if_blank: bool = False,
     ) -> Character:
         """Validate and persist one editor submission before a character-dependent action."""
 
@@ -263,10 +269,15 @@ class WebApplication:
                 preset.id for preset in selected_presets if preset.layer == "extra"
             ),
         )
+        fallback_name: CharacterName | None = (
+            self.state.character(character_id).name_parts
+            if preserve_existing_name_if_blank
+            else None
+        )
         return await self.state.update_character(
             character_id,
             expected_revision=revision,
-            name=form.required_text("name"),
+            name=_character_name_from_form(form, fallback=fallback_name),
             fields=fields,
             presets=presets,
         )

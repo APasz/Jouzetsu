@@ -10,7 +10,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal, cast
+from typing import Final, Literal, Protocol, cast
 from urllib.parse import urlencode
 
 from fastcore.xml import FT  # pyright: ignore[reportMissingTypeStubs]
@@ -24,7 +24,7 @@ from starlette.responses import (
 )
 
 from ..access import is_device_access_approval_phrase
-from ..character_presets import CharacterPresetCatalog
+from ..character_presets import CharacterNameSuggestionsCatalog, CharacterPresetCatalog
 from ..config import (
     AppConfig,
     GenerationSettings,
@@ -97,7 +97,19 @@ type RouteResult = FT | Response
 type RouteHandler = Callable[..., Awaitable[RouteResult]]
 type RouteDecorator = Callable[[RouteHandler], RouteHandler]
 type RouteRegistrar = Callable[[HttpMethod, str, str], RouteDecorator]
-type CharacterUpdater = Callable[..., Awaitable[Character]]
+
+
+class CharacterUpdater(Protocol):
+    """Persist one character editor submission for a character route."""
+
+    def __call__(
+        self,
+        character_id: str,
+        form: _FormValues,
+        *,
+        additional_fields: list[CharacterField] | None = None,
+        preserve_existing_name_if_blank: bool = False,
+    ) -> Awaitable[Character]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +120,7 @@ class RouteContext:
     config: AppConfig
     state: AppState
     character_presets: CharacterPresetCatalog
+    character_name_suggestions: CharacterNameSuggestionsCatalog
     events: UiEventBroker
     access: RequestAccess
     mutations: Mutations
@@ -227,6 +240,7 @@ def _register_page_routes(context: RouteContext) -> None:
             context.state,
             request_context.page,
             context.character_presets,
+            context.character_name_suggestions,
             notice=_query_text(request, "notice"),
             error=_query_text(request, "error"),
         )
@@ -252,6 +266,7 @@ def _register_page_routes(context: RouteContext) -> None:
             context.state,
             request_context.page,
             context.character_presets,
+            context.character_name_suggestions,
             selected_character_id=character_id,
             notice=_query_text(request, "notice"),
             error=_query_text(request, "error"),
@@ -367,6 +382,7 @@ def _register_character_routes(context: RouteContext) -> None:
                 character_id,
                 form,
                 additional_fields=[CharacterField(label="New field")],
+                preserve_existing_name_if_blank=True,
             )
         except HTTPException:
             raise
@@ -396,6 +412,7 @@ def _register_character_routes(context: RouteContext) -> None:
                 character_id,
                 form,
                 additional_fields=additions,
+                preserve_existing_name_if_blank=True,
             )
         except HTTPException:
             raise

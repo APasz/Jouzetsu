@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Literal, TypedDict, cast
+from typing import Final, Literal, TypedDict, cast
 
 from .character_presets import CharacterFieldKind
 from .config import GenerationSettings
@@ -143,16 +143,91 @@ class CharacterPresetSelectionJSON(TypedDict):
     extras: list[str]
 
 
+class CharacterNameJSON(TypedDict):
+    """The structured name retained by a character document."""
+
+    given: str
+    family: str
+
+
 class CharacterJSON(TypedDict):
     """The complete standalone document persisted for one character."""
 
     id: str
-    name: str
+    name: CharacterNameJSON
     revision: int
     created_at: float
     updated_at: float
     fields: list[CharacterFieldJSON]
     presets: CharacterPresetSelectionJSON
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterName:
+    """A character name split into the editable given and family parts."""
+
+    given_name: str
+    family_name: str = ""
+
+    def __post_init__(self) -> None:
+        raw_given_name: object = cast(object, self.given_name)
+        raw_family_name: object = cast(object, self.family_name)
+        if not isinstance(raw_given_name, str):
+            raise TypeError("character given name must be text")
+        if not isinstance(raw_family_name, str):
+            raise TypeError("character family name must be text")
+        given_name: str = raw_given_name.strip()
+        family_name: str = raw_family_name.strip()
+        if not given_name:
+            raise ValueError("character given name cannot be empty")
+        object.__setattr__(self, "given_name", given_name)
+        object.__setattr__(self, "family_name", family_name)
+
+    @classmethod
+    def from_display_name(cls, name: str) -> CharacterName:
+        """Split a stored display name at its first whitespace boundary."""
+
+        raw_name: object = cast(object, name)
+        if not isinstance(raw_name, str):
+            raise TypeError("character name must be text")
+        parts: list[str] = raw_name.strip().split(maxsplit=1)
+        if not parts:
+            raise ValueError("character name cannot be empty")
+        return cls(given_name=parts[0], family_name=parts[1] if len(parts) == 2 else "")
+
+    @property
+    def display_name(self) -> str:
+        """Return the display name shared by prompts, lists, and chat snapshots."""
+
+        return (
+            f"{self.given_name} {self.family_name}"
+            if self.family_name
+            else self.given_name
+        )
+
+    def to_dict(self) -> CharacterNameJSON:
+        """Return the structured persistence shape for this name."""
+
+        return {"given": self.given_name, "family": self.family_name}
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, object]) -> CharacterName:
+        """Load a persisted structured name while allowing an empty family name."""
+
+        raw_family_name: object = raw.get("family", "")
+        if not isinstance(raw_family_name, str):
+            raise TypeError("character.name.family must be text")
+        return cls(
+            given_name=_required_string(
+                raw.get("given"), field_name="character.name.given"
+            ),
+            family_name=raw_family_name,
+        )
+
+
+DEFAULT_CHARACTER_NAME: Final[CharacterName] = CharacterName(
+    given_name="New", family_name="character"
+)
 
 
 def _new_id() -> str:
@@ -526,7 +601,7 @@ class Character:
     """A reusable, field-configured character profile stored as one document."""
 
     id: str = field(default_factory=_new_id)
-    name: str = "New character"
+    name_parts: CharacterName = field(default_factory=lambda: DEFAULT_CHARACTER_NAME)
     revision: int = 1
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -539,26 +614,34 @@ class Character:
     def _validate(self) -> None:
         if not self.id:
             raise ValueError("character id cannot be empty")
-        if not self.name.strip():
-            raise ValueError("character name cannot be empty")
+        raw_name_parts: object = cast(object, self.name_parts)
+        if not isinstance(raw_name_parts, CharacterName):
+            raise TypeError("character name must be a CharacterName")
         if self.revision < 1:
             raise ValueError("character revision must be positive")
         field_ids: list[str] = [profile_field.id for profile_field in self.fields]
         if len(field_ids) != len(set(field_ids)):
             raise ValueError("character field ids must be unique")
 
+    @property
+    def name(self) -> str:
+        """Return the display name shared by prompts, lists, and chat snapshots."""
+
+        return self.name_parts.display_name
+
     def revised_profile(
         self,
-        name: str,
+        name: CharacterName,
         fields: list[CharacterField],
         *,
         presets: CharacterPresetSelection | None = None,
     ) -> Character:
         """Return the next profile revision without changing this persisted version."""
 
-        next_name: str = name.strip()
-        if not next_name:
-            raise ValueError("character name cannot be empty")
+        raw_name: object = cast(object, name)
+        if not isinstance(raw_name, CharacterName):
+            raise TypeError("character name must be a CharacterName")
+        next_name: CharacterName = raw_name
         next_fields: list[CharacterField] = list(fields)
         field_ids: list[str] = [profile_field.id for profile_field in next_fields]
         if len(field_ids) != len(set(field_ids)):
@@ -567,14 +650,14 @@ class Character:
             self.presets if presets is None else presets
         )
         if (
-            self.name == next_name
+            self.name_parts == next_name
             and self.fields == next_fields
             and self.presets == next_presets
         ):
             return self
         return Character(
             id=self.id,
-            name=next_name,
+            name_parts=next_name,
             revision=self.revision + 1,
             created_at=self.created_at,
             updated_at=time.time(),
@@ -622,7 +705,7 @@ class Character:
     def to_dict(self) -> CharacterJSON:
         return {
             "id": self.id,
-            "name": self.name,
+            "name": self.name_parts.to_dict(),
             "revision": self.revision,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -645,9 +728,17 @@ class Character:
         presets: CharacterPresetSelection = CharacterPresetSelection.from_dict(
             _string_mapping(raw.get("presets", {}), field_name="character.presets")
         )
+        raw_name: object = raw.get("name")
+        name_parts: CharacterName = (
+            CharacterName.from_display_name(raw_name)
+            if isinstance(raw_name, str)
+            else CharacterName.from_dict(
+                _string_mapping(raw_name, field_name="character.name")
+            )
+        )
         return cls(
             id=_required_string(raw.get("id"), field_name="character.id"),
-            name=_required_string(raw.get("name"), field_name="character.name"),
+            name_parts=name_parts,
             revision=_integer_from_json(
                 raw.get("revision", 1), field_name="character.revision", minimum=1
             ),

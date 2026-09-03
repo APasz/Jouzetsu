@@ -17,7 +17,7 @@ from ..config import (
     ServerSettings,
     SpellingReplacement,
 )
-from ..models import CharacterField
+from ..models import CharacterField, CharacterName
 from ..state import AppState
 
 
@@ -34,6 +34,11 @@ class FormValues:
         if not isinstance(value, str):
             raise TypeError(f"{name} must be text")
         return value
+
+    def has(self, name: str) -> bool:
+        """Return whether the submitted form includes a field with this name."""
+
+        return name in self.values
 
     def required_text(self, name: str) -> str:
         """Return a non-empty identifier-like field."""
@@ -69,6 +74,22 @@ async def form_values(request: Request) -> FormValues:
         return FormValues(await request.form())
     except Exception as exc:
         raise HTTPException(400, "invalid form body") from exc
+
+
+def character_name_from_form(
+    form: FormValues, *, fallback: CharacterName | None = None
+) -> CharacterName:
+    """Read the editor's structured name, retaining a fallback only when both inputs are blank."""
+
+    if not form.has("given_name") and not form.has("family_name"):
+        return CharacterName.from_display_name(form.required_text("name"))
+    given_name: str = form.text("given_name")
+    family_name: str = form.text("family_name")
+    if fallback is not None and not given_name.strip() and not family_name.strip():
+        return fallback
+    return CharacterName(
+        given_name=form.required_text("given_name"), family_name=family_name
+    )
 
 
 def character_fields_from_form(form: FormValues) -> list[CharacterField]:
