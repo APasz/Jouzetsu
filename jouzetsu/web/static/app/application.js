@@ -100,6 +100,7 @@ export const startApplication = () => {
     const hostStats = new HostStatsController();
     const chat = new ChatController({ composer, messages, drafts, notices, panels });
     panels.setRefreshPanel(chat.replacePanelFragment.bind(chat));
+    messages.watchScrollContainer();
 
     document.addEventListener('click', (event) => {
         const target = event.target instanceof Element ? event.target : null;

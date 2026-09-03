@@ -23,7 +23,37 @@ export class MessageController {
     #armedContinueControl = null;
     #streamingScrollId = '';
     #streamingScrollReachedMessageTop = false;
+    #scrollContainer = null;
+    #scrollContainerPinned = false;
+    #scrollContainerObserver = null;
+    #scrollRestoreFrame = 0;
     #detailsRequest = 0;
+
+    #handleScrollContainerScroll = () => {
+        this.#recordScrollContainerPosition(this.#scrollContainer);
+    };
+
+    watchScrollContainer() {
+        const messages = byId('message-list');
+        if (messages === this.#scrollContainer) return;
+        if (this.#scrollContainer instanceof HTMLElement) {
+            this.#scrollContainer.removeEventListener('scroll', this.#handleScrollContainerScroll);
+        }
+        this.#scrollContainerObserver?.disconnect();
+        this.#scrollContainerObserver = null;
+        this.#scrollContainer = messages instanceof HTMLElement ? messages : null;
+        this.#recordScrollContainerPosition(this.#scrollContainer);
+        if (!(messages instanceof HTMLElement)) return;
+        messages.addEventListener('scroll', this.#handleScrollContainerScroll, { passive: true });
+        const ResizeObserverConstructor = window.ResizeObserver;
+        if (typeof ResizeObserverConstructor !== 'function') return;
+        this.#scrollContainerObserver = new ResizeObserverConstructor(() => {
+            if (this.#scrollContainerPinned && this.#scrollContainer === messages) {
+                this.scrollListToBottom(messages);
+            }
+        });
+        this.#scrollContainerObserver.observe(messages);
+    }
 
     isNearBottom(messages, threshold = BOTTOM_THRESHOLD_PX) {
         return messages instanceof HTMLElement
@@ -31,15 +61,23 @@ export class MessageController {
     }
 
     scrollListToBottom(messages) {
-        if (messages instanceof HTMLElement) messages.scrollTop = messages.scrollHeight;
+        this.#cancelScrollRestore();
+        if (!(messages instanceof HTMLElement)) return;
+        messages.scrollTop = messages.scrollHeight;
+        this.#recordScrollContainerPosition(messages);
     }
 
     restoreScroll(messages, scrollTop) {
+        this.#cancelScrollRestore();
         if (!(messages instanceof HTMLElement) || scrollTop === null) return;
         if (Math.abs(messages.scrollTop - scrollTop) < 1) return;
         messages.scrollTop = scrollTop;
-        window.requestAnimationFrame(() => {
+        this.#recordScrollContainerPosition(messages);
+        this.#scrollRestoreFrame = window.requestAnimationFrame(() => {
+            this.#scrollRestoreFrame = 0;
+            if (!messages.isConnected) return;
             if (Math.abs(messages.scrollTop - scrollTop) >= 1) messages.scrollTop = scrollTop;
+            this.#recordScrollContainerPosition(messages);
         });
     }
 
@@ -90,7 +128,7 @@ export class MessageController {
 
     scrollStreamingMessageUntilTop(messages, message) {
         if (!(messages instanceof HTMLElement) || !(message instanceof HTMLElement)) return;
-        const messageId = message.dataset.streamingMessageId || '';
+        const messageId = message.dataset.messageId || '';
         if (!messageId) return;
         if (this.#streamingScrollId !== messageId) {
             this.#streamingScrollId = messageId;
@@ -103,7 +141,9 @@ export class MessageController {
         const messageListTop = messages.getBoundingClientRect().top;
         const scrollRoomBeforeMessageTop = Math.max(0, messageTop - messageListTop);
         const nextScrollTop = Math.min(desiredScrollTop, messages.scrollTop + scrollRoomBeforeMessageTop);
+        this.#cancelScrollRestore();
         messages.scrollTop = nextScrollTop;
+        this.#recordScrollContainerPosition(messages);
         if (nextScrollTop < desiredScrollTop) this.#streamingScrollReachedMessageTop = true;
     }
 
@@ -300,6 +340,8 @@ export class MessageController {
     }
 
     #scrollMessageTo(message, block) {
+        this.#cancelScrollRestore();
+        if (this.#scrollContainer?.contains(message)) this.#scrollContainerPinned = false;
         const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
         message.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block, inline: 'nearest' });
     }
@@ -437,6 +479,17 @@ export class MessageController {
         if (this.#pendingScrollTimer) window.clearTimeout(this.#pendingScrollTimer);
         this.#pendingScrollTimer = 0;
         this.#pendingScrollTarget = null;
+    }
+
+    #cancelScrollRestore() {
+        if (this.#scrollRestoreFrame) window.cancelAnimationFrame(this.#scrollRestoreFrame);
+        this.#scrollRestoreFrame = 0;
+    }
+
+    #recordScrollContainerPosition(messages) {
+        if (messages === this.#scrollContainer) {
+            this.#scrollContainerPinned = this.isNearBottom(messages);
+        }
     }
 
     #queueTopScroll(message) {

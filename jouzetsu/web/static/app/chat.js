@@ -72,6 +72,7 @@ export class ChatController {
                 next.setAttribute('aria-hidden', 'true');
             }
             this.#reconcileFragment(current, next, followLatest);
+            this.#messages.watchScrollContainer();
             localizeMessageUpdatedTimes();
             this.#messages.refreshOpenDetails();
         } catch {

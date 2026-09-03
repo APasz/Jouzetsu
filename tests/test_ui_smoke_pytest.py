@@ -435,6 +435,7 @@ def test_delete_dialog_hides_the_tail_delete_choice_for_the_last_message() -> No
 def test_chat_client_stops_streaming_scroll_when_the_message_reaches_the_top() -> None:
     script: str = _chat_client_source()
 
+    assert "const messageId = message.dataset.messageId || '';" in script
     assert "if (this.#streamingScrollReachedMessageTop) return;" in script
     assert "messages.scrollTop = nextScrollTop;" in script
     assert (
@@ -463,6 +464,27 @@ def test_chat_client_preserves_message_scroll_when_generation_completion_replace
         in script
     )
     assert scroll_capture < composer_replacement < scroll_restore
+
+
+def test_chat_client_cancels_stale_scroll_restoration_before_explicit_navigation() -> None:
+    script: str = _chat_client_source()
+
+    assert "#scrollRestoreFrame = 0;" in script
+    assert "this.#cancelScrollRestore();" in script
+    assert "window.cancelAnimationFrame(this.#scrollRestoreFrame);" in script
+
+
+def test_chat_client_keeps_a_pinned_message_list_at_bottom_when_its_viewport_resizes() -> (
+    None
+):
+    script: str = _chat_client_source()
+
+    assert "watchScrollContainer()" in script
+    assert "const ResizeObserverConstructor = window.ResizeObserver;" in script
+    assert "new ResizeObserverConstructor(() => {" in script
+    assert "this.#scrollContainerPinned && this.#scrollContainer === messages" in script
+    assert "messages.addEventListener('scroll', this.#handleScrollContainerScroll, { passive: true });" in script
+    assert "this.#messages.watchScrollContainer();" in script
 
 
 def test_chat_client_respects_reduced_motion_for_message_navigation() -> None:
