@@ -77,9 +77,12 @@ async def form_values(request: Request) -> FormValues:
 
 
 def character_name_from_form(
-    form: FormValues, *, fallback: CharacterName | None = None
-) -> CharacterName:
-    """Read the editor's structured name, retaining a fallback only when both inputs are blank."""
+    form: FormValues,
+    *,
+    fallback: CharacterName | None = None,
+    allow_blank: bool = False,
+) -> CharacterName | None:
+    """Read a structured name, allowing an unnamed draft only for onboarding actions."""
 
     if not form.has("given_name") and not form.has("family_name"):
         return CharacterName.from_display_name(form.required_text("name"))
@@ -87,6 +90,8 @@ def character_name_from_form(
     family_name: str = form.text("family_name")
     if fallback is not None and not given_name.strip() and not family_name.strip():
         return fallback
+    if allow_blank and not given_name.strip() and not family_name.strip():
+        return None
     return CharacterName(
         given_name=form.required_text("given_name"), family_name=family_name
     )

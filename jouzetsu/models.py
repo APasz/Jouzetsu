@@ -53,6 +53,24 @@ CHARACTER_STORY_PROMPT_CLOSING: str = (
     "unless they ask you to."
 )
 CHARACTER_CUSTOM_PROMPT_PREVIEW_EMPTY: str = "Enter a custom instruction."
+CHAT_SCHEMA_VERSION: Final[int] = 1
+CHARACTER_SCHEMA_VERSION: Final[int] = 1
+CHARACTER_DRAFT_DISPLAY_NAME: Final[str] = "Untitled character"
+
+
+class FutureSchemaVersionError(ValueError):
+    """A persisted document requires a newer application version to load safely."""
+
+    def __init__(
+        self, *, document_name: str, version: int, supported_version: int
+    ) -> None:
+        self.document_name: str = document_name
+        self.version: int = version
+        self.supported_version: int = supported_version
+        super().__init__(
+            f"{document_name} schema version {version} is newer than supported "
+            f"version {supported_version}"
+        )
 
 
 class ChatTitleSource(str, Enum):
@@ -111,6 +129,7 @@ class CharacterChatBindingJSON(TypedDict):
 
 
 class ChatJSON(TypedDict):
+    schema_version: int
     id: str
     title: str
     title_source: ChatTitleSource
@@ -153,8 +172,10 @@ class CharacterNameJSON(TypedDict):
 class CharacterJSON(TypedDict):
     """The complete standalone document persisted for one character."""
 
+    schema_version: int
     id: str
-    name: CharacterNameJSON
+    name: CharacterNameJSON | None
+    is_draft: bool
     revision: int
     created_at: float
     updated_at: float
@@ -225,7 +246,7 @@ class CharacterName:
         )
 
 
-DEFAULT_CHARACTER_NAME: Final[CharacterName] = CharacterName(
+_LEGACY_DRAFT_CHARACTER_NAME: Final[CharacterName] = CharacterName(
     given_name="New", family_name="character"
 )
 
@@ -256,6 +277,27 @@ def _integer_from_json(raw: object, *, field_name: str, minimum: int) -> int:
     return raw
 
 
+def _document_schema_version(
+    raw: Mapping[str, object], *, document_name: str, supported_version: int
+) -> int | None:
+    """Read an optional document version and reject versions this build cannot load."""
+
+    if "schema_version" not in raw:
+        return None
+    version: object = raw["schema_version"]
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise TypeError(f"{document_name}.schema_version must be an integer")
+    if version > supported_version:
+        raise FutureSchemaVersionError(
+            document_name=document_name,
+            version=version,
+            supported_version=supported_version,
+        )
+    if version < 1:
+        raise ValueError(f"{document_name} schema version {version} is unsupported")
+    return version
+
+
 def _role_from_json(raw: object) -> Role:
     if not isinstance(raw, str):
         raise TypeError("message role must be text")
@@ -283,6 +325,14 @@ def _bool_from_json(raw: object, *, default: bool) -> bool:
         return default
     if not isinstance(raw, bool):
         raise TypeError(f"expected a boolean, got {raw!r}")
+    return raw
+
+
+def _required_bool_from_json(raw: object, *, field_name: str) -> bool:
+    """Read an explicitly persisted JSON boolean."""
+
+    if not isinstance(raw, bool):
+        raise TypeError(f"{field_name} must be a boolean")
     return raw
 
 
@@ -596,17 +646,34 @@ class CharacterPresetSelection:
         return cls(base_id=base_id, extra_ids=extra_ids)
 
 
+def _character_name_from_json(raw: object) -> CharacterName | None:
+    """Load either a structured name, a legacy display name, or a draft's null name."""
+
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return CharacterName.from_display_name(raw)
+    return CharacterName.from_dict(_string_mapping(raw, field_name="character.name"))
+
+
 @dataclass
 class Character:
     """A reusable, field-configured character profile stored as one document."""
 
     id: str = field(default_factory=_new_id)
-    name_parts: CharacterName = field(default_factory=lambda: DEFAULT_CHARACTER_NAME)
+    name_parts: CharacterName | None = None
+    is_draft: bool = False
     revision: int = 1
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     fields: list[CharacterField] = field(default_factory=list)
     presets: CharacterPresetSelection = field(default_factory=CharacterPresetSelection)
+
+    @classmethod
+    def draft(cls) -> Character:
+        """Create an unnamed profile that remains in onboarding until it is named."""
+
+        return cls(is_draft=True)
 
     def __post_init__(self) -> None:
         self._validate()
@@ -615,8 +682,15 @@ class Character:
         if not self.id:
             raise ValueError("character id cannot be empty")
         raw_name_parts: object = cast(object, self.name_parts)
-        if not isinstance(raw_name_parts, CharacterName):
-            raise TypeError("character name must be a CharacterName")
+        if raw_name_parts is not None and not isinstance(raw_name_parts, CharacterName):
+            raise TypeError("character name must be a CharacterName or null")
+        raw_is_draft: object = cast(object, self.is_draft)
+        if not isinstance(raw_is_draft, bool):
+            raise TypeError("character is_draft must be a boolean")
+        if self.is_draft and self.name_parts is not None:
+            raise ValueError("draft characters cannot have a name")
+        if not self.is_draft and self.name_parts is None:
+            raise ValueError("saved characters must have a name")
         if self.revision < 1:
             raise ValueError("character revision must be positive")
         field_ids: list[str] = [profile_field.id for profile_field in self.fields]
@@ -627,11 +701,21 @@ class Character:
     def name(self) -> str:
         """Return the display name shared by prompts, lists, and chat snapshots."""
 
+        if self.name_parts is None:
+            raise ValueError("draft characters do not have a name")
         return self.name_parts.display_name
+
+    @property
+    def display_name(self) -> str:
+        """Return a safe UI label for either a saved character or an unnamed draft."""
+
+        return (
+            self.name if self.name_parts is not None else CHARACTER_DRAFT_DISPLAY_NAME
+        )
 
     def revised_profile(
         self,
-        name: CharacterName,
+        name: CharacterName | None,
         fields: list[CharacterField],
         *,
         presets: CharacterPresetSelection | None = None,
@@ -639,9 +723,10 @@ class Character:
         """Return the next profile revision without changing this persisted version."""
 
         raw_name: object = cast(object, name)
-        if not isinstance(raw_name, CharacterName):
-            raise TypeError("character name must be a CharacterName")
-        next_name: CharacterName = raw_name
+        if raw_name is not None and not isinstance(raw_name, CharacterName):
+            raise TypeError("character name must be a CharacterName or null")
+        next_name: CharacterName | None = raw_name
+        next_is_draft: bool = next_name is None
         next_fields: list[CharacterField] = list(fields)
         field_ids: list[str] = [profile_field.id for profile_field in next_fields]
         if len(field_ids) != len(set(field_ids)):
@@ -651,6 +736,7 @@ class Character:
         )
         if (
             self.name_parts == next_name
+            and self.is_draft == next_is_draft
             and self.fields == next_fields
             and self.presets == next_presets
         ):
@@ -658,6 +744,7 @@ class Character:
         return Character(
             id=self.id,
             name_parts=next_name,
+            is_draft=next_is_draft,
             revision=self.revision + 1,
             created_at=self.created_at,
             updated_at=time.time(),
@@ -668,9 +755,19 @@ class Character:
     def compiled_system_prompt(self) -> str:
         """Compile the character's current structured profile for one chat snapshot."""
 
+        return self._compiled_system_prompt(self.name)
+
+    def compiled_preview_system_prompt(self) -> str:
+        """Compile the editor preview without making an unnamed draft chat-ready."""
+
+        return self._compiled_system_prompt(self.display_name)
+
+    def _compiled_system_prompt(self, name: str) -> str:
+        """Render one profile prompt with a validated or editor-only display name."""
+
         profile: str = self.compiled_profile()
         return (
-            f"{CHARACTER_PROMPT_NAME_TEMPLATE.format(name=self.name.strip())}\n\n"
+            f"{CHARACTER_PROMPT_NAME_TEMPLATE.format(name=name.strip())}\n\n"
             f"{CHARACTER_PROMPT_PROFILE_HEADING}\n{profile}\n\n"
             f"{CHARACTER_PROMPT_CLOSING}"
         )
@@ -704,8 +801,10 @@ class Character:
 
     def to_dict(self) -> CharacterJSON:
         return {
+            "schema_version": CHARACTER_SCHEMA_VERSION,
             "id": self.id,
-            "name": self.name_parts.to_dict(),
+            "name": self.name_parts.to_dict() if self.name_parts is not None else None,
+            "is_draft": self.is_draft,
             "revision": self.revision,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -715,6 +814,11 @@ class Character:
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, object]) -> Character:
+        schema_version: int | None = _document_schema_version(
+            raw,
+            document_name="character",
+            supported_version=CHARACTER_SCHEMA_VERSION,
+        )
         now: float = time.time()
         raw_fields: object = raw.get("fields", [])
         if not isinstance(raw_fields, list):
@@ -728,17 +832,31 @@ class Character:
         presets: CharacterPresetSelection = CharacterPresetSelection.from_dict(
             _string_mapping(raw.get("presets", {}), field_name="character.presets")
         )
-        raw_name: object = raw.get("name")
-        name_parts: CharacterName = (
-            CharacterName.from_display_name(raw_name)
-            if isinstance(raw_name, str)
-            else CharacterName.from_dict(
-                _string_mapping(raw_name, field_name="character.name")
+        name_parts: CharacterName | None = _character_name_from_json(raw.get("name"))
+        if schema_version is None:
+            if name_parts is None:
+                raise ValueError("legacy character.name is required")
+            # Old documents used this name for onboarding drafts, even after
+            # profile fields or presets had been edited. This compatibility check
+            # runs only while migrating old data; current documents retain an
+            # explicit draft flag instead.
+            is_draft: bool = name_parts == _LEGACY_DRAFT_CHARACTER_NAME
+            if is_draft:
+                name_parts = None
+        else:
+            if "is_draft" not in raw:
+                raise ValueError("character.is_draft is required")
+            is_draft = _required_bool_from_json(
+                raw["is_draft"], field_name="character.is_draft"
             )
-        )
+            if is_draft != (name_parts is None):
+                raise ValueError(
+                    "character.is_draft must match whether character.name is null"
+                )
         return cls(
             id=_required_string(raw.get("id"), field_name="character.id"),
             name_parts=name_parts,
+            is_draft=is_draft,
             revision=_integer_from_json(
                 raw.get("revision", 1), field_name="character.revision", minimum=1
             ),
@@ -899,6 +1017,8 @@ def _validated_character_cast(characters: Sequence[Character]) -> tuple[Characte
     character_cast: tuple[Character, ...] = tuple(characters)
     if not character_cast:
         raise ValueError("character cast must contain at least one character")
+    if any(character.is_draft for character in character_cast):
+        raise ValueError("draft characters must be named before they can start a chat")
     character_ids: tuple[str, ...] = tuple(character.id for character in character_cast)
     if len(character_ids) != len(set(character_ids)):
         raise ValueError("character cast cannot contain duplicate characters")
@@ -1234,6 +1354,7 @@ class Chat:
 
     def to_dict(self) -> ChatJSON:
         return {
+            "schema_version": CHAT_SCHEMA_VERSION,
             "id": self.id,
             "title": self.title,
             "title_source": self.title_source,
@@ -1252,6 +1373,11 @@ class Chat:
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, object]) -> Chat:
+        _ = _document_schema_version(
+            raw,
+            document_name="chat",
+            supported_version=CHAT_SCHEMA_VERSION,
+        )
         now: float = time.time()
         raw_messages: object = raw.get("messages", [])
         if not isinstance(raw_messages, list):

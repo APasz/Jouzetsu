@@ -391,7 +391,7 @@ class AppState:
     async def new_character(self) -> Character:
         """Create a blank flexible profile without imposing a fixed character schema."""
 
-        character: Character = Character()
+        character: Character = Character.draft()
         self.character_storage.save(character)
         self._characters[character.id] = character
         await self._notify(StateChangeKind.CHARACTERS)
@@ -403,7 +403,7 @@ class AppState:
         character_id: str,
         *,
         expected_revision: int,
-        name: CharacterName,
+        name: CharacterName | None,
         fields: list[CharacterField],
         presets: CharacterPresetSelection | None = None,
     ) -> Character:

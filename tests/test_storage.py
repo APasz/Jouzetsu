@@ -11,6 +11,14 @@ from jouzetsu.models import Chat, Message
 from jouzetsu.storage import ChatStorage
 
 
+def _legacy_chat_document(chat: Chat) -> dict[str, object]:
+    """Return the historical unversioned representation of one chat."""
+
+    document: dict[str, object] = dict(chat.to_dict())
+    _ = document.pop("schema_version")
+    return document
+
+
 class ChatStorageTests(unittest.TestCase):
     def test_save_persists_each_chat_in_its_own_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -27,6 +35,11 @@ class ChatStorageTests(unittest.TestCase):
             self.assertTrue(storage.path_for(first.id).is_file())
             self.assertTrue(storage.path_for(second.id).is_file())
             self.assertFalse(path.exists())
+            saved = cast(
+                dict[str, object],
+                json.loads(storage.path_for(first.id).read_text(encoding="utf-8")),
+            )
+            self.assertEqual(saved["schema_version"], 1)
             log_output: str = "\n".join(logs.output)
             self.assertIn(
                 f"saved chat records directory={storage.directory} changed_count=2",
@@ -61,7 +74,7 @@ class ChatStorageTests(unittest.TestCase):
             first = Chat()
             second = Chat()
             legacy_content: str = json.dumps(
-                {"chats": [first.to_dict(), second.to_dict()]}
+                {"chats": [_legacy_chat_document(first), _legacy_chat_document(second)]}
             )
             _ = path.write_text(legacy_content, encoding="utf-8")
             storage = ChatStorage(path)
@@ -80,7 +93,7 @@ class ChatStorageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path: Path = Path(tmp_dir) / "chats.json"
             chat = Chat()
-            legacy_content: str = json.dumps({"chats": [chat.to_dict()]})
+            legacy_content: str = json.dumps({"chats": [_legacy_chat_document(chat)]})
             _ = path.write_text(legacy_content, encoding="utf-8")
             storage = ChatStorage(path)
             unwritable_archive: Path = path.parent / "missing" / "chats.json.migrated"
@@ -105,7 +118,9 @@ class ChatStorageTests(unittest.TestCase):
             newer_document = Chat(
                 id=legacy_chat.id, title="Newer document", updated_at=200.0
             )
-            legacy_content: str = json.dumps({"chats": [legacy_chat.to_dict()]})
+            legacy_content: str = json.dumps(
+                {"chats": [_legacy_chat_document(legacy_chat)]}
+            )
             _ = path.write_text(legacy_content, encoding="utf-8")
             storage = ChatStorage(path)
             storage.save_all([newer_document])
@@ -223,3 +238,85 @@ class ChatStorageTests(unittest.TestCase):
             self.assertEqual([chat.id for chat in chats], [valid.id])
             self.assertFalse(damaged.exists())
             self.assertEqual(len(list(storage.directory.glob("bad.json.corrupt-*"))), 1)
+
+    def test_unversioned_split_document_round_trips_as_v1(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = ChatStorage(Path(tmp_dir) / "chats.json")
+            chat = Chat(title="Legacy")
+            _ = storage.path_for(chat.id).write_text(
+                json.dumps(_legacy_chat_document(chat)), encoding="utf-8"
+            )
+
+            loaded = storage.load_all()
+            storage.save_all(loaded)
+
+            saved = cast(
+                dict[str, object],
+                json.loads(storage.path_for(chat.id).read_text(encoding="utf-8")),
+            )
+            self.assertEqual(loaded, [chat])
+            self.assertEqual(saved["schema_version"], 1)
+
+    def test_future_schema_document_is_left_intact_during_snapshot_saves(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = ChatStorage(Path(tmp_dir) / "chats.json")
+            chat = Chat()
+            document: dict[str, object] = dict(chat.to_dict())
+            document["schema_version"] = 2
+            path = storage.path_for(chat.id)
+            _ = path.write_text(json.dumps(document), encoding="utf-8")
+
+            loaded = storage.load_all()
+            storage.save_all(loaded)
+
+            self.assertEqual(loaded, [])
+            self.assertEqual(
+                cast(dict[str, object], json.loads(path.read_text(encoding="utf-8"))),
+                document,
+            )
+            self.assertFalse((storage.trash_directory / path.name).exists())
+            self.assertEqual(
+                list(storage.directory.glob(f"{path.name}.corrupt-*")), []
+            )
+
+    def test_future_schema_legacy_store_is_left_intact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path: Path = Path(tmp_dir) / "chats.json"
+            chat = Chat()
+            document: dict[str, object] = dict(chat.to_dict())
+            document["schema_version"] = 2
+            future_content: str = json.dumps({"chats": [document]})
+            _ = path.write_text(future_content, encoding="utf-8")
+
+            self.assertEqual(ChatStorage(path).load_all(), [])
+
+            self.assertEqual(path.read_text(encoding="utf-8"), future_content)
+            self.assertEqual(list(path.parent.glob("chats.json.corrupt-*")), [])
+
+    def test_legacy_migration_does_not_replace_a_future_document_with_the_same_id(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path: Path = Path(tmp_dir) / "chats.json"
+            legacy_chat = Chat(id="chat123", title="Legacy")
+            future_document: dict[str, object] = dict(
+                Chat(id=legacy_chat.id, title="Future").to_dict()
+            )
+            future_document["schema_version"] = 2
+            legacy_content: str = json.dumps(
+                {"chats": [_legacy_chat_document(legacy_chat)]}
+            )
+            _ = path.write_text(legacy_content, encoding="utf-8")
+            storage = ChatStorage(path)
+            future_path = storage.path_for(legacy_chat.id)
+            _ = future_path.write_text(json.dumps(future_document), encoding="utf-8")
+
+            self.assertEqual(storage.load_all(), [])
+
+            self.assertEqual(
+                cast(
+                    dict[str, object],
+                    json.loads(future_path.read_text(encoding="utf-8")),
+                ),
+                future_document,
+            )

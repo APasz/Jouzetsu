@@ -277,7 +277,11 @@ class WebApplication:
         return await self.state.update_character(
             character_id,
             expected_revision=revision,
-            name=_character_name_from_form(form, fallback=fallback_name),
+            name=_character_name_from_form(
+                form,
+                fallback=fallback_name,
+                allow_blank=preserve_existing_name_if_blank,
+            ),
             fields=fields,
             presets=presets,
         )

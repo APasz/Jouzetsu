@@ -101,6 +101,25 @@ def test_chat_postprocess_british_spellings_round_trips() -> None:
     assert reloaded.postprocess_british_spellings is True
 
 
+def test_chat_document_schema_version_round_trips_and_loads_legacy_documents() -> None:
+    chat = Chat(title="Versioned chat")
+    document = chat.to_dict()
+    legacy_document: dict[str, object] = dict(document)
+    _ = legacy_document.pop("schema_version")
+
+    assert document["schema_version"] == 1
+    assert Chat.from_dict(document) == chat
+    assert Chat.from_dict(legacy_document).to_dict()["schema_version"] == 1
+
+
+def test_chat_rejects_a_future_document_schema_version() -> None:
+    document: dict[str, object] = dict(Chat().to_dict())
+    document["schema_version"] = 2
+
+    with pytest.raises(ValueError, match="newer than supported version 1"):
+        _ = Chat.from_dict(document)
+
+
 def test_chat_enables_british_spelling_postprocessing_by_default() -> None:
     chat = Chat.from_dict({})
 
@@ -285,10 +304,73 @@ def test_character_name_round_trips_multiword_parts_and_loads_legacy_display_nam
     reloaded = Character.from_dict(serialized)
     legacy = Character.from_dict({"id": "legacy123", "name": "Mira Ash"})
 
+    assert serialized["schema_version"] == 1
     assert serialized["name"] == {"given": "Mary Jane", "family": "van Helsing"}
+    assert serialized["is_draft"] is False
     assert reloaded.name_parts == name
     assert reloaded.name == "Mary Jane van Helsing"
     assert legacy.name_parts == CharacterName(given_name="Mira", family_name="Ash")
+    assert legacy.is_draft is False
+
+
+def test_character_draft_state_preserves_onboarding_and_allows_the_literal_old_name() -> (
+    None
+):
+    draft = Character.draft()
+    draft_document = draft.to_dict()
+    named = draft.revised_profile(CharacterName("New", "character"), [])
+
+    assert draft.is_draft is True
+    assert draft.name_parts is None
+    assert draft_document["schema_version"] == 1
+    assert draft_document["is_draft"] is True
+    assert draft_document["name"] is None
+    assert Character.from_dict(draft_document) == draft
+    assert named.is_draft is False
+    assert named.name == "New character"
+    assert named.compiled_system_prompt().startswith(
+        "You are roleplaying as New character.\n\n"
+    )
+
+
+def test_legacy_default_character_name_migrates_to_an_explicit_draft() -> None:
+    legacy_document: dict[str, object] = {
+        "id": "legacy123",
+        "name": "New character",
+        "fields": [
+            {
+                "id": "role",
+                "label": "Role",
+                "kind": "short_text",
+                "value": "Pilot",
+            }
+        ],
+        "presets": {"base": "builtin:humanoid", "extras": ["builtin:voice"]},
+    }
+
+    migrated = Character.from_dict(legacy_document)
+    canonical_document = migrated.to_dict()
+
+    assert migrated.is_draft is True
+    assert migrated.name_parts is None
+    assert migrated.fields[0].value == "Pilot"
+    assert migrated.presets == CharacterPresetSelection(
+        base_id="builtin:humanoid", extra_ids=("builtin:voice",)
+    )
+    assert canonical_document["schema_version"] == 1
+    assert canonical_document["is_draft"] is True
+    assert canonical_document["name"] is None
+    assert Character.from_dict(canonical_document) == migrated
+
+
+def test_character_rejects_a_future_document_schema_version() -> None:
+    document: dict[str, object] = dict(
+        Character(name_parts=CharacterName("Mira")).to_dict()
+    )
+    document["schema_version"] = 2
+
+    with pytest.raises(ValueError, match="newer than supported version 1"):
+        _ = Character.from_dict(document)
 
 
 def test_character_preserves_selected_profile_templates_and_loads_older_profiles() -> (
@@ -399,6 +481,7 @@ def test_chat_migrates_a_legacy_single_character_binding_to_a_cast() -> None:
     binding = CharacterChatBinding(id="abc123", name="Mira", revision=2)
     chat = Chat(character_cast=(binding,))
     legacy_document: dict[str, object] = dict(chat.to_dict())
+    _ = legacy_document.pop("schema_version")
     _ = legacy_document.pop("character_cast")
     _ = legacy_document.pop("prompt_mode")
     legacy_document["character"] = binding.to_dict()

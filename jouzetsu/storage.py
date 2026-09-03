@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import cast
 
 from .atomic_write import atomic_write_text, move_path
-from .models import Chat, ChatJSON
+from .models import Chat, ChatJSON, FutureSchemaVersionError
 
 log: Logger = logging.getLogger(__name__)
 _CORRUPT_FILE_SUFFIX: str = ".corrupt-"
@@ -32,6 +32,7 @@ class ChatStorage:
         self.path: Path = Path(path)
         self.directory: Path = self.path.parent / _CHAT_DIRECTORY_NAME
         self.trash_directory: Path = self.directory / _TRASH_DIRECTORY_NAME
+        self._future_schema_document_ids: set[str] = set()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.trash_directory.mkdir(parents=True, exist_ok=True)
@@ -50,10 +51,11 @@ class ChatStorage:
         return chats
 
     def save_all(self, chats: Iterable[Chat]) -> None:
-        """Synchronise the active chat directory to a complete supplied snapshot."""
+        """Synchronise a chat snapshot without deleting newer-schema documents."""
 
         chat_records: list[ChatJSON] = [chat.to_dict() for chat in chats]
         expected_ids: set[str] = _chat_record_ids(chat_records)
+        expected_ids.update(self._future_schema_document_ids)
         deleted_chat_ids: set[str] = {
             path.stem
             for path in self.directory.glob("*.json")
@@ -176,6 +178,13 @@ class ChatStorage:
                     if isinstance(key, str)
                 }
                 chats.append(Chat.from_dict(chat_data))
+        except FutureSchemaVersionError as exc:
+            log.warning(
+                "left future legacy chat store untouched path=%s reason=%s",
+                self.path,
+                exc,
+            )
+            return None
         except Exception as exc:  # noqa: BLE001
             self._quarantine_legacy(str(exc))
             return None
@@ -190,6 +199,13 @@ class ChatStorage:
         migrated_chats: list[Chat] = self._merge_migration_records(
             chats, self._load_documents()
         )
+        # A document this build cannot read must win over an older aggregate
+        # record with the same id, so migration never replaces it.
+        migrated_chats = [
+            chat
+            for chat in migrated_chats
+            if chat.id not in self._future_schema_document_ids
+        ]
 
         try:
             self.save_all(migrated_chats)
@@ -219,8 +235,9 @@ class ChatStorage:
         return migrated_chats
 
     def _load_documents(self) -> list[Chat]:
-        """Load valid split documents, quarantining only documents that cannot be read."""
+        """Load valid split documents without touching newer-schema documents."""
 
+        self._future_schema_document_ids.clear()
         chats: list[Chat] = []
         for path in sorted(self.directory.glob("*.json")):
             chat: Chat | None = self._load_one(path)
@@ -257,6 +274,10 @@ class ChatStorage:
             if path.stem != chat.id:
                 raise ValueError("document id does not match its file name")
             return chat
+        except FutureSchemaVersionError as exc:
+            self._future_schema_document_ids.add(path.stem)
+            log.warning("skipped future chat document path=%s reason=%s", path, exc)
+            return None
         except Exception as exc:  # noqa: BLE001
             self._quarantine_document(path, str(exc))
             return None

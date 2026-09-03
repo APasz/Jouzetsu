@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from .atomic_write import atomic_write_text
-from .models import Character
+from .models import Character, FutureSchemaVersionError
 
 log: Logger = logging.getLogger(__name__)
 _CORRUPT_FILE_SUFFIX: str = ".corrupt-"
@@ -24,7 +24,7 @@ class CharacterStorage:
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def load_all(self) -> list[Character]:
-        """Load valid profile documents, quarantining only malformed files."""
+        """Load valid profiles, leaving forward-incompatible documents untouched."""
 
         characters: list[Character] = []
         for path in sorted(self.directory.glob("*.json")):
@@ -77,6 +77,11 @@ class CharacterStorage:
             if path.stem != character.id:
                 raise ValueError("document id does not match its file name")
             return character
+        except FutureSchemaVersionError as exc:
+            log.warning(
+                "skipped future character document path=%s reason=%s", path, exc
+            )
+            return None
         except Exception as exc:  # noqa: BLE001
             self._quarantine_corrupt_file(path, str(exc))
             return None

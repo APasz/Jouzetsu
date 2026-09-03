@@ -26,7 +26,6 @@ from ...models import (
     CHARACTER_STORY_DIRECTION_HEADING,
     CHARACTER_STORY_PROMPT_CLOSING,
     CHARACTER_STORY_PROMPT_NAME_TEMPLATE,
-    DEFAULT_CHARACTER_NAME,
     Character,
     CharacterField,
     CharacterName,
@@ -142,7 +141,7 @@ def _character_workspace_header(state: AppState) -> HTML:
 def _character_library(characters: list[Character], selected_character_id: str) -> HTML:
     selected_character_name: str = next(
         (
-            character.name
+            character.display_name
             for character in characters
             if character.id == selected_character_id
         ),
@@ -150,7 +149,7 @@ def _character_library(characters: list[Character], selected_character_id: str) 
     )
     character_links: tuple[HTML, ...] = tuple(
         A(
-            character.name,
+            character.display_name,
             href=f"/characters/{character.id}",
             cls=(
                 "jouzetsu-character-library-item is-active"
@@ -218,10 +217,7 @@ def _render_character_editor(
 ) -> HTML:
     """Render profile metadata from the character's own field definitions."""
 
-    # Server-rendered field and preset actions retain the draft-name sentinel while
-    # they add profile data. Keep the name controls in their initial state until a
-    # real name is saved, rather than exposing the sentinel after such an action.
-    is_onboarding: bool = character.name_parts == DEFAULT_CHARACTER_NAME
+    is_onboarding: bool = character.is_draft
     fields: tuple[HTML, ...] = tuple(
         _render_character_field(profile_field) for profile_field in character.fields
     )
@@ -229,7 +225,7 @@ def _render_character_editor(
         Form(
             Div(
                 H1(
-                    "Create character" if is_onboarding else character.name,
+                    "Create character" if is_onboarding else character.display_name,
                     cls="jouzetsu-character-title",
                 ),
                 P(
@@ -315,7 +311,7 @@ def _render_character_editor(
                 ),
             ),
             Pre(
-                character.compiled_system_prompt(),
+                character.compiled_preview_system_prompt(),
                 cls="jouzetsu-character-prompt-preview",
                 data_character_prompt_preview="true",
                 data_character_prompt_name_template=CHARACTER_PROMPT_NAME_TEMPLATE,
@@ -342,7 +338,7 @@ def _render_character_editor(
                 "Delete character",
                 type="submit",
                 cls="jouzetsu-button jouzetsu-button-danger",
-                data_confirm=f"Delete {character.name} permanently? Existing chats will be retained.",
+                data_confirm=f"Delete {character.display_name} permanently? Existing chats will be retained.",
             ),
             action=f"/characters/{character.id}/delete",
             method="post",
@@ -358,7 +354,9 @@ def _render_character_cast_controls(
     """Let an editor start a cast chat while always retaining its own profile."""
 
     other_characters: tuple[Character, ...] = tuple(
-        candidate for candidate in characters if candidate.id != character.id
+        candidate
+        for candidate in characters
+        if candidate.id != character.id and not candidate.is_draft
     )
     other_member_controls: tuple[HTML, ...] = tuple(
         Label(
@@ -367,11 +365,11 @@ def _render_character_cast_controls(
                 name="cast_member_id",
                 value=candidate.id,
                 data_character_cast_member="true",
-                data_character_cast_member_name=candidate.name.strip(),
+                data_character_cast_member_name=candidate.display_name.strip(),
                 data_character_cast_member_profile=candidate.compiled_profile(),
                 data_testid=f"character-cast-member-{candidate.id}",
             ),
-            Span(candidate.name, cls="jouzetsu-character-cast-member-name"),
+            Span(candidate.display_name, cls="jouzetsu-character-cast-member-name"),
             Small(
                 f"Revision {candidate.revision}",
                 cls="jouzetsu-character-cast-member-revision",
@@ -406,7 +404,7 @@ def _render_character_cast_controls(
                     disabled=True,
                     data_testid="character-cast-primary",
                 ),
-                Span(character.name, cls="jouzetsu-character-cast-member-name"),
+                Span(character.display_name, cls="jouzetsu-character-cast-member-name"),
                 Small(
                     f"Revision {character.revision} · included",
                     cls="jouzetsu-character-cast-member-revision",
@@ -504,9 +502,9 @@ def _render_character_name_control(
 ) -> HTML:
     """Render the editable name parts and onboarding-only random-name control."""
 
-    name: CharacterName = character.name_parts
-    given_name: str = "" if is_onboarding else name.given_name
-    family_name: str = "" if is_onboarding else name.family_name
+    name: CharacterName | None = character.name_parts
+    given_name: str = "" if name is None else name.given_name
+    family_name: str = "" if name is None else name.family_name
     return Div(
         _render_character_name_field(
             "Given Name",

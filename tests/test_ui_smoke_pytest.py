@@ -1276,8 +1276,8 @@ def test_character_onboarding_ends_after_the_initial_profile_is_saved() -> None:
                 saved: httpx.Response = await client.post(
                     character_url,
                     data={
-                        "given_name": "Mira",
-                        "family_name": "",
+                        "given_name": "New",
+                        "family_name": "character",
                         "revision": "1",
                     },
                     headers=_csrf_headers(editor),
@@ -1285,20 +1285,22 @@ def test_character_onboarding_ends_after_the_initial_profile_is_saved() -> None:
                 )
                 assert saved.status_code == 303
                 character_id: str = character_url.rsplit("/", maxsplit=1)[1]
-                assert state.character(character_id).name == "Mira"
+                assert state.character(character_id).is_draft is False
+                assert state.character(character_id).name == "New character"
                 assert (
                     state.character(character_id)
                     .compiled_system_prompt()
-                    .startswith("You are roleplaying as Mira.\n\n")
+                    .startswith("You are roleplaying as New character.\n\n")
                 )
 
                 updated_editor: httpx.Response = await client.get(
                     saved.headers["location"]
                 )
                 assert "Create character" not in updated_editor.text
-                assert "Mira" in updated_editor.text
+                assert "New character" in updated_editor.text
                 assert "Profile templates" in updated_editor.text
-                assert 'value="Mira"' in updated_editor.text
+                assert 'value="New"' in updated_editor.text
+                assert 'value="character"' in updated_editor.text
                 assert "data-character-randomize-name-part=" not in updated_editor.text
         finally:
             await _close_web_application(web, state)
@@ -1346,7 +1348,8 @@ def test_character_field_actions_have_server_rendered_fallbacks() -> None:
                 assert [(field.label, field.value) for field in character.fields] == [
                     ("New field", "")
                 ]
-                assert character.name == "New character"
+                assert character.is_draft is True
+                assert character.name_parts is None
 
                 editor = await client.get(added.headers["location"])
                 assert "Create character" in editor.text
@@ -1385,7 +1388,8 @@ def test_character_field_actions_have_server_rendered_fallbacks() -> None:
                     "builtin:identity",
                     "builtin:voice",
                 )
-                assert character.name == "New character"
+                assert character.is_draft is True
+                assert character.name_parts is None
 
                 persisted_editor: httpx.Response = await client.get(
                     applied.headers["location"]

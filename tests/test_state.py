@@ -258,7 +258,8 @@ class AppStateTests(unittest.TestCase):
                 )
 
             self.assertIs(self.state.character(character.id), character)
-            self.assertEqual(character.name, "New character")
+            self.assertTrue(character.is_draft)
+            self.assertIsNone(character.name_parts)
             self.assertEqual(character.fields, [])
 
             self.state.character_storage = FailingCharacterStorage(
