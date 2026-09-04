@@ -27,6 +27,13 @@ const stableMarkup = (element) => {
     return clone.outerHTML;
 };
 
+const matchesServerMessageMarkup = (current, next) => {
+    const clone = current.cloneNode(true);
+    if (!(clone instanceof HTMLElement)) return false;
+    clone.querySelectorAll('[data-message-updated-at]').forEach((timestamp) => timestamp.replaceChildren());
+    return clone.outerHTML === next.outerHTML;
+};
+
 export class ChatController {
     #composer;
     #messages;
@@ -310,7 +317,11 @@ export class ChatController {
         for (const nextMessage of nextMessages) {
             const messageId = nextMessage.dataset.messageId;
             const existing = currentById.get(messageId);
-            if (existing instanceof HTMLElement && existing.isConnected && existing.outerHTML !== nextMessage.outerHTML) {
+            if (
+                existing instanceof HTMLElement
+                && existing.isConnected
+                && !matchesServerMessageMarkup(existing, nextMessage)
+            ) {
                 const replacement = nextMessage.cloneNode(true);
                 existing.replaceWith(replacement);
                 currentById.set(messageId, replacement);

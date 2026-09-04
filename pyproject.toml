@@ -37,6 +37,7 @@ jouzetsu = [
 dev = [
     "basedpyright>=1.37",
     "httpx>=0.28",
+    "playwright>=1.58",
     "pytest>=9.0",
     "ruff>=0.15",
 ]
@@ -44,6 +45,9 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "browser: Playwright coverage for stateful browser interactions",
+]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

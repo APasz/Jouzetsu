@@ -107,10 +107,14 @@ you need wider access; never expose the port directly to the public internet.
 
 ```sh
 uv sync --group dev
+uv run --group dev playwright install chromium
 uv run --group dev pytest -q
 uv run --group dev ruff check .
 uv run --group dev basedpyright
 ```
+
+The focused Playwright tests run with the normal pytest suite and cover the
+browser-only state transitions that the fast HTTP and unit tests cannot see.
 
 `uv run python -m scripts.smoke_server` starts a temporary smoke-test server.
 `uv run python -m scripts.e2e_stream` exercises streaming against the LM
