@@ -16,11 +16,11 @@
     gap: 10px;
     max-width: min(560px, 100%);
     padding: 9px 12px;
-    border: 1px solid var(--jouzetsu-secondary-dim);
-    border-top: 3px solid var(--jouzetsu-secondary);
-    background: var(--jouzetsu-secondary-soft);
-    color: var(--jouzetsu-text);
-    box-shadow: 0 8px 24px var(--jouzetsu-shadow-notice);
+    border: 1px solid var(--jouzetsu-system-muted);
+    border-top: 3px solid var(--jouzetsu-system-accent);
+    background: var(--jouzetsu-system-subtle);
+    color: var(--jouzetsu-system-body);
+    box-shadow: 0 8px 24px var(--jouzetsu-app-shadow-notice);
     font-size: 13px;
     pointer-events: auto;
     cursor: pointer;
@@ -36,25 +36,32 @@
     min-width: 56px;
     min-height: 32px;
     padding: 5px 8px;
-    border: 1px solid var(--jouzetsu-secondary-dim);
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-secondary);
+    border: 1px solid var(--jouzetsu-system-muted);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-system-foreground);
     font-size: 12px;
 }
 
 .jouzetsu-notice-action:hover,
 .jouzetsu-notice-action:focus-visible {
-    border-color: var(--jouzetsu-secondary-dim);
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-text);
+    border-color: var(--jouzetsu-system-hover);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-text);
     outline: none;
 }
 
 .jouzetsu-notice-error {
-    border-color: var(--jouzetsu-primary-dim);
-    border-top-color: var(--jouzetsu-primary);
-    background: var(--jouzetsu-primary-soft);
-    color: var(--jouzetsu-primary-hover);
+    border-color: var(--jouzetsu-system-accent);
+    border-left: 3px solid var(--jouzetsu-system-accent);
+}
+
+.jouzetsu-notice-error .jouzetsu-notice-message::before,
+.jouzetsu-dialog-feedback.is-error::before {
+    display: inline-block;
+    margin-right: 0.5em;
+    color: var(--jouzetsu-system-foreground);
+    font-weight: 700;
+    content: "!";
 }
 
 .jouzetsu-access-page {
@@ -63,7 +70,7 @@
     height: 100dvh;
     place-items: start center;
     padding: 20px;
-    background: var(--jouzetsu-bg);
+    background: var(--jouzetsu-app-canvas);
 }
 
 .jouzetsu-access-panel {
@@ -73,14 +80,14 @@
     width: min(100%, 440px);
     gap: 13px;
     padding: 24px;
-    border: 1px solid var(--jouzetsu-primary-dim);
-    border-top: 2px solid var(--jouzetsu-primary);
+    border: 1px solid var(--jouzetsu-system-muted);
+    border-top: 2px solid var(--jouzetsu-system-accent);
     background: transparent;
     text-align: center;
 }
 
 .jouzetsu-access-icon {
-    color: var(--jouzetsu-primary);
+    color: var(--jouzetsu-system-foreground);
     font-size: 34px;
 }
 
@@ -92,7 +99,7 @@
 
 .jouzetsu-access-message {
     margin: 0;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     line-height: 1.45;
 }
 
@@ -100,9 +107,9 @@
     width: 100%;
     padding: 9px;
     overflow-wrap: anywhere;
-    border: 1px solid var(--jouzetsu-border-strong);
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-secondary);
+    border: 1px solid var(--jouzetsu-app-border-strong);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-foreground);
     font-family: var(--jouzetsu-font-mono);
     font-size: 11px;
 }

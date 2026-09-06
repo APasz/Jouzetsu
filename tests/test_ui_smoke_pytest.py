@@ -21,12 +21,22 @@ from jouzetsu.config import (
     AppPaths,
     DeviceAccessSettings,
     GenerationSettings,
+    IconColorSettings,
     LoggingSettings,
     ServerSettings,
+    ThemeColorway,
     UiSettings,
+    default_config,
 )
 from jouzetsu.events import StateChangeKind
-from jouzetsu.models import CharacterField, CharacterName, Chat, ChatPromptMode, Message
+from jouzetsu.models import (
+    CharacterField,
+    CharacterName,
+    Chat,
+    ChatPromptMode,
+    ChatSamplingOverrides,
+    Message,
+)
 from jouzetsu.runtime import (
     ChatStreamEvent,
     FirstToken,
@@ -604,7 +614,7 @@ def test_composer_layout_uses_shared_rails_and_reserves_progress_space() -> None
     assert "-webkit-mask-image: linear-gradient(" in styles
 
 
-def test_generation_panels_use_neutral_surface_tokens() -> None:
+def test_generation_panels_use_assistant_accents_and_app_surfaces() -> None:
     styles: str = _theme_styles()
 
     for selector in (
@@ -614,9 +624,9 @@ def test_generation_panels_use_neutral_surface_tokens() -> None:
         panel_styles: str = styles.split(selector, maxsplit=1)[1].split(
             "}", maxsplit=1
         )[0]
-        assert "var(--jouzetsu-border)" in panel_styles
-        assert "var(--jouzetsu-surface-2)" in panel_styles
-        assert "var(--jouzetsu-primary" not in panel_styles
+        assert "var(--jouzetsu-assistant-muted)" in panel_styles
+        assert "var(--jouzetsu-app-surface-raised)" in panel_styles
+        assert "var(--jouzetsu-user-" not in panel_styles
 
 
 def test_chat_client_ticks_the_loading_status_elapsed_value() -> None:
@@ -847,7 +857,7 @@ def test_fast_html_routes_render_and_mutate_chat_state() -> None:
                 csrf_headers: dict[str, str] = _csrf_headers(page)
                 assert page.status_code == 200
                 assert (
-                    'href="/icon.svg?linework=%23000000&amp;accent=%23D60000&amp;surface=%23F9DED7"'
+                    'href="/icon.svg?linework=%23000000&amp;accent=%237439b0&amp;surface=%23f1eaf8"'
                     in page.text
                 )
                 for stylesheet in _THEME_STYLESHEETS:
@@ -871,8 +881,8 @@ def test_fast_html_routes_render_and_mutate_chat_state() -> None:
                 assert icon.status_code == 200
                 assert icon.headers["content-type"].startswith("image/svg+xml")
                 assert 'stroke="#000000"' in icon.text
-                assert 'fill="#D60000"' in icon.text
-                assert 'fill="#F9DED7"' in icon.text
+                assert 'fill="#7439b0"' in icon.text
+                assert 'fill="#f1eaf8"' in icon.text
 
                 settings_fragment: httpx.Response = await client.get(
                     "/fragments/settings"
@@ -902,6 +912,9 @@ def test_fast_html_routes_render_and_mutate_chat_state() -> None:
                     "active-chat-top-p",
                     "active-chat-max-tokens",
                     "active-chat-sampling-source",
+                    "reset-chat-sampling-button",
+                    "active-chat-prompt",
+                    "reset-chat-prompt-button",
                     "active-chat-save-reasoning",
                     "chat-metadata",
                     "chat-created-at",
@@ -924,6 +937,39 @@ def test_fast_html_routes_render_and_mutate_chat_state() -> None:
                 assert state.active_chat.sampling_overrides.temperature == 0.2
                 assert state.active_chat.sampling_overrides.top_p == 0.8
                 assert state.active_chat.sampling_overrides.max_tokens == 512
+
+                reset_sampling: httpx.Response = await client.post(
+                    "/chat/sampling/reset",
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert reset_sampling.status_code == 303
+                assert (
+                    reset_sampling.headers["location"]
+                    == "/chats?notice=Sampling+reset+to+global+defaults"
+                )
+                assert state.active_chat.sampling_overrides == ChatSamplingOverrides()
+
+                saved_chat_prompt: httpx.Response = await client.post(
+                    "/chat/prompt",
+                    data={"prompt": "Use JSON."},
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert saved_chat_prompt.status_code == 303
+                assert state.active_chat.system_prompt == "Use JSON."
+
+                reset_chat_prompt: httpx.Response = await client.post(
+                    "/chat/prompt/reset",
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert reset_chat_prompt.status_code == 303
+                assert (
+                    reset_chat_prompt.headers["location"]
+                    == "/chats?notice=Chat+prompt+reset+to+global+default"
+                )
+                assert state.active_chat.system_prompt == ""
 
                 disabled_reasoning: httpx.Response = await client.post(
                     "/chat/reasoning",
@@ -1626,7 +1672,9 @@ def test_mutations_require_a_same_origin_csrf_token() -> None:
 def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> None:
     async def scenario(root: Path) -> None:
         state: AppState = _build_state(root, private=False)
-        state.config.theme = replace(state.config.theme, primary="#123456")
+        state.config.theme = replace(
+            state.config.theme, user=replace(state.config.theme.user, accent="#123456")
+        )
         state.config.host_stats.activity_start_color = "#123456"
         state.config.host_stats.activity_end_color = "#fedcba"
         web: WebApplication = WebApplication(
@@ -1643,19 +1691,60 @@ def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> No
                 assert 'data-dialog-open="global-settings-dialog"' in page.text
                 for action, marker in (
                     ("/settings/global/prompt", "save-global-prompt-button"),
-                    (
-                        "/settings/global/model-defaults",
-                        "save-global-model-defaults-button",
-                    ),
-                    ("/settings/global/interface", "save-global-interface-button"),
+                    ("/settings/global/appearance", "save-global-appearance-button"),
                     ("/settings/global/generation", "save-global-generation-button"),
                 ):
                     assert f'action="{action}"' in page.text
                     assert f'data-testid="{marker}"' in page.text
+                for action, marker in (
+                    ("/settings/global/prompt/reset", "reset-global-prompt-button"),
+                    (
+                        "/settings/global/appearance/reset",
+                        "reset-global-appearance-button",
+                    ),
+                    (
+                        "/settings/global/generation/reset",
+                        "reset-global-generation-button",
+                    ),
+                ):
+                    assert f'formaction="{action}"' in page.text
+                    assert f'data-testid="{marker}"' in page.text
+                assert 'data-testid="global-settings-dialog-behaviour-tab"' in page.text
+                assert (
+                    'data-testid="global-settings-dialog-appearance-tab"' in page.text
+                )
+                assert 'action="/settings/global/model-defaults"' not in page.text
                 for marker in (
                     "icon-linework-color",
                     "icon-accent-color",
                     "icon-surface-color",
+                ):
+                    assert f'data-testid="{marker}"' in page.text
+                for owner in ThemeColorway:
+                    assert (
+                        f'data-testid="theme-{owner.value}-accent-color"' in page.text
+                    )
+                    assert f'data-testid="theme-{owner.value}-colourway"' in page.text
+                    reset_form_id = f"theme-{owner.value}-reset-form"
+                    assert (
+                        f'formaction="/settings/global/appearance/{owner.value}/reset"'
+                        in page.text
+                    )
+                    assert f'form="{reset_form_id}"' in page.text
+                    assert f'id="{reset_form_id}"' in page.text
+                    assert (
+                        f'data-testid="reset-theme-{owner.value}-button"' in page.text
+                    )
+                for marker in (
+                    "message-action-style",
+                    "theme-app-message-action-delete-color",
+                    "theme-app-message-action-regenerate-color",
+                    "theme-app-message-action-merge-color",
+                    "theme-app-message-action-edit-color",
+                    "theme-app-message-action-continue-color",
+                    "host-stats-activity-start-color",
+                    "host-stats-activity-end-color",
+                    "appearance-dark-mode",
                 ):
                     assert f'data-testid="{marker}"' in page.text
                 assert 'data-testid="global-continuity-review"' in page.text
@@ -1669,7 +1758,7 @@ def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> No
                 assert saved_prompt.status_code == 303
                 assert (
                     saved_prompt.headers["location"]
-                    == "/chats?dialog=global&notice=Global+system+prompt+saved"
+                    == "/chats?dialog=global&tab=behaviour&notice=Global+system+prompt+saved"
                 )
                 assert (
                     state.config.generation.system_prompt == "Saved as its own section"
@@ -1688,30 +1777,153 @@ def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> No
                 assert saved_model_defaults.status_code == 303
                 assert (
                     saved_model_defaults.headers["location"]
-                    == "/chats?dialog=global&notice=Model+defaults+saved"
+                    == "/chats?dialog=models&tab=defaults&notice=Model+defaults+saved"
                 )
                 assert state.config.server.auto_unload_minutes == 15
+                model_defaults_page: httpx.Response = await client.get(
+                    saved_model_defaults.headers["location"]
+                )
+                assert 'data-open-dialog="models-dialog"' in model_defaults_page.text
+                assert (
+                    'data-testid="models-dialog-loaded-tab"' in model_defaults_page.text
+                )
+                assert (
+                    'data-testid="models-dialog-defaults-tab"'
+                    in model_defaults_page.text
+                )
+                assert 'data-testid="model-default-model"' in model_defaults_page.text
+                assert (
+                    'data-testid="save-model-defaults-button"'
+                    in model_defaults_page.text
+                )
+                assert (
+                    'formaction="/settings/global/model-defaults/reset"'
+                    in model_defaults_page.text
+                )
+                assert (
+                    'data-testid="reset-model-defaults-button"'
+                    in model_defaults_page.text
+                )
+                assert re.search(
+                    r'<button(?=[^>]*id="models-dialog-defaults-tab")(?=[^>]*aria-selected="true")[^>]*>',
+                    model_defaults_page.text,
+                )
 
-                saved_interface: httpx.Response = await client.post(
-                    "/settings/global/interface",
+                saved_appearance: httpx.Response = await client.post(
+                    "/settings/global/appearance",
                     data={
-                        "muted_color_icons": "true",
+                        "dark_mode": "true",
+                        "message_action_style": "semantic",
+                        "theme_app_message_action_delete": "#d23445",
+                        "theme_assistant_accent": "#102030",
                         "icon_linework_color": "#112233",
                         "icon_accent_color": "#445566",
                         "icon_surface_color": "#778899",
+                        "activity_start_color": "#0a0b0c",
+                        "activity_end_color": "#d0e0f0",
                     },
                     headers=csrf_headers,
                     follow_redirects=False,
                 )
-                assert saved_interface.status_code == 303
+                assert saved_appearance.status_code == 303
                 assert (
-                    saved_interface.headers["location"]
-                    == "/chats?dialog=global&notice=Interface+settings+saved"
+                    saved_appearance.headers["location"]
+                    == "/chats?dialog=global&tab=appearance&notice=Appearance+settings+saved"
                 )
-                assert state.config.ui.message_action_icon_style == "muted_color"
+                assert state.config.theme.assistant.accent == "#102030"
+                assert state.config.ui.dark_mode is True
+                assert state.config.ui.message_action_style.value == "semantic"
+                assert state.config.theme.app.message_action_delete == "#d23445"
                 assert state.config.ui.icon_colors.linework_color == "#112233"
                 assert state.config.ui.icon_colors.accent_color == "#445566"
                 assert state.config.ui.icon_colors.surface_color == "#778899"
+                assert state.config.host_stats.activity_start_color == "#0a0b0c"
+                assert state.config.host_stats.activity_end_color == "#d0e0f0"
+                appearance_page: httpx.Response = await client.get(
+                    saved_appearance.headers["location"]
+                )
+                assert (
+                    'data-open-dialog="global-settings-dialog"' in appearance_page.text
+                )
+                assert (
+                    'id="global-settings-dialog-appearance-tab"' in appearance_page.text
+                )
+                assert re.search(
+                    r'<button(?=[^>]*id="global-settings-dialog-appearance-tab")(?=[^>]*aria-selected="true")[^>]*>',
+                    appearance_page.text,
+                )
+                assert (
+                    'data-testid="theme-app-key-visual-color"' in appearance_page.text
+                )
+                assert (
+                    'data-testid="theme-app-key-visual-color-automatic"'
+                    in appearance_page.text
+                )
+                assert (
+                    'data-testid="theme-app-message-actions-override"'
+                    in appearance_page.text
+                )
+                assert (
+                    'data-testid="theme-app-message-actions-automatic"'
+                    in appearance_page.text
+                )
+                assert (
+                    'data-testid="theme-user-muted-automatic"'
+                    in appearance_page.text
+                )
+                assert 'data-colour-override-picker="true"' in appearance_page.text
+                assert 'data-testid="message-action-style"' in appearance_page.text
+                assert (
+                    'data-testid="theme-app-message-action-delete-color"'
+                    in appearance_page.text
+                )
+                assert appearance_page.text.index(
+                    'data-testid="theme-app-key-visual-color"'
+                ) < appearance_page.text.index("jouzetsu-appearance-advanced")
+                assert "message_action_icon_style" not in appearance_page.text
+
+                original_theme = state.config.theme
+                invalid_appearance = await client.post(
+                    "/settings/global/appearance",
+                    data={
+                        "theme_user_accent": "#654321",
+                        "theme_system_muted": "invalid",
+                    },
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert invalid_appearance.status_code == 303
+                assert (
+                    "dialog=global&tab=appearance&error="
+                    in invalid_appearance.headers["location"]
+                )
+                assert state.config.theme is original_theme
+
+                for override in ("#123456", ""):
+                    override_save = await client.post(
+                        "/settings/global/appearance",
+                        data={"dark_mode": "true", "theme_assistant_muted": override},
+                        headers=csrf_headers,
+                        follow_redirects=False,
+                    )
+                    assert override_save.status_code == 303
+                    assert "notice=" in override_save.headers["location"]
+                    assert state.config.theme.assistant.muted == (override or None)
+                    assert state.config.theme.user == original_theme.user
+                    assert state.config.theme.system == original_theme.system
+
+                automatic_override = await client.post(
+                    "/settings/global/appearance",
+                    data={
+                        "dark_mode": "true",
+                        "theme_assistant_muted": "#abcdef",
+                        "theme_assistant_muted_automatic": "true",
+                    },
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert automatic_override.status_code == 303
+                assert state.config.theme.assistant.muted is None
 
                 configured_icon: httpx.Response = await client.get("/icon.svg")
                 assert 'stroke="#112233"' in configured_icon.text
@@ -1733,7 +1945,7 @@ def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> No
                 assert saved_generation.status_code == 303
                 assert (
                     saved_generation.headers["location"]
-                    == "/chats?dialog=global&notice=Generation+defaults+saved"
+                    == "/chats?dialog=global&tab=behaviour&notice=Generation+defaults+saved"
                 )
                 assert state.config.generation.continuity_review is True
                 assert (
@@ -1752,7 +1964,6 @@ def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> No
                         "max_tokens": "128",
                         "continuity_review": "true",
                         "british_spelling_replacements": "color\tcolour",
-                        "muted_color_icons": "true",
                     },
                     headers=csrf_headers,
                     follow_redirects=False,
@@ -1760,9 +1971,8 @@ def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> No
                 assert saved.status_code == 303
                 assert (
                     saved.headers["location"]
-                    == "/chats?dialog=global&notice=Global+settings+saved"
+                    == "/chats?dialog=global&tab=behaviour&notice=Global+settings+saved"
                 )
-                assert state.config.ui.message_action_icon_style == "muted_color"
                 assert state.config.server.auto_unload_minutes is None
 
                 saved_page: httpx.Response = await client.get(saved.headers["location"])
@@ -1785,7 +1995,7 @@ def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> No
                 )
                 assert invalid.status_code == 303
                 assert invalid.headers["location"].startswith(
-                    "/chats?dialog=global&error="
+                    "/chats?dialog=global&tab=behaviour&error="
                 )
                 invalid_page: httpx.Response = await client.get(
                     invalid.headers["location"]
@@ -1795,9 +2005,16 @@ def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> No
 
                 themed_css: httpx.Response = await client.get("/theme.css")
                 assert themed_css.status_code == 200
-                assert "--jouzetsu-primary: #123456" in themed_css.text
-                assert "--jouzetsu-stat-start: #123456" in themed_css.text
-                assert "--jouzetsu-stat-end: #fedcba" in themed_css.text
+                assert "--jouzetsu-user-accent: #123456" in themed_css.text
+                assert "--jouzetsu-assistant-accent: #102030" in themed_css.text
+                assert "color-scheme: dark;" in themed_css.text
+                assert "--jouzetsu-stat-start: #0a0b0c" in themed_css.text
+                assert "--jouzetsu-stat-end: #d0e0f0" in themed_css.text
+                for owner, settings in state.config.theme.colorways():
+                    assert (
+                        f"--jouzetsu-{owner.value}-accent: {settings.accent};"
+                        in themed_css.text
+                    )
                 assert ".jouzetsu-host-stat-meter-100 { width: 100%;" in themed_css.text
 
                 static_theme: str = _theme_styles()
@@ -1805,7 +2022,8 @@ def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> No
                 assert "mix-blend-mode: difference;" not in static_theme
                 assert "transition: width 140ms ease-out;" in static_theme
                 assert re.search(r"#[0-9a-fA-F]{3,8}\b", static_theme) is None
-                assert "rgb(" not in static_theme
+                assert re.search(r"\b(?:rgba?|hsla?)\(", static_theme) is None
+                assert "color-scheme:" not in static_theme
 
                 host_page: httpx.Response = await client.get("/chats?dialog=host")
                 assert 'data-host-stats-dialog="true"' in host_page.text
@@ -1854,6 +2072,229 @@ def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> No
                 )
                 assert "Visible feedback" in unknown_dialog.text
                 assert 'data-open-dialog="unknown"' not in unknown_dialog.text
+        finally:
+            await _close_web_application(web, state)
+
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        asyncio.run(scenario(Path(temporary_directory)))
+
+
+def test_settings_reset_routes_restore_their_scoped_defaults() -> None:
+    async def scenario(root: Path) -> None:
+        state: AppState = _build_state(root, private=False)
+        defaults: AppConfig = default_config(state.config.paths)
+        state.config.generation = GenerationSettings(
+            temperature=0.2,
+            top_p=0.3,
+            max_tokens=128,
+            system_prompt="Custom global prompt",
+            continuity_review=False,
+            british_english=True,
+            british_spelling_replacements=[],
+        )
+        state.config.server.base_url = "http://example.test:1234/v1"
+        state.config.server.api_key = "custom-key"
+        state.config.server.default_model = "demo-model"
+        state.config.server.model_aliases = {
+            "demo-model": "Demo",
+            "other-model": "Other",
+        }
+        state.config.server.auto_unload_minutes = 15
+        state.config.theme = replace(
+            state.config.theme,
+            app=replace(state.config.theme.app, accent="#101112"),
+            user=replace(state.config.theme.user, accent="#131415"),
+        )
+        state.config.ui.dark_mode = False
+        state.config.ui.icon_colors = IconColorSettings(
+            linework_color="#161718",
+            accent_color="#191a1b",
+            surface_color="#1c1d1e",
+        )
+        state.config.host_stats.system = False
+        state.config.host_stats.activity_start_color = "#1f2021"
+        state.config.host_stats.activity_end_color = "#222324"
+        state.config.access.default_private = False
+        state.config.access.allow_localhost_without_approval = False
+        state.config.access.global_settings_for_approved = True
+        state.config.access.allow_network_device_reassociation = True
+        state.config.access.approval_phrase = "retain this"
+        web: WebApplication = WebApplication(
+            state.config, state, on_startup=_noop, on_shutdown=_noop
+        )
+        try:
+            async with httpx.AsyncClient(
+                transport=_transport(web, client_ip="127.0.0.1"),
+                base_url="http://testserver",
+            ) as client:
+                page: httpx.Response = await client.get("/chats")
+                csrf_headers: dict[str, str] = _csrf_headers(page)
+                for action, marker in (
+                    ("/settings/global/prompt/reset", "reset-global-prompt-button"),
+                    (
+                        "/settings/global/appearance/reset",
+                        "reset-global-appearance-button",
+                    ),
+                    (
+                        "/settings/global/generation/reset",
+                        "reset-global-generation-button",
+                    ),
+                    ("/access/defaults/reset", "reset-access-defaults-button"),
+                    ("/chat/sampling/reset", "reset-chat-sampling-button"),
+                    ("/chat/prompt/reset", "reset-chat-prompt-button"),
+                ):
+                    assert f'formaction="{action}"' in page.text
+                    assert f'data-testid="{marker}"' in page.text
+                for save_marker, reset_marker in (
+                    ("save-global-prompt-button", "reset-global-prompt-button"),
+                    ("save-global-appearance-button", "reset-global-appearance-button"),
+                    ("save-global-generation-button", "reset-global-generation-button"),
+                    ("save-access-defaults-button", "reset-access-defaults-button"),
+                    ("save-chat-sampling-button", "reset-chat-sampling-button"),
+                    ("save-chat-prompt-button", "reset-chat-prompt-button"),
+                ):
+                    assert page.text.index(f'data-testid="{save_marker}"') < page.text.index(
+                        f'data-testid="{reset_marker}"'
+                    )
+                for colorway in ThemeColorway:
+                    reset_form_id = f"theme-{colorway.value}-reset-form"
+                    assert (
+                        f'formaction="/settings/global/appearance/{colorway.value}/reset"'
+                        in page.text
+                    )
+                    assert f'form="{reset_form_id}"' in page.text
+                    assert f'id="{reset_form_id}"' in page.text
+                    assert (
+                        f'data-testid="reset-theme-{colorway.value}-button"'
+                        in page.text
+                    )
+
+                async def reset(path: str, location: str) -> None:
+                    response: httpx.Response = await client.post(
+                        path,
+                        headers=csrf_headers,
+                        follow_redirects=False,
+                    )
+                    assert response.status_code == 303
+                    assert response.headers["location"] == location
+
+                await reset(
+                    "/settings/global/prompt/reset",
+                    "/chats?dialog=global&tab=behaviour&notice=Global+system+prompt+reset",
+                )
+                assert (
+                    state.config.generation.system_prompt
+                    == defaults.generation.system_prompt
+                )
+
+                await reset(
+                    "/settings/global/generation/reset",
+                    "/chats?dialog=global&tab=behaviour&notice=Generation+defaults+reset",
+                )
+                assert (
+                    state.config.generation.temperature
+                    == defaults.generation.temperature
+                )
+                assert state.config.generation.top_p == defaults.generation.top_p
+                assert (
+                    state.config.generation.max_tokens == defaults.generation.max_tokens
+                )
+                assert (
+                    state.config.generation.continuity_review
+                    == defaults.generation.continuity_review
+                )
+                assert state.config.generation.british_english is True
+
+                await reset(
+                    "/settings/global/model-defaults/reset",
+                    "/chats?dialog=models&tab=defaults&notice=Model+defaults+reset",
+                )
+                assert state.config.server.base_url == "http://example.test:1234/v1"
+                assert state.config.server.api_key == "custom-key"
+                assert state.config.server.default_model == ""
+                assert state.config.server.model_aliases == {"other-model": "Other"}
+                assert state.config.server.auto_unload_minutes is None
+
+                models_page: httpx.Response = await client.get(
+                    "/chats?dialog=models&tab=defaults"
+                )
+                assert (
+                    'formaction="/settings/global/model-defaults/reset"'
+                    in models_page.text
+                )
+                assert 'data-testid="reset-model-defaults-button"' in models_page.text
+
+                await reset(
+                    "/settings/global/appearance/user/reset",
+                    "/chats?dialog=global&tab=appearance&notice=User+colourway+reset",
+                )
+                assert state.config.theme.user == defaults.theme.user
+                assert state.config.theme.app.accent == "#101112"
+
+                await reset(
+                    "/settings/global/appearance/reset",
+                    "/chats?dialog=global&tab=appearance&notice=Appearance+settings+reset",
+                )
+                assert state.config.theme == defaults.theme
+                assert state.config.ui.dark_mode == defaults.ui.dark_mode
+                assert state.config.ui.icon_colors == defaults.ui.icon_colors
+                assert (
+                    state.config.host_stats.activity_start_color
+                    == defaults.host_stats.activity_start_color
+                )
+                assert (
+                    state.config.host_stats.activity_end_color
+                    == defaults.host_stats.activity_end_color
+                )
+                assert state.config.host_stats.system is False
+
+                saved_sampling: httpx.Response = await client.post(
+                    "/chat/sampling",
+                    data={"temperature": "0.2", "top_p": "0.8", "max_tokens": "512"},
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert saved_sampling.status_code == 303
+                await reset(
+                    "/chat/sampling/reset",
+                    "/chats?notice=Sampling+reset+to+global+defaults",
+                )
+                assert state.active_chat.sampling_overrides == ChatSamplingOverrides()
+
+                saved_prompt: httpx.Response = await client.post(
+                    "/chat/prompt",
+                    data={"prompt": "Use JSON."},
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert saved_prompt.status_code == 303
+                await reset(
+                    "/chat/prompt/reset",
+                    "/chats?notice=Chat+prompt+reset+to+global+default",
+                )
+                assert state.active_chat.system_prompt == ""
+
+                await reset(
+                    "/access/defaults/reset",
+                    "/chats?dialog=access&notice=Access+defaults+reset",
+                )
+                assert (
+                    state.config.access.default_private
+                    == defaults.access.default_private
+                )
+                assert (
+                    state.config.access.allow_localhost_without_approval
+                    == defaults.access.allow_localhost_without_approval
+                )
+                assert (
+                    state.config.access.global_settings_for_approved
+                    == defaults.access.global_settings_for_approved
+                )
+                assert (
+                    state.config.access.allow_network_device_reassociation
+                    == defaults.access.allow_network_device_reassociation
+                )
+                assert state.config.access.approval_phrase == "retain this"
         finally:
             await _close_web_application(web, state)
 
@@ -1947,12 +2388,29 @@ def test_access_and_logs_dialog_separates_access_and_log_file_tabs() -> None:
             ) as client:
                 _set_device_cookie(client, _LOCAL_DEVICE_ID)
                 page: httpx.Response = await client.get("/chats")
+                csrf_headers: dict[str, str] = _csrf_headers(page)
                 assert "Access &amp; Logs" in page.text
                 assert 'data-testid="access-dialog-access-tab"' in page.text
                 assert 'data-testid="access-dialog-logs-tab"' in page.text
                 assert 'data-tab-list="true"' in page.text
+                assert re.search(
+                    r'<button(?=[^>]*id="access-dialog-access-tab")(?=[^>]*aria-selected="true")[^>]*>',
+                    page.text,
+                )
+                assert re.search(
+                    r'<button(?=[^>]*id="access-dialog-logs-tab")(?=[^>]*aria-selected="false")[^>]*>',
+                    page.text,
+                )
                 assert 'data-testid="access-log-tab-0"' in page.text
                 assert 'data-testid="access-log-tab-1"' in page.text
+                assert re.search(
+                    r'<button(?=[^>]*id="access-log-tab-0")(?=[^>]*aria-selected="true")[^>]*>',
+                    page.text,
+                )
+                assert re.search(
+                    r'<button(?=[^>]*id="access-log-tab-1")(?=[^>]*aria-selected="false")[^>]*>',
+                    page.text,
+                )
                 assert 'data-testid="access-log-panel-0"' in page.text
                 assert 'data-testid="access-log-panel-1"' in page.text
                 assert "error log contents" in page.text
@@ -1960,6 +2418,23 @@ def test_access_and_logs_dialog_separates_access_and_log_file_tabs() -> None:
                 assert 'data-testid="access-denied-page-button"' in page.text
                 assert 'href="/access/denied"' in page.text
                 assert 'target="_blank"' in page.text
+                assert 'action="/access/defaults"' in page.text
+                assert 'data-testid="save-access-defaults-button"' in page.text
+                assert 'formaction="/access/defaults/reset"' in page.text
+                assert 'data-testid="reset-access-defaults-button"' in page.text
+
+                reset_access_defaults: httpx.Response = await client.post(
+                    "/access/defaults/reset",
+                    headers=csrf_headers,
+                    follow_redirects=False,
+                )
+                assert reset_access_defaults.status_code == 303
+                assert (
+                    reset_access_defaults.headers["location"]
+                    == "/chats?dialog=access&notice=Access+defaults+reset"
+                )
+                assert state.config.access.default_private is True
+                assert state.config.access.allow_localhost_without_approval is True
 
                 access_denied_page: httpx.Response = await client.get("/access/denied")
                 assert access_denied_page.status_code == 200
@@ -1980,6 +2455,8 @@ def test_access_and_logs_dialog_separates_access_and_log_file_tabs() -> None:
                 models_page: httpx.Response = await client.get("/chats?dialog=models")
                 assert 'data-open-dialog="models-dialog"' in models_page.text
                 assert 'data-testid="models-tab"' in models_page.text
+                assert 'data-testid="models-dialog-loaded-tab"' in models_page.text
+                assert 'data-testid="models-dialog-defaults-tab"' in models_page.text
                 assert 'data-testid="models-stdout-tab"' not in models_page.text
                 assert "Models &amp; logs" not in models_page.text
 

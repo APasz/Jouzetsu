@@ -45,9 +45,8 @@ body {
     min-height: 100%;
     margin: 0;
     overflow: hidden;
-    background: var(--jouzetsu-bg);
-    color: var(--jouzetsu-text);
-    color-scheme: dark;
+    background: var(--jouzetsu-app-canvas);
+    color: var(--jouzetsu-app-text);
     font-family: var(--jouzetsu-font-sans);
     overscroll-behavior: none;
     -webkit-tap-highlight-color: transparent;
@@ -64,9 +63,14 @@ button,
 select,
 input,
 textarea {
-    border: 1px solid var(--jouzetsu-border-strong);
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-text);
+    border: 1px solid var(--jouzetsu-app-border-strong);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-text);
+}
+
+::placeholder {
+    color: var(--jouzetsu-app-text);
+    opacity: 1;
 }
 
 button,

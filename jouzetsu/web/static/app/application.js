@@ -89,6 +89,25 @@ const openDeleteDialog = (target) => {
     dialog.showModal();
 };
 
+const colourOverrideContainer = (target) => (
+    target instanceof Element ? target.closest('[data-colour-override]') : null
+);
+
+const synchronizeColourOverride = (container) => {
+    if (!(container instanceof HTMLElement)) return;
+    const automatic = container.querySelector('[data-colour-override-automatic]');
+    if (!(automatic instanceof HTMLInputElement)) return;
+    container.classList.toggle('is-automatic', automatic.checked);
+};
+
+const activateColourOverride = (picker) => {
+    const container = colourOverrideContainer(picker);
+    if (!(container instanceof HTMLElement)) return;
+    const automatic = container.querySelector('[data-colour-override-automatic]');
+    if (automatic instanceof HTMLInputElement) automatic.checked = false;
+    synchronizeColourOverride(container);
+};
+
 export const startApplication = () => {
     const notices = new NoticeController();
     const composer = new ComposerController();
@@ -202,6 +221,7 @@ export const startApplication = () => {
     document.addEventListener('submit', (event) => {
         const form = event.target;
         if (!(form instanceof HTMLFormElement)) return;
+        if (form.dataset.draftFlushed === 'true') return;
         const submitter = event.submitter;
         if (!characters.validateForm(form, submitter)) {
             event.preventDefault();
@@ -221,7 +241,12 @@ export const startApplication = () => {
         ) composer.resetHeight(composerInput.closest('.jouzetsu-composer'));
         if (form.dataset.liveSubmit === 'true') {
             event.preventDefault();
-            if (form.dataset.liveSaving !== 'true') void chat.submitLiveForm(form);
+            if (form.dataset.liveSaving !== 'true') {
+                void chat.submitLiveForm(
+                    form,
+                    submitter instanceof HTMLButtonElement ? submitter : null,
+                );
+            }
             return;
         }
         if (form.dataset.chatMutation === 'true') {
@@ -230,7 +255,6 @@ export const startApplication = () => {
             return;
         }
         messages.saveScrollForNavigation();
-        if (form.dataset.draftFlushed === 'true') return;
         const draft = currentComposerDraft();
         if (!draft || !drafts.isDirty || form.action.endsWith('/chat/draft') || form.action.endsWith('/chat/stop')) return;
         event.preventDefault();
@@ -240,7 +264,11 @@ export const startApplication = () => {
         const fallback = new Promise((resolve) => window.setTimeout(resolve, DRAFT_FLUSH_TIMEOUT_MS));
         void Promise.race([drafts.flush(), fallback]).finally(() => {
             form.dataset.draftFlushed = 'true';
-            form.submit();
+            if (submitter instanceof HTMLButtonElement && submitter.form === form) {
+                form.requestSubmit(submitter);
+            } else {
+                form.requestSubmit();
+            }
         });
     });
 
@@ -248,6 +276,10 @@ export const startApplication = () => {
         const input = event.target;
         if (!(input instanceof Element)) return;
         characters.handleInput(input);
+        if (
+            input instanceof HTMLInputElement
+            && input.matches('[data-colour-override-picker]')
+        ) activateColourOverride(input);
         if (!(input instanceof HTMLTextAreaElement)) return;
         composer.autoSizeInput(input);
         if (input.dataset.composerInput === 'true') composer.syncPrimary();
@@ -258,6 +290,13 @@ export const startApplication = () => {
         const control = event.target;
         if (!(control instanceof Element)) return;
         characters.handleChange(control);
+        if (control instanceof HTMLInputElement) {
+            if (control.matches('[data-colour-override-picker]')) {
+                activateColourOverride(control);
+            } else if (control.matches('[data-colour-override-automatic]')) {
+                synchronizeColourOverride(colourOverrideContainer(control));
+            }
+        }
         const autosaveControl = control.closest('[data-live-autosave]');
         if (!(autosaveControl instanceof HTMLElement) || autosaveControl.matches(':disabled')) return;
         const form = autosaveControl.closest('form');
@@ -364,6 +403,9 @@ export const startApplication = () => {
 
     composer.reconcileViewport();
     characters.initialize();
+    document.querySelectorAll('[data-colour-override]').forEach(
+        synchronizeColourOverride,
+    );
     composer.restoreHeight();
     localizeMessageUpdatedTimes();
     composer.autoSizeInput(document.querySelector('.jouzetsu-message-input'));

@@ -3,21 +3,30 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import cast
+from typing import Final, cast
 
-from .defaults import builtin_spelling_replacements, builtin_theme, default_config
+from ..colors import HEX_COLOR_PATTERN
+from .defaults import (
+    builtin_spelling_replacements,
+    builtin_theme,
+    default_config,
+    legacy_theme_values,
+)
 from .models import (
     AccessSettings,
+    AppColorwaySettings,
     AppConfig,
+    ColorwaySettings,
     DeviceAccessSettings,
     GenerationSettings,
     HostStatsDeviceSettings,
     HostStatsSettings,
     IconColorSettings,
     LoggingSettings,
-    MessageActionIconStyle,
+    MessageAction,
+    MessageActionStyle,
     ServerSettings,
     SpellingReplacement,
     StarterPrompt,
@@ -27,6 +36,16 @@ from .models import (
 from .paths import AppPaths
 
 CONFIG_VERSION: int = 1
+_LEGACY_UI_FIELDS: Final[frozenset[str]] = frozenset({"message_action_icon_style"})
+_OPTIONAL_UI_FIELDS: Final[frozenset[str]] = frozenset({"message_action_style"})
+_LEGACY_MESSAGE_ACTION_STYLES: Final[dict[str, MessageActionStyle]] = {
+    "monochrome": MessageActionStyle.UNIFORM,
+    "muted_color": MessageActionStyle.SEMANTIC,
+}
+_LEGACY_PRIMARY_ACTION_FIELDS: Final[dict[MessageAction, str]] = {
+    MessageAction.DELETE: "action_delete",
+    MessageAction.REGENERATE: "action_regenerate",
+}
 type ConfigDocument = dict[str, object]
 
 
@@ -164,7 +183,7 @@ def decode_config(raw: object, *, paths: AppPaths) -> AppConfig:
     )
     try:
         config.validate()
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         decoder.issue("config", str(exc))
     if decoder.issues:
         raise ConfigValidationError(decoder.issues)
@@ -191,7 +210,7 @@ def encode_config(config: AppConfig) -> ConfigDocument:
             "dark_mode": config.ui.dark_mode,
             "auto_open_browser": config.ui.auto_open_browser,
             "active_chat_id": config.ui.active_chat_id,
-            "message_action_icon_style": config.ui.message_action_icon_style,
+            "message_action_style": config.ui.message_action_style.value,
             "icon_colors": {
                 "linework_color": config.ui.icon_colors.linework_color,
                 "accent_color": config.ui.icon_colors.accent_color,
@@ -356,11 +375,11 @@ def _decode_ui(decoder: _Decoder, raw: object, defaults: UiSettings) -> UiSettin
                 "dark_mode",
                 "auto_open_browser",
                 "active_chat_id",
-                "message_action_icon_style",
                 "icon_colors",
                 "starter_prompts",
             }
         ),
+        optional=_OPTIONAL_UI_FIELDS | _LEGACY_UI_FIELDS,
     )
     icon_values: dict[str, object] = decoder.object(
         values.get("icon_colors"),
@@ -368,12 +387,6 @@ def _decode_ui(decoder: _Decoder, raw: object, defaults: UiSettings) -> UiSettin
         required=frozenset({"linework_color", "accent_color", "surface_color"}),
     )
     icon_defaults: IconColorSettings = defaults.icon_colors
-    style_raw: str = decoder.string(
-        values.get("message_action_icon_style"),
-        path="config.ui.message_action_icon_style",
-        default=defaults.message_action_icon_style,
-    )
-    style: MessageActionIconStyle = cast(MessageActionIconStyle, style_raw)
     return UiSettings(
         host=decoder.string(
             values.get("host"), path="config.ui.host", default=defaults.host
@@ -396,7 +409,9 @@ def _decode_ui(decoder: _Decoder, raw: object, defaults: UiSettings) -> UiSettin
             path="config.ui.active_chat_id",
             default=defaults.active_chat_id,
         ),
-        message_action_icon_style=style,
+        message_action_style=_decode_message_action_style(
+            decoder, values, defaults.message_action_style
+        ),
         icon_colors=IconColorSettings(
             linework_color=_decode_hex(
                 decoder,
@@ -423,27 +438,133 @@ def _decode_ui(decoder: _Decoder, raw: object, defaults: UiSettings) -> UiSettin
     )
 
 
+def _decode_message_action_style(
+    decoder: _Decoder,
+    values: dict[str, object],
+    default: MessageActionStyle,
+) -> MessageActionStyle:
+    """Decode the current setting or migrate its former icon-style equivalent."""
+
+    if "message_action_style" in values:
+        raw: object = values["message_action_style"]
+        if not isinstance(raw, str):
+            decoder.issue("config.ui.message_action_style", "must be a string")
+            return default
+        try:
+            return MessageActionStyle(raw)
+        except ValueError:
+            decoder.issue("config.ui.message_action_style", "is invalid")
+            return default
+    if "message_action_icon_style" not in values:
+        return default
+
+    legacy_raw: object = values["message_action_icon_style"]
+    if not isinstance(legacy_raw, str):
+        decoder.issue("config.ui.message_action_icon_style", "must be a string")
+        return default
+    try:
+        return _LEGACY_MESSAGE_ACTION_STYLES[legacy_raw]
+    except KeyError:
+        decoder.issue("config.ui.message_action_icon_style", "is invalid")
+        return default
+
+
 def _decode_theme(
     decoder: _Decoder, raw: object, defaults: ThemeSettings
 ) -> ThemeSettings:
     if raw is None:
         return defaults
-    default_values: dict[str, str] = defaults.values()
-    values: dict[str, object] = decoder.object(
-        raw,
-        path="config.theme",
-        required=frozenset(default_values),
+    if isinstance(raw, dict) and "primary" in raw:
+        return _decode_legacy_theme(decoder, cast(object, raw), defaults)
+    values = decoder.object(
+        cast(object, raw), path="config.theme", required=frozenset(defaults.values())
     )
-    decoded_values: dict[str, str] = {
-        field_name: _decode_hex(
-            decoder,
-            values.get(field_name),
-            path=f"config.theme.{field_name}",
-            default=default,
+    return ThemeSettings(
+        app=_decode_colorway(decoder, values.get("app"), defaults.app, "app"),
+        user=_decode_colorway(decoder, values.get("user"), defaults.user, "user"),
+        assistant=_decode_colorway(
+            decoder, values.get("assistant"), defaults.assistant, "assistant"
+        ),
+        system=_decode_colorway(
+            decoder, values.get("system"), defaults.system, "system"
+        ),
+    )
+
+
+def _decode_colorway[C: ColorwaySettings](
+    decoder: _Decoder, raw: object, defaults: C, name: str
+) -> C:
+    path = f"config.theme.{name}"
+    values = decoder.object(
+        raw,
+        path=path,
+        required=frozenset({"accent"}),
+        optional=frozenset(defaults.values()) - {"accent"},
+    )
+    decoded: dict[str, str | None] = {}
+    for field_name, default in defaults.values().items():
+        value: object = values.get(field_name, default)
+        decoded[field_name] = (
+            None
+            if value is None and field_name != "accent"
+            else _decode_hex(
+                decoder,
+                value,
+                path=f"{path}.{field_name}",
+                default=default or defaults.accent,
+            )
         )
-        for field_name, default in default_values.items()
+    return replace(defaults, **decoded)
+
+
+def _decode_legacy_theme(
+    decoder: _Decoder, raw: object, defaults: ThemeSettings
+) -> ThemeSettings:
+    """Retain old accents and deliberate overrides without pinning automatic shades."""
+
+    legacy = legacy_theme_values()
+    values = decoder.object(raw, path="config.theme", required=frozenset(legacy))
+    decoded = {
+        name: _decode_hex(
+            decoder, values.get(name), path=f"config.theme.{name}", default=default
+        )
+        for name, default in legacy.items()
     }
-    return ThemeSettings(**decoded_values)
+
+    def override(name: str) -> str | None:
+        return decoded[name] if decoded[name].lower() != legacy[name] else None
+
+    def colorway(source: str) -> ColorwaySettings:
+        return ColorwaySettings(
+            accent=decoded[source],
+            muted=override(f"{source}_muted"),
+            subtle=override(f"{source}_subtle"),
+            hover=override("primary_hover") if source == "primary" else None,
+        )
+
+    def action_override(action: MessageAction) -> str | None:
+        muted_override: str | None = override(f"action_{action.value}_muted")
+        primary_field: str | None = _LEGACY_PRIMARY_ACTION_FIELDS.get(action)
+        return muted_override or (
+            override(primary_field) if primary_field is not None else None
+        )
+
+    return ThemeSettings(
+        app=AppColorwaySettings(
+            accent=defaults.app.accent,
+            **{action.color_field: action_override(action) for action in MessageAction},
+            canvas=override("canvas"),
+            surface=override("surface"),
+            surface_raised=override("surface_raised"),
+            border=override("border"),
+            border_strong=override("border_strong"),
+            text=override("text"),
+            text_muted=override("text_muted"),
+        ),
+        user=colorway("primary"),
+        assistant=colorway("secondary"),
+        system=defaults.system,
+    )
 
 
 def _decode_logging(
@@ -714,11 +835,7 @@ def _decode_host_devices(
 
 def _decode_hex(decoder: _Decoder, raw: object, *, path: str, default: str) -> str:
     value: str = decoder.string(raw, path=path, default=default)
-    if (
-        not value.startswith("#")
-        or len(value) != 7
-        or any(character not in "0123456789abcdefABCDEF" for character in value[1:])
-    ):
+    if not HEX_COLOR_PATTERN.fullmatch(value):
         decoder.issue(path, "must be a six-digit hexadecimal color")
         return default
     return value.lower()

@@ -18,6 +18,7 @@ from .chat import (
 from .context import PageContext
 from .controls import csrf_context
 from .dialogs import (
+    models_tab_from_text,
     render_continuity_rewrite_dialog,
     render_host_stats_dialog,
     render_message_context_menu,
@@ -26,7 +27,10 @@ from .dialogs import (
     render_models_dialog,
 )
 from .feedback import render_notice_area
-from .global_settings import render_global_settings_dialog
+from .global_settings import (
+    global_settings_tab_from_text,
+    render_global_settings_dialog,
+)
 
 _DIALOG_ELEMENT_ID_BY_NAME: dict[str, str] = {
     "global": "global-settings-dialog",
@@ -46,6 +50,7 @@ def render_main_page(
     edit_message_id: str = "",
     continuity_rewrite_message_id: str = "",
     active_dialog: str = "",
+    active_dialog_tab: str = "",
     notice: str = "",
     error: str = "",
     undo_token: str = "",
@@ -60,6 +65,7 @@ def render_main_page(
         state,
         context,
         active_dialog=active_dialog,
+        active_dialog_tab=active_dialog_tab,
         notice=notice,
         error=error,
         continuity_rewrite=continuity_rewrite,
@@ -112,6 +118,7 @@ def _workspace_dialogs(
     context: PageContext,
     *,
     active_dialog: str,
+    active_dialog_tab: str,
     notice: str,
     error: str,
     continuity_rewrite: Message | None,
@@ -122,6 +129,7 @@ def _workspace_dialogs(
             render_global_settings_dialog(
                 state,
                 context,
+                active_tab=global_settings_tab_from_text(active_dialog_tab),
                 notice=notice if active_dialog == "global" else "",
                 error=error if active_dialog == "global" else "",
             )
@@ -136,7 +144,14 @@ def _workspace_dialogs(
             )
         )
     if active_dialog == "models" and context.decision.can_use_global_settings:
-        dialogs.append(render_models_dialog(state, notice=notice, error=error))
+        dialogs.append(
+            render_models_dialog(
+                state,
+                active_tab=models_tab_from_text(active_dialog_tab),
+                notice=notice,
+                error=error,
+            )
+        )
     elif active_dialog == "host" and context.decision.can_use_global_settings:
         dialogs.append(render_host_stats_dialog(state, notice=notice, error=error))
     if continuity_rewrite is not None:

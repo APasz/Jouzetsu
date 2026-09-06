@@ -3,29 +3,58 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Mapping
-from dataclasses import fields
 from functools import cache
 from importlib.resources import files
 from types import MappingProxyType
 from typing import Final, cast
 
+from ..colors import HEX_COLOR_PATTERN as _HEX_COLOR_PATTERN
 from .models import (
     AccessSettings,
     AppConfig,
     GenerationSettings,
     HostStatsSettings,
     LoggingSettings,
+    MessageAction,
     ServerSettings,
     SpellingReplacement,
+    ThemeColorway,
     ThemeSettings,
     UiSettings,
 )
 from .paths import AppPaths
 
 _DEFAULT_DATA_PACKAGE: Final[str] = "jouzetsu.config"
-_HEX_COLOR_PATTERN: re.Pattern[str] = re.compile(r"#[0-9a-fA-F]{6}")
+_LEGACY_THEME_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "canvas",
+        "surface",
+        "surface_raised",
+        "border",
+        "border_strong",
+        "text",
+        "text_muted",
+        "text_inverse",
+        "primary",
+        "primary_hover",
+        "primary_muted",
+        "primary_subtle",
+        "on_accent",
+        "secondary",
+        "secondary_muted",
+        "secondary_subtle",
+        "edit",
+        "streaming_highlight",
+        "action_delete",
+        "action_regenerate",
+        "action_delete_muted",
+        "action_regenerate_muted",
+        "action_merge_muted",
+        "action_edit_muted",
+        "action_continue_muted",
+    }
+)
 
 
 class DefaultDataError(RuntimeError):
@@ -85,39 +114,66 @@ def builtin_spelling_replacements() -> tuple[SpellingReplacement, ...]:
 
 @cache
 def builtin_theme_values() -> Mapping[str, str]:
-    """Return the immutable, validated semantic theme-token mapping."""
+    """Return default accents, semantic actions, and shared base colours."""
 
-    raw: object = _load_json_resource("theme.json")
+    expected: frozenset[str] = frozenset(
+        {
+            *(owner.value for owner in ThemeColorway),
+            *(action.color_field for action in MessageAction),
+            "dark_canvas",
+            "dark_text",
+            "light_canvas",
+            "light_text",
+        }
+    )
+    return _theme_resource_values("theme.json", expected_fields=expected)
+
+
+def builtin_message_action_color(action: MessageAction) -> str:
+    """Return the packaged semantic colour for one message action."""
+
+    return builtin_theme_values()[action.color_field]
+
+
+@cache
+def legacy_theme_values() -> Mapping[str, str]:
+    """Return the historical palette only for decoding existing configurations."""
+
+    return _theme_resource_values(
+        "legacy-theme.json", expected_fields=_LEGACY_THEME_FIELDS
+    )
+
+
+def _theme_resource_values(
+    file_name: str, *, expected_fields: frozenset[str] | None = None
+) -> Mapping[str, str]:
+    raw: object = _load_json_resource(file_name)
     if not isinstance(raw, dict):
-        raise DefaultDataError("theme defaults must be a JSON object")
-    values: dict[object, object] = cast(dict[object, object], raw)
-    expected_fields: frozenset[str] = frozenset(
-        field.name for field in fields(ThemeSettings)
-    )
-    configured_fields: frozenset[str] = frozenset(
-        key for key in values if isinstance(key, str)
-    )
-    if len(configured_fields) != len(values) or configured_fields != expected_fields:
+        raise DefaultDataError(f"{file_name} must be a JSON object")
+    values = cast(dict[object, object], raw)
+    if expected_fields is not None and frozenset(values) != expected_fields:
         raise DefaultDataError(
-            "theme defaults must define every theme token exactly once"
+            f"{file_name} must define every default colour exactly once"
         )
-
     normalised: dict[str, str] = {}
-    for field_name in expected_fields:
-        value: object = values[field_name]
-        if not isinstance(value, str) or not _HEX_COLOR_PATTERN.fullmatch(value):
+    for name, value in values.items():
+        if (
+            not isinstance(name, str)
+            or not isinstance(value, str)
+            or not _HEX_COLOR_PATTERN.fullmatch(value)
+        ):
             raise DefaultDataError(
-                f"theme default {field_name} must be a six-digit hexadecimal color"
+                f"{file_name} colours must be six-digit hexadecimal values"
             )
-        normalised[field_name] = value.lower()
+        normalised[name] = value.lower()
     return MappingProxyType(normalised)
 
 
 @cache
 def builtin_theme() -> ThemeSettings:
-    """Return the immutable packaged default theme."""
+    """Return the immutable packaged default colourways."""
 
-    return ThemeSettings(**dict(builtin_theme_values()))
+    return ThemeSettings()
 
 
 def default_config(paths: AppPaths) -> AppConfig:

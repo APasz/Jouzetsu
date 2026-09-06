@@ -3,24 +3,18 @@
 from __future__ import annotations
 
 import math
-import re
-from collections.abc import Callable
 from dataclasses import dataclass, field, fields
+from enum import Enum
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import ClassVar
 
+from ..colors import HEX_COLOR_PATTERN as _HEX_COLOR_PATTERN
 from .paths import AppPaths, default_paths
 
-MessageActionIconStyle = Literal["monochrome", "muted_color"]
-MESSAGE_ACTION_ICON_STYLES: tuple[MessageActionIconStyle, ...] = (
-    "monochrome",
-    "muted_color",
-)
 CONTINUE_PROMPT_CONTENT: str = (
     "Continue the previous assistant response exactly from where it stopped. "
     "Do not repeat earlier text and do not add prefatory wording."
 )
-_HEX_COLOR_PATTERN: re.Pattern[str] = re.compile(r"#[0-9a-fA-F]{6}")
 
 
 def _are_booleans(*values: object) -> bool:
@@ -43,10 +37,6 @@ def _builtin_theme_value(name: str) -> str:
     from .defaults import builtin_theme_values
 
     return builtin_theme_values()[name]
-
-
-def _theme_value_factory(name: str) -> Callable[[], str]:
-    return lambda: _builtin_theme_value(name)
 
 
 @dataclass
@@ -180,8 +170,8 @@ class IconColorSettings:
     """The independently configurable colours in the app icon."""
 
     linework_color: str = "#000000"
-    accent_color: str = "#D60000"
-    surface_color: str = "#F9DED7"
+    accent_color: str = "#7439b0"
+    surface_color: str = "#f1eaf8"
 
     def validate(self) -> None:
         for field_name, value in (
@@ -193,68 +183,173 @@ class IconColorSettings:
                 raise ValueError(f"{field_name} must be a six-digit hexadecimal color")
 
 
+class MessageActionStyle(str, Enum):
+    """How message action controls draw their colour."""
+
+    UNIFORM = "uniform"
+    SEMANTIC = "semantic"
+
+    @property
+    def label(self) -> str:
+        """Return the user-facing option label."""
+
+        match self:
+            case MessageActionStyle.UNIFORM:
+                return "Uniform App colour"
+            case MessageActionStyle.SEMANTIC:
+                return "Semantic colours"
+
+
+class MessageAction(str, Enum):
+    """The independently colourable message actions."""
+
+    DELETE = "delete"
+    REGENERATE = "regenerate"
+    MERGE = "merge"
+    EDIT = "edit"
+    CONTINUE = "continue"
+
+    @property
+    def label(self) -> str:
+        """Return the user-facing action label."""
+
+        match self:
+            case MessageAction.DELETE:
+                return "Delete"
+            case MessageAction.REGENERATE:
+                return "Regenerate"
+            case MessageAction.MERGE:
+                return "Merge"
+            case MessageAction.EDIT:
+                return "Edit"
+            case MessageAction.CONTINUE:
+                return "Continue and resend"
+
+    @property
+    def color_field(self) -> str:
+        """Return this action's App colourway setting name."""
+
+        return f"message_action_{self.value}"
+
+
+class ThemeColorway(str, Enum):
+    """The four independent owners of UI colour."""
+
+    APP = "app"
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+    @property
+    def label(self) -> str:
+        return self.value.capitalize()
+
+
+@dataclass(frozen=True, slots=True)
+class ColorwaySettings:
+    """One main colour with optional overrides for its automatic shades."""
+
+    accent: str
+    muted: str | None = field(default=None, metadata={"label": "Muted colour"})
+    subtle: str | None = field(default=None, metadata={"label": "Subtle colour"})
+    hover: str | None = field(default=None, metadata={"label": "Hover colour"})
+
+    def values(self) -> dict[str, str | None]:
+        """Return the declared settings, including unset automatic overrides."""
+
+        return {item.name: getattr(self, item.name) for item in fields(self)}
+
+    def validate(self) -> None:
+        for name, value in self.values().items():
+            if value is None and name != "accent":
+                continue
+            if not isinstance(value, str) or not _HEX_COLOR_PATTERN.fullmatch(value):
+                raise ValueError(f"{name} must be a six-digit hexadecimal color")
+
+
+@dataclass(frozen=True, slots=True)
+class AppColorwaySettings(ColorwaySettings):
+    """App accents and optional overrides for the shared light/dark surfaces."""
+
+    key_visual: str | None = field(
+        default=None, metadata={"label": "Key visual colour"}
+    )
+    message_actions: str | None = field(
+        default=None, metadata={"label": "Message action colour"}
+    )
+    message_action_delete: str | None = field(
+        default=None, metadata={"label": "Delete colour"}
+    )
+    message_action_regenerate: str | None = field(
+        default=None, metadata={"label": "Regenerate colour"}
+    )
+    message_action_merge: str | None = field(
+        default=None, metadata={"label": "Merge colour"}
+    )
+    message_action_edit: str | None = field(
+        default=None, metadata={"label": "Edit colour"}
+    )
+    message_action_continue: str | None = field(
+        default=None, metadata={"label": "Continue and resend colour"}
+    )
+    canvas: str | None = field(default=None, metadata={"label": "Page background"})
+    surface: str | None = field(default=None, metadata={"label": "Panel background"})
+    surface_raised: str | None = field(
+        default=None, metadata={"label": "Raised background"}
+    )
+    border: str | None = field(default=None, metadata={"label": "Surface border"})
+    border_strong: str | None = field(
+        default=None, metadata={"label": "Strong surface border"}
+    )
+    text: str | None = field(default=None, metadata={"label": "Body text"})
+    text_muted: str | None = field(default=None, metadata={"label": "Secondary text"})
+
+
 @dataclass(frozen=True, slots=True)
 class ThemeSettings:
-    """Semantic colour tokens for every non-user-generated UI surface."""
+    """Independent App, User, Assistant, and System colourways."""
 
-    canvas: str = field(default_factory=_theme_value_factory("canvas"))
-    surface: str = field(default_factory=_theme_value_factory("surface"))
-    surface_raised: str = field(default_factory=_theme_value_factory("surface_raised"))
-    border: str = field(default_factory=_theme_value_factory("border"))
-    border_strong: str = field(default_factory=_theme_value_factory("border_strong"))
-    text: str = field(default_factory=_theme_value_factory("text"))
-    text_muted: str = field(default_factory=_theme_value_factory("text_muted"))
-    text_inverse: str = field(default_factory=_theme_value_factory("text_inverse"))
-    primary: str = field(default_factory=_theme_value_factory("primary"))
-    primary_hover: str = field(default_factory=_theme_value_factory("primary_hover"))
-    primary_muted: str = field(default_factory=_theme_value_factory("primary_muted"))
-    primary_subtle: str = field(default_factory=_theme_value_factory("primary_subtle"))
-    on_accent: str = field(default_factory=_theme_value_factory("on_accent"))
-    secondary: str = field(default_factory=_theme_value_factory("secondary"))
-    secondary_muted: str = field(
-        default_factory=_theme_value_factory("secondary_muted")
+    app: AppColorwaySettings = field(
+        default_factory=lambda: AppColorwaySettings(_builtin_theme_value("app"))
     )
-    secondary_subtle: str = field(
-        default_factory=_theme_value_factory("secondary_subtle")
+    user: ColorwaySettings = field(
+        default_factory=lambda: ColorwaySettings(_builtin_theme_value("user"))
     )
-    edit: str = field(default_factory=_theme_value_factory("edit"))
-    streaming_highlight: str = field(
-        default_factory=_theme_value_factory("streaming_highlight")
+    assistant: ColorwaySettings = field(
+        default_factory=lambda: ColorwaySettings(_builtin_theme_value("assistant"))
     )
-    action_delete: str = field(default_factory=_theme_value_factory("action_delete"))
-    action_regenerate: str = field(
-        default_factory=_theme_value_factory("action_regenerate")
-    )
-    action_delete_muted: str = field(
-        default_factory=_theme_value_factory("action_delete_muted")
-    )
-    action_regenerate_muted: str = field(
-        default_factory=_theme_value_factory("action_regenerate_muted")
-    )
-    action_merge_muted: str = field(
-        default_factory=_theme_value_factory("action_merge_muted")
-    )
-    action_edit_muted: str = field(
-        default_factory=_theme_value_factory("action_edit_muted")
-    )
-    action_continue_muted: str = field(
-        default_factory=_theme_value_factory("action_continue_muted")
+    system: ColorwaySettings = field(
+        default_factory=lambda: ColorwaySettings(_builtin_theme_value("system"))
     )
 
-    def values(self) -> dict[str, str]:
-        """Return the palette using the dataclass fields as its only key source."""
+    def colorways(self) -> tuple[tuple[ThemeColorway, ColorwaySettings], ...]:
+        """Return each colourway once in the editor and stylesheet order."""
+
+        return (
+            (ThemeColorway.APP, self.app),
+            (ThemeColorway.USER, self.user),
+            (ThemeColorway.ASSISTANT, self.assistant),
+            (ThemeColorway.SYSTEM, self.system),
+        )
+
+    def values(self) -> dict[str, dict[str, str]]:
+        """Return only configured colours; omitted shades remain automatic."""
 
         return {
-            theme_field.name: getattr(self, theme_field.name)
-            for theme_field in fields(self)
+            owner.value: {
+                name: value
+                for name, value in settings.values().items()
+                if value is not None
+            }
+            for owner, settings in self.colorways()
         }
 
     def validate(self) -> None:
-        for field_name, value in self.values().items():
-            if not _HEX_COLOR_PATTERN.fullmatch(value):
-                raise ValueError(
-                    f"theme.{field_name} must be a six-digit hexadecimal color"
-                )
+        for owner, settings in self.colorways():
+            try:
+                settings.validate()
+            except ValueError as exc:
+                raise ValueError(f"theme.{owner.value}.{exc}") from exc
 
 
 @dataclass
@@ -266,7 +361,7 @@ class UiSettings:
     dark_mode: bool = True
     auto_open_browser: bool = False
     active_chat_id: str = ""
-    message_action_icon_style: MessageActionIconStyle = "monochrome"
+    message_action_style: MessageActionStyle = MessageActionStyle.UNIFORM
     icon_colors: IconColorSettings = field(default_factory=IconColorSettings)
     starter_prompts: list[StarterPrompt] = field(
         default_factory=lambda: list(DEFAULT_STARTER_PROMPTS)
@@ -279,8 +374,8 @@ class UiSettings:
             raise ValueError("port must be an integer between 1 and 65535")
         if not _are_booleans(self.dark_mode, self.auto_open_browser):
             raise ValueError("dark_mode and auto_open_browser must be booleans")
-        if self.message_action_icon_style not in MESSAGE_ACTION_ICON_STYLES:
-            raise ValueError("message_action_icon_style is invalid")
+        if type(self.message_action_style) is not MessageActionStyle:
+            raise TypeError("message_action_style must be a MessageActionStyle")
         self.icon_colors.validate()
         for prompt in self.starter_prompts:
             prompt.validate()

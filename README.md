@@ -53,6 +53,28 @@ Built-in British-spelling replacements and the theme palette are packaged
 separately. `generation.british_spelling_replacements` and `theme` are written
 only when you customise them.
 
+Global Settings separates chat-wide Behaviour from Appearance. Model selection,
+aliases, and auto-unload live in the Models dialog's Defaults tab. The
+Appearance editor has four independent colourways: App for neutral surfaces,
+text, controls, and key interface visuals; User for your messages and composer;
+Assistant for replies and generation highlights; and System for messages and
+notifications. The built-in palette uses black-and-white App surfaces with a
+purple App accent, red User, blue Assistant, and green System accents.
+Each has one main colour with automatic border, background, and hover shades.
+App also selects light/dark appearance. Advanced controls use compact native
+colour pickers with an Auto toggle to restore generated shading. Key Visual
+sits beside App's main colour; App's Advanced section exposes the uniform
+message-action colour, icon artwork colours, and the activity-meter gradient.
+Message actions default to the uniform App colour, but can instead use
+independently configurable semantic colours for delete, regenerate, merge,
+edit, and continue/resend.
+
+Existing flat palettes load automatically into the new colourways. User and
+Assistant accents and custom surface/shade overrides are retained; App and System
+receive independent default accents. Earlier message-action icon preferences
+and muted action colours migrate to the semantic action setting and palette on
+the next save. The new theme shape is then written normally.
+
 Useful environment overrides:
 
 - `JOUZETSU_HOME` — application home

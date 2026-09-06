@@ -8,7 +8,7 @@ from typing import Final, TypedDict, cast
 
 import pytest
 from browser_support import BrowserServer, create_browser_server
-from playwright.sync_api import Browser, Error, Page, expect, sync_playwright
+from playwright.sync_api import Browser, Error, Page, Route, expect, sync_playwright
 
 _MESSAGE_LIST_SELECTOR: Final[str] = '[data-testid="message-list"]'
 _MESSAGE_SELECTOR: Final[str] = "article[data-message-id]"
@@ -170,9 +170,9 @@ def test_message_context_menu_copies_and_forks_at_the_selected_message(
     selected_message.click(button="right")
     menu = browser_page.get_by_test_id("message-context-menu")
     expect(menu).to_be_visible()
-    expect(browser_page.get_by_test_id("message-fork-context-action")).to_have_attribute(
-        "action", f"/messages/{selected.id}/fork"
-    )
+    expect(
+        browser_page.get_by_test_id("message-fork-context-action")
+    ).to_have_attribute("action", f"/messages/{selected.id}/fork")
 
     browser_page.get_by_test_id("message-copy-context-action").click()
     browser_page.wait_for_function(
@@ -255,6 +255,120 @@ def _open_chat_page(page: Page) -> None:
     expect(page.get_by_test_id("message-list")).to_be_visible()
 
 
+@pytest.mark.parametrize("viewport_width", [960, 390])
+def test_colourway_editor_updates_owned_ui_and_light_mode(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    tmp_path: Path,
+    viewport_width: int,
+) -> None:
+    """Saving four main colours updates real CSS without coupling role accents."""
+
+    browser_page.set_viewport_size({"width": viewport_width, "height": 844})
+    _ = browser_server.state.active_chat.add_message("user", "My message")
+    _ = browser_server.state.active_chat.add_message("assistant", "Assistant reply")
+    _open_chat_page(browser_page)
+    browser_page.locator('[data-panel-open="navigation"]').click()
+    browser_page.get_by_test_id("global-settings-button").click()
+    browser_page.get_by_test_id("global-settings-dialog-appearance-tab").click()
+
+    for owner, value in (
+        ("app", "#897aab"),
+        ("user", "#ff6600"),
+        ("assistant", "#00aa88"),
+        ("system", "#4488ee"),
+    ):
+        browser_page.get_by_test_id(f"theme-{owner}-accent-color").fill(value)
+
+    def save() -> None:
+        with browser_page.expect_navigation(wait_until="load"):
+            browser_page.get_by_test_id("save-global-appearance-button").click()
+        browser_page.mouse.move(0, 0)
+        expect(browser_page.get_by_test_id("theme-app-colourway")).to_be_visible()
+
+    save()
+    expected = {
+        "app": "rgb(137, 122, 171)",
+        "user": "rgb(255, 102, 0)",
+        "assistant": "rgb(0, 170, 136)",
+        "system": "rgb(68, 136, 238)",
+    }
+    assert _rendered_colourways(browser_page) == expected
+    expect(browser_page.locator(".jouzetsu-composer-primary")).to_have_css(
+        "background-color", expected["user"]
+    )
+
+    browser_page.get_by_test_id("theme-user-accent-color").fill("#22bbdd")
+    save()
+    expected["user"] = "rgb(34, 187, 221)"
+    assert _rendered_colourways(browser_page) == expected
+    expect(browser_page.locator(".jouzetsu-composer-primary")).to_have_css(
+        "background-color", expected["user"]
+    )
+
+    browser_page.get_by_test_id("appearance-dark-mode").uncheck()
+    save()
+    assert _rendered_colourways(browser_page) == expected
+    expect(browser_page.locator("body")).to_have_css(
+        "background-color", "rgb(255, 255, 255)"
+    )
+    expect(browser_page.locator("html")).to_have_css("color-scheme", "light")
+    _ = browser_page.screenshot(path=str(tmp_path / "appearance-light.png"))
+
+
+def test_reset_keeps_its_action_after_a_draft_flush(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    """A reset submitter remains the target after preserving a pending composer draft."""
+
+    expected_prompt = browser_server.state.config.generation.system_prompt
+    browser_server.state.config.generation.system_prompt = "Custom global prompt"
+
+    def block_draft_save(route: Route) -> None:
+        route.abort()
+
+    browser_page.route("**/chat/draft", block_draft_save)
+    _open_chat_page(browser_page)
+    browser_page.get_by_test_id("message-input").fill("Draft that cannot save")
+    browser_page.locator('[data-panel-open="navigation"]').click()
+    browser_page.get_by_test_id("global-settings-button").click()
+    browser_page.once("dialog", lambda dialog: dialog.accept())
+
+    with browser_page.expect_navigation(wait_until="load"):
+        browser_page.get_by_test_id("reset-global-prompt-button").click()
+
+    assert browser_server.state.config.generation.system_prompt == expected_prompt
+
+
+def _rendered_colourways(page: Page) -> dict[str, str]:
+    """Sample actual component colours, including the shared-control scope."""
+
+    targets = (
+        ("app", '[data-testid="save-global-appearance-button"]', "background-color"),
+        (
+            "user",
+            ".jouzetsu-message.is-user .jouzetsu-message-surface",
+            "border-right-color",
+        ),
+        (
+            "assistant",
+            ".jouzetsu-message.is-assistant .jouzetsu-message-surface",
+            "border-left-color",
+        ),
+        ("system", ".jouzetsu-dialog-feedback", "border-left-color"),
+    )
+    return {
+        owner: cast(
+            str,
+            page.locator(selector).evaluate(
+                "(element, property) => getComputedStyle(element).getPropertyValue(property)",
+                property,
+            ),
+        )
+        for owner, selector, property in targets
+    }
+
+
 def _seed_scrollable_transcript(server: BrowserServer) -> str:
     """Create a static transcript large enough to exercise the list scroll state."""
 
@@ -262,7 +376,9 @@ def _seed_scrollable_transcript(server: BrowserServer) -> str:
     last_message_id = ""
     for turn in range(12):
         _ = chat.add_message("user", f"User turn {turn}: {_LONG_MESSAGE}")
-        response = chat.add_message("assistant", f"Assistant turn {turn}: {_LONG_MESSAGE}")
+        response = chat.add_message(
+            "assistant", f"Assistant turn {turn}: {_LONG_MESSAGE}"
+        )
         last_message_id = response.id
     return last_message_id
 

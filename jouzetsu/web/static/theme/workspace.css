@@ -1,4 +1,16 @@
 /* Launch page and character workspace */
+.jouzetsu-character-preset-load-issues {
+    padding: 9px;
+    border: 1px solid var(--jouzetsu-system-muted);
+    border-left: 3px solid var(--jouzetsu-system-accent);
+    background: var(--jouzetsu-system-subtle);
+    color: var(--jouzetsu-system-body);
+}
+
+.jouzetsu-character-preset-load-issues .jouzetsu-character-field-help {
+    color: inherit;
+}
+
 .jouzetsu-character-app,
 .jouzetsu-launch-app {
     display: grid;
@@ -12,8 +24,8 @@
     min-height: 48px;
     gap: 12px;
     padding: calc(8px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left));
-    border-bottom: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-surface);
+    border-bottom: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface);
 }
 
 .jouzetsu-workspace-brand-lockup,
@@ -28,13 +40,14 @@
 
 .jouzetsu-workspace-brand-lockup {
     min-width: 0;
-    color: var(--jouzetsu-primary);
+    color: var(--jouzetsu-app-foreground);
     text-decoration: none;
 }
 
 .jouzetsu-workspace-brand-icon {
     width: 22px;
     height: 22px;
+    color: var(--jouzetsu-app-key-visual);
 }
 
 .jouzetsu-workspace-brand {
@@ -52,7 +65,7 @@
 .jouzetsu-workspace-link {
     min-height: 32px;
     padding: 7px 10px;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 12px;
     text-decoration: none;
 }
@@ -60,8 +73,8 @@
 .jouzetsu-workspace-link:hover,
 .jouzetsu-workspace-link:focus-visible,
 .jouzetsu-workspace-link.is-active {
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-secondary);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-foreground);
     outline: none;
 }
 
@@ -82,7 +95,7 @@
 
 .jouzetsu-launch-title {
     margin: 0;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
     font-family: var(--jouzetsu-font-display);
     font-size: clamp(28px, 5vw, 42px);
     letter-spacing: 0.045em;
@@ -100,22 +113,22 @@
     min-height: 170px;
     gap: 10px;
     padding: 20px;
-    border: 1px solid var(--jouzetsu-border-strong);
-    background: var(--jouzetsu-surface);
-    color: var(--jouzetsu-text);
+    border: 1px solid var(--jouzetsu-app-border-strong);
+    background: var(--jouzetsu-app-surface);
+    color: var(--jouzetsu-app-text);
     text-decoration: none;
 }
 
 .jouzetsu-launch-card:hover,
 .jouzetsu-launch-card:focus-visible {
-    border-color: var(--jouzetsu-secondary);
-    background: var(--jouzetsu-secondary-soft);
+    border-color: var(--jouzetsu-app-key-visual);
+    background: var(--jouzetsu-app-subtle);
     outline: none;
 }
 
 .jouzetsu-launch-card-title {
     margin: 0;
-    color: var(--jouzetsu-secondary);
+    color: var(--jouzetsu-app-foreground);
     font-family: var(--jouzetsu-font-display);
     font-size: 22px;
     letter-spacing: 0.04em;
@@ -123,7 +136,7 @@
 
 .jouzetsu-launch-card-copy {
     margin: 0;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 13px;
     line-height: 1.5;
 }
@@ -143,8 +156,8 @@
     min-height: 0;
     gap: 12px;
     padding: 14px 12px calc(14px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
-    border-right: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-surface);
+    border-right: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface);
 }
 
 .jouzetsu-character-library-header {
@@ -163,7 +176,7 @@
 }
 
 .jouzetsu-character-library-toggle-value {
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
 }
 
 .jouzetsu-character-library-list {
@@ -181,7 +194,7 @@
     overflow: hidden;
     padding: 9px 10px;
     border-left: 3px solid transparent;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 13px;
     text-decoration: none;
     text-overflow: ellipsis;
@@ -191,9 +204,9 @@
 .jouzetsu-character-library-item:hover,
 .jouzetsu-character-library-item:focus-visible,
 .jouzetsu-character-library-item.is-active {
-    border-left-color: var(--jouzetsu-secondary);
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-text);
+    border-left-color: var(--jouzetsu-app-key-visual);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-text);
     outline: none;
 }
 
@@ -224,7 +237,7 @@
 
 .jouzetsu-character-title {
     margin: 0;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
     font-family: var(--jouzetsu-font-display);
     font-size: clamp(25px, 4vw, 34px);
     letter-spacing: 0.035em;
@@ -233,7 +246,7 @@
 .jouzetsu-character-intro,
 .jouzetsu-character-field-help {
     margin: 5px 0 0;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 13px;
     line-height: 1.45;
 }
@@ -282,8 +295,8 @@
 .jouzetsu-character-preset-editor,
 .jouzetsu-character-cast-editor {
     padding: 13px;
-    border: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-surface);
+    border: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface);
 }
 
 .jouzetsu-character-prompt-mode-editor,
@@ -311,8 +324,8 @@
     align-items: center;
     gap: 3px 7px;
     padding: 7px 9px;
-    border: 1px solid var(--jouzetsu-border);
-    color: var(--jouzetsu-text-dim);
+    border: 1px solid var(--jouzetsu-app-border);
+    color: var(--jouzetsu-app-text-muted);
     cursor: pointer;
     font-size: 12px;
 }
@@ -326,12 +339,12 @@
 }
 
 .jouzetsu-character-cast-member-name {
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
 }
 
 .jouzetsu-character-cast-member-revision {
     grid-column: 2;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
 }
 
 .jouzetsu-character-preset-heading {
@@ -373,8 +386,8 @@
     align-items: center;
     gap: 4px 7px;
     padding: 7px 9px;
-    border: 1px solid var(--jouzetsu-border);
-    color: var(--jouzetsu-text-dim);
+    border: 1px solid var(--jouzetsu-app-border);
+    color: var(--jouzetsu-app-text-muted);
     cursor: pointer;
     font-size: 12px;
 }
@@ -384,12 +397,12 @@
 }
 
 .jouzetsu-character-extra-preset-label {
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
 }
 
 .jouzetsu-character-extra-preset-description {
     grid-column: 2;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
 }
 
 .jouzetsu-character-fields-heading {
@@ -415,8 +428,8 @@
     align-items: start;
     gap: 9px;
     padding: 11px;
-    border: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-surface);
+    border: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface);
 }
 
 .jouzetsu-character-field-row .jouzetsu-button {
@@ -482,9 +495,9 @@
     width: 208px;
     gap: 9px;
     padding: 10px;
-    border: 1px solid var(--jouzetsu-border-strong);
-    background: var(--jouzetsu-surface-2);
-    box-shadow: 0 8px 20px var(--jouzetsu-shadow-soft);
+    border: 1px solid var(--jouzetsu-app-border-strong);
+    background: var(--jouzetsu-app-surface-raised);
+    box-shadow: 0 8px 20px var(--jouzetsu-app-shadow-soft);
 }
 
 .jouzetsu-character-field-menu[hidden] {
@@ -496,8 +509,8 @@
 }
 
 .jouzetsu-character-prompt-details {
-    border: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-surface);
+    border: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface);
 }
 
 .jouzetsu-character-prompt-details summary {
@@ -506,21 +519,21 @@
     justify-content: space-between;
     gap: 10px;
     padding: 10px 12px;
-    color: var(--jouzetsu-secondary);
+    color: var(--jouzetsu-app-foreground);
     cursor: pointer;
     font-size: 12px;
 }
 
 .jouzetsu-character-prompt-summary-help {
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
 }
 
 .jouzetsu-character-prompt-preview {
     margin: 0;
     padding: 12px;
     overflow-x: auto;
-    border-top: 1px solid var(--jouzetsu-border);
-    color: var(--jouzetsu-text-dim);
+    border-top: 1px solid var(--jouzetsu-app-border);
+    color: var(--jouzetsu-app-text-muted);
     font-family: var(--jouzetsu-font-mono);
     font-size: 12px;
     line-height: 1.5;
@@ -553,7 +566,7 @@
 }
 
 .jouzetsu-settings-character-link {
-    color: var(--jouzetsu-secondary);
+    color: var(--jouzetsu-app-foreground);
     font-size: 11px;
 }
 
@@ -568,7 +581,7 @@
     display: flex;
     gap: 4px;
     overflow-x: auto;
-    border-bottom: 1px solid var(--jouzetsu-border);
+    border-bottom: 1px solid var(--jouzetsu-app-border);
 }
 
 .jouzetsu-tab {
@@ -578,20 +591,20 @@
     border: 1px solid transparent;
     border-bottom: 2px solid transparent;
     background: transparent;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 12px;
 }
 
 .jouzetsu-tab:hover,
 .jouzetsu-tab:focus-visible {
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-text);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-text);
     outline: none;
 }
 
 .jouzetsu-tab[aria-selected="true"] {
-    border-bottom-color: var(--jouzetsu-primary);
-    color: var(--jouzetsu-primary);
+    border-bottom-color: var(--jouzetsu-app-key-visual);
+    color: var(--jouzetsu-app-foreground);
 }
 
 .jouzetsu-tab-panel {

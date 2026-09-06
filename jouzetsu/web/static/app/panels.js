@@ -40,7 +40,7 @@ export class PanelController {
 
     removeTransientParameters() {
         const url = new URL(window.location.href);
-        const names = ['dialog', 'notice', 'error', 'undo'];
+        const names = ['dialog', 'tab', 'notice', 'error', 'undo'];
         if (!names.some((name) => url.searchParams.has(name))) return;
         names.forEach((name) => url.searchParams.delete(name));
         window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);

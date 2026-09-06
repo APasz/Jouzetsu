@@ -23,6 +23,7 @@ _NOTICE_MAXIMUM_LENGTH: Final[int] = 240
 _UNDO_MAX_AGE_SECONDS: Final[float] = 12.0
 
 type DialogName = Literal["", "global", "access", "models", "host"]
+type DialogTabName = Literal["", "behaviour", "appearance", "loaded", "defaults"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +49,7 @@ class Mutations:
         require_global_settings: bool = False,
         require_access_management: bool = False,
         dialog: DialogName = "",
+        dialog_tab: DialogTabName = "",
     ) -> RedirectResponse:
         """Run a guarded mutation and turn expected failures into an app notice."""
 
@@ -63,8 +65,8 @@ class Mutations:
             raise
         except Exception as exc:
             log.exception("web mutation failed route=%s", request.url.path)
-            return self.redirect(error=str(exc), dialog=dialog)
-        return self.redirect(notice=notice, dialog=dialog)
+            return self.redirect(error=str(exc), dialog=dialog, dialog_tab=dialog_tab)
+        return self.redirect(notice=notice, dialog=dialog, dialog_tab=dialog_tab)
 
     def require_visible_message(self, message_id: str) -> Message:
         """Return a visible user/assistant message or reject a crafted system target."""
@@ -127,6 +129,7 @@ class Mutations:
         notice: str = "",
         error: str = "",
         dialog: DialogName = "",
+        dialog_tab: DialogTabName = "",
         undo: str = "",
     ) -> RedirectResponse:
         """Redirect a form submission while retaining its source dialog."""
@@ -134,6 +137,8 @@ class Mutations:
         values: dict[str, str] = {}
         if dialog:
             values["dialog"] = dialog
+        if dialog_tab:
+            values["tab"] = dialog_tab
         if notice:
             values["notice"] = notice[:_NOTICE_MAXIMUM_LENGTH]
         if error:

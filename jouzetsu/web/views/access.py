@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
 from ...access import DEVICE_ID_MAX_AGE_SECONDS, AccessDecision
 from ...config import DeviceAccessSettings
@@ -27,8 +28,20 @@ from ..html import (
     Summary,
 )
 from .context import PageContext
-from .controls import checkbox, close_dialog_button, csrf_context, field, post_button
+from .controls import (
+    checkbox,
+    close_dialog_button,
+    csrf_context,
+    field,
+    form_submit_actions,
+    post_button,
+)
 from .feedback import dialog_feedback
+from .tabs import DialogTab, render_dialog_tab_list, render_dialog_tab_panel
+
+_ACCESS_TAB: Final[DialogTab] = DialogTab("access", "Access")
+_LOGS_TAB: Final[DialogTab] = DialogTab("logs", "Logs")
+_ACCESS_DIALOG_TABS: Final[tuple[DialogTab, ...]] = (_ACCESS_TAB, _LOGS_TAB)
 
 
 def render_locked_access_page(
@@ -195,41 +208,20 @@ def _access_denied_page_button() -> HTML:
 
 
 def _access_dialog_tabs() -> HTML:
-    return Div(
-        Button(
-            "Access",
-            type="button",
-            id="access-dialog-access-tab",
-            role="tab",
-            aria_controls="access-dialog-access-panel",
-            aria_selected=True,
-            tabindex=0,
-            cls="jouzetsu-tab",
-            data_tab_target="access-dialog-access-panel",
-            data_testid="access-dialog-access-tab",
-        ),
-        Button(
-            "Logs",
-            type="button",
-            id="access-dialog-logs-tab",
-            role="tab",
-            aria_controls="access-dialog-logs-panel",
-            aria_selected=False,
-            tabindex=-1,
-            cls="jouzetsu-tab",
-            data_tab_target="access-dialog-logs-panel",
-            data_testid="access-dialog-logs-tab",
-        ),
-        role="tablist",
-        aria_label="Access and logs",
-        cls="jouzetsu-tab-list",
-        data_tab_list="true",
+    return render_dialog_tab_list(
+        "access-dialog",
+        _ACCESS_DIALOG_TABS,
+        _ACCESS_TAB.name,
+        label="Access and logs",
     )
 
 
 def _access_panel(state: AppState, context: PageContext) -> HTML:
     access = state.config.access
-    return Div(
+    return render_dialog_tab_panel(
+        "access-dialog",
+        _ACCESS_TAB,
+        _ACCESS_TAB.name,
         Form(
             checkbox(
                 "default_private",
@@ -255,13 +247,12 @@ def _access_panel(state: AppState, context: PageContext) -> HTML:
                 label="Allow network device reassociation",
                 marker="access-network-reassociation",
             ),
-            Div(
-                Button(
-                    "Save access defaults",
-                    type="submit",
-                    cls="jouzetsu-button jouzetsu-button-primary",
-                ),
-                cls="jouzetsu-dialog-actions",
+            form_submit_actions(
+                "Save access defaults",
+                "save-access-defaults-button",
+                reset_action="/access/defaults/reset",
+                reset_marker="reset-access-defaults-button",
+                reset_confirmation="Reset access defaults to their built-in values?",
             ),
             action="/access/defaults",
             method="post",
@@ -272,11 +263,6 @@ def _access_panel(state: AppState, context: PageContext) -> HTML:
             cls="jouzetsu-device-list",
             data_testid="access-device-list",
         ),
-        id="access-dialog-access-panel",
-        role="tabpanel",
-        aria_labelledby="access-dialog-access-tab",
-        cls="jouzetsu-tab-panel",
-        data_tab_panel="access-dialog-access-panel",
     )
 
 
@@ -587,14 +573,11 @@ def _device_metadata_item(
 
 
 def _logs_panel(state: AppState) -> HTML:
-    return Div(
+    return render_dialog_tab_panel(
+        "access-dialog",
+        _LOGS_TAB,
+        _ACCESS_TAB.name,
         _log_viewer(state),
-        id="access-dialog-logs-panel",
-        role="tabpanel",
-        aria_labelledby="access-dialog-logs-tab",
-        hidden=True,
-        cls="jouzetsu-tab-panel",
-        data_tab_panel="access-dialog-logs-panel",
     )
 
 
@@ -635,7 +618,7 @@ def _log_tab(path: Path, tab_id: str, panel_id: str, *, selected: bool) -> HTML:
         id=tab_id,
         role="tab",
         aria_controls=panel_id,
-        aria_selected=selected,
+        aria_selected="true" if selected else "false",
         tabindex=0 if selected else -1,
         cls="jouzetsu-tab jouzetsu-log-tab",
         data_tab_target=panel_id,

@@ -17,8 +17,8 @@ def chat_view(state: AppState) -> ChatView:
         runtime_status=state.runtime_status,
         generation_reasoning=state.active_generation_reasoning,
         empty_state_message=state.active_empty_state_message,
-        message_action_icon_style=state.config.ui.message_action_icon_style,
         starter_prompts=tuple(state.config.ui.starter_prompts),
+        message_action_style=state.config.ui.message_action_style,
     )
 
 

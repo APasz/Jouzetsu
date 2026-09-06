@@ -5,7 +5,7 @@
     height: var(--jouzetsu-app-height, 100dvh);
     min-height: var(--jouzetsu-app-height, 100dvh);
     overflow: hidden;
-    background: var(--jouzetsu-bg);
+    background: var(--jouzetsu-app-canvas);
 }
 
 .jouzetsu-chat-shell {
@@ -23,15 +23,15 @@
     gap: 8px;
     min-height: 44px;
     padding: calc(4px + env(safe-area-inset-top)) 10px 4px;
-    border-bottom: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-surface);
+    border-bottom: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface);
 }
 
 .jouzetsu-title {
     min-width: 0;
     margin: 0;
     overflow: hidden;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
     font-family: var(--jouzetsu-font-display);
     font-size: 20px;
     font-weight: 700;
@@ -50,25 +50,21 @@
     padding: 0;
     border-color: transparent;
     background: transparent;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
     font-size: 18px;
     line-height: 1;
     place-items: center;
 }
 
-.jouzetsu-topbar [data-panel-open="navigation"] {
-    color: var(--jouzetsu-primary);
-}
-
-.jouzetsu-topbar [data-panel-open="settings"] {
-    color: var(--jouzetsu-secondary);
+.jouzetsu-topbar [data-panel-open] {
+    color: var(--jouzetsu-app-key-visual);
 }
 
 .jouzetsu-icon-button:hover,
 .jouzetsu-icon-button:focus-visible {
-    border-color: var(--jouzetsu-border-strong);
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-primary);
+    border-color: var(--jouzetsu-app-border-strong);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-key-visual);
     outline: none;
 }
 
@@ -100,13 +96,13 @@
     overflow-anchor: none;
     overscroll-behavior: contain;
     padding: 8px max(8px, env(safe-area-inset-right)) 10px max(8px, env(safe-area-inset-left));
-    scrollbar-color: var(--jouzetsu-secondary-dim) transparent;
+    scrollbar-color: var(--jouzetsu-app-muted) transparent;
     scrollbar-width: thin;
 }
 
 .jouzetsu-empty-state {
     margin: auto;
-    color: var(--jouzetsu-text-inverse);
+    color: var(--jouzetsu-app-text);
     text-align: center;
 }
 
@@ -124,27 +120,27 @@
     gap: 4px;
     width: 100%;
     padding: 6px 8px 8px;
-    border: 1px solid var(--jouzetsu-secondary-dim);
-    border-left: 2px solid var(--jouzetsu-secondary);
-    background: transparent;
+    border: 1px solid var(--jouzetsu-message-muted);
+    border-left: 2px solid var(--jouzetsu-message-accent);
+    background: var(--jouzetsu-app-canvas);
+    color: var(--jouzetsu-message-body);
     touch-action: manipulation;
     transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
 }
 
 .jouzetsu-message.is-user .jouzetsu-message-surface {
-    border-color: var(--jouzetsu-primary-dim);
-    border-right: 2px solid var(--jouzetsu-primary);
+    border-right: 2px solid var(--jouzetsu-message-accent);
     border-left-width: 1px;
 }
 
 .jouzetsu-message.is-editing .jouzetsu-message-surface {
-    border-color: var(--jouzetsu-edit);
-    box-shadow: inset 2px 0 0 var(--jouzetsu-edit-glow), 0 0 0 1px var(--jouzetsu-edit-focus);
+    border-color: var(--jouzetsu-message-accent);
+    box-shadow: inset 2px 0 0 var(--jouzetsu-message-glow), 0 0 0 1px var(--jouzetsu-message-focus);
 }
 
 .jouzetsu-message.is-streaming .jouzetsu-message-surface {
-    border-color: var(--jouzetsu-secondary-dim);
-    box-shadow: inset 2px 0 0 var(--jouzetsu-secondary-streaming-glow);
+    border-color: var(--jouzetsu-message-muted);
+    box-shadow: inset 2px 0 0 var(--jouzetsu-message-glow);
 }
 
 .jouzetsu-message.is-streaming .jouzetsu-message-surface::before {
@@ -154,7 +150,7 @@
     bottom: 0;
     left: -1px;
     width: 2px;
-    background: linear-gradient(to bottom, transparent, var(--jouzetsu-streaming-highlight) 50%, transparent);
+    background: linear-gradient(to bottom, transparent, var(--jouzetsu-message-highlight) 50%, transparent);
     background-repeat: no-repeat;
     background-size: 100% 28%;
     background-position: 0 -28%;
@@ -233,7 +229,7 @@
 .jouzetsu-message-text code {
     padding: 1px 3px;
     border-radius: 3px;
-    background: var(--jouzetsu-surface-2);
+    background: var(--jouzetsu-app-surface-raised);
     font-size: 0.9em;
 }
 
@@ -241,8 +237,8 @@
     max-width: 100%;
     padding: 8px;
     overflow-x: auto;
-    border: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-surface-2);
+    border: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface-raised);
 }
 
 .jouzetsu-message-text pre code {
@@ -253,12 +249,12 @@
 
 .jouzetsu-message-text blockquote {
     padding-left: 10px;
-    border-left: 2px solid var(--jouzetsu-secondary-dim);
-    color: var(--jouzetsu-text-dim);
+    border-left: 2px solid var(--jouzetsu-app-muted);
+    color: var(--jouzetsu-app-text-muted);
 }
 
 .jouzetsu-message-text a {
-    color: var(--jouzetsu-secondary);
+    color: var(--jouzetsu-app-text);
 }
 
 .jouzetsu-message.is-user .jouzetsu-message-text {
@@ -274,7 +270,7 @@
 
 .jouzetsu-message-updated-at {
     padding: 0 1px 3px;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 10px;
     line-height: 1;
     white-space: nowrap;
@@ -292,7 +288,7 @@
     width: 5px;
     height: 5px;
     border-radius: 50% !important;
-    background: var(--jouzetsu-secondary);
+    background: var(--jouzetsu-message-foreground);
     animation: jouzetsu-streaming-pending-pulse 900ms ease-in-out infinite;
 }
 
@@ -346,7 +342,7 @@
     padding: 0;
     border: 1px solid transparent;
     background: transparent;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-action-color, var(--jouzetsu-app-message-actions));
     font-size: 14px;
     line-height: 1.1;
     place-items: center;
@@ -360,22 +356,33 @@
 
 .jouzetsu-message-action:hover,
 .jouzetsu-message-action:focus-visible {
-    border-color: var(--jouzetsu-border-strong);
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-secondary);
+    border-color: currentColor;
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-action-color, var(--jouzetsu-app-message-actions));
     outline: none;
 }
 
-.jouzetsu-message-action.is-delete:hover {
-    color: var(--jouzetsu-primary);
+.jouzetsu-message-actions.is-semantic .jouzetsu-message-action.is-delete {
+    --jouzetsu-action-color: var(--jouzetsu-app-message-action-delete);
 }
 
-.jouzetsu-message-action.is-delete {
-    color: var(--jouzetsu-action-delete);
+.jouzetsu-message-actions.is-semantic .jouzetsu-message-action.is-regenerate {
+    --jouzetsu-action-color: var(--jouzetsu-app-message-action-regenerate);
 }
 
-.jouzetsu-message-action.is-regenerate {
-    color: var(--jouzetsu-action-regenerate);
+.jouzetsu-message-actions.is-semantic .jouzetsu-message-action.is-merge {
+    --jouzetsu-action-color: var(--jouzetsu-app-message-action-merge);
+}
+
+.jouzetsu-message-actions.is-semantic .jouzetsu-message-action.is-edit {
+    --jouzetsu-action-color: var(--jouzetsu-app-message-action-edit);
+}
+
+.jouzetsu-message-actions.is-semantic :is(
+    .jouzetsu-message-action.is-continue,
+    .jouzetsu-message-action.is-resend
+) {
+    --jouzetsu-action-color: var(--jouzetsu-app-message-action-continue);
 }
 
 .jouzetsu-message-action.is-action-divider {
@@ -387,30 +394,9 @@
     top: 9px;
     right: -5px;
     bottom: 9px;
-    border-right: 1px solid var(--jouzetsu-border);
+    border-right: 1px solid var(--jouzetsu-app-border);
     content: "";
     pointer-events: none;
-}
-
-.jouzetsu-action-icons-muted .jouzetsu-message-action.is-delete {
-    color: var(--jouzetsu-action-delete-muted);
-}
-
-.jouzetsu-action-icons-muted .jouzetsu-message-action.is-regenerate {
-    color: var(--jouzetsu-action-regenerate-muted);
-}
-
-.jouzetsu-action-icons-muted .jouzetsu-message-action.is-merge {
-    color: var(--jouzetsu-action-merge-muted);
-}
-
-.jouzetsu-action-icons-muted .jouzetsu-message-action.is-edit {
-    color: var(--jouzetsu-action-edit-muted);
-}
-
-.jouzetsu-action-icons-muted .jouzetsu-message-action.is-continue,
-.jouzetsu-action-icons-muted .jouzetsu-message-action.is-resend {
-    color: var(--jouzetsu-action-continue-muted);
 }
 
 .jouzetsu-message-action.is-continue .jouzetsu-svg-icon {
@@ -426,9 +412,9 @@
     z-index: 20;
     min-width: 156px;
     padding: 4px;
-    border: 1px solid var(--jouzetsu-border-strong);
-    background: var(--jouzetsu-surface);
-    box-shadow: 0 10px 24px var(--jouzetsu-shadow-soft);
+    border: 1px solid var(--jouzetsu-app-border-strong);
+    background: var(--jouzetsu-app-surface);
+    box-shadow: 0 10px 24px var(--jouzetsu-app-shadow-soft);
 }
 
 .jouzetsu-message-context-menu-item {
@@ -437,7 +423,7 @@
     padding: 6px 9px;
     border: 0;
     background: transparent;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
     font: inherit;
     font-size: 12px;
     text-align: left;
@@ -445,8 +431,8 @@
 
 .jouzetsu-message-context-menu-item:hover,
 .jouzetsu-message-context-menu-item:focus-visible {
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-secondary);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-foreground);
     outline: none;
 }
 
@@ -469,14 +455,14 @@
 }
 
 .jouzetsu-message-detail-label {
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 12px;
 }
 
 .jouzetsu-message-detail-value {
     min-width: 0;
     margin: 0;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
     font-family: var(--jouzetsu-font-mono);
     font-size: 12px;
     overflow-wrap: anywhere;
@@ -491,9 +477,9 @@
     margin: 0;
     padding: 10px;
     overflow: auto;
-    border: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-text);
+    border: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-text);
     font-family: var(--jouzetsu-font-mono);
     font-size: 12px;
     line-height: 1.45;
@@ -503,6 +489,6 @@
 
 .jouzetsu-message-details-reasoning-empty {
     margin: 0;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 12px;
 }

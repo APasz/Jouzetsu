@@ -29,8 +29,10 @@ from ..config import (
     AppConfig,
     GenerationSettings,
     IconColorSettings,
-    MessageActionIconStyle,
+    MessageActionStyle,
     ServerSettings,
+    ThemeColorway,
+    ThemeSettings,
 )
 from ..models import (
     Character,
@@ -45,12 +47,15 @@ from .form_data import (
     FormValues as _FormValues,
     character_fields_from_form as _character_fields_from_form,
     form_values as _form_values,
+    message_action_style_from_form as _message_action_style_from_form,
     missing_preset_fields as _missing_preset_fields,
     optional_float as _optional_float,
     optional_integer as _optional_integer,
     updated_generation_settings as _updated_generation_settings,
+    updated_host_stat_activity_colors as _updated_host_stat_activity_colors,
     updated_icon_color_settings as _updated_icon_color_settings,
     updated_server_settings as _updated_server_settings,
+    updated_theme_settings as _updated_theme_settings,
 )
 from .icon import configured_icon_svg, icon_artwork_path
 from .mutations import (
@@ -182,6 +187,7 @@ def _register_page_routes(context: RouteContext) -> None:
             edit_message_id=_query_text(request, "edit"),
             continuity_rewrite_message_id=_query_text(request, "continuity_rewrite"),
             active_dialog=_query_dialog_name(request),
+            active_dialog_tab=_query_text(request, "tab"),
             notice=_query_text(request, "notice"),
             error=_query_text(request, "error"),
             undo_token=_query_text(request, "undo"),
@@ -738,6 +744,16 @@ def _register_chat_routes(context: RouteContext) -> None:
             notice="Sampling settings saved",
         )
 
+    @context.route("POST", "/chat/sampling/reset", "reset_chat_sampling")
+    async def reset_chat_sampling(request: Request) -> Response:
+        return await context.mutations.perform(
+            request,
+            lambda: context.state.set_active_chat_sampling_overrides(
+                ChatSamplingOverrides()
+            ),
+            notice="Sampling reset to global defaults",
+        )
+
     @context.route("POST", "/chat/prompt", "set_chat_prompt")
     async def set_chat_prompt(request: Request) -> Response:
         form: _FormValues = await _form_values(request)
@@ -745,6 +761,14 @@ def _register_chat_routes(context: RouteContext) -> None:
             request,
             lambda: context.state.set_active_chat_system_prompt(form.text("prompt")),
             notice="Chat prompt saved",
+        )
+
+    @context.route("POST", "/chat/prompt/reset", "reset_chat_prompt")
+    async def reset_chat_prompt(request: Request) -> Response:
+        return await context.mutations.perform(
+            request,
+            lambda: context.state.set_active_chat_system_prompt(None),
+            notice="Chat prompt reset to global default",
         )
 
     @context.route("POST", "/chat/british-spellings", "set_british_spellings")
@@ -787,16 +811,12 @@ def _register_settings_routes(context: RouteContext) -> None:
                 alias=form.text("model_alias"),
                 auto_unload_minutes=form.text("auto_unload_minutes"),
             )
-            icon_style: MessageActionIconStyle = (
-                "muted_color" if form.flag("muted_color_icons") else "monochrome"
-            )
             icon_colors: IconColorSettings = _updated_icon_color_settings(
                 context.state, form
             )
             await context.state.set_global_settings(
                 generation,
                 server,
-                message_action_icon_style=icon_style,
                 icon_colors=icon_colors,
             )
 
@@ -806,6 +826,7 @@ def _register_settings_routes(context: RouteContext) -> None:
             notice="Global settings saved",
             require_global_settings=True,
             dialog="global",
+            dialog_tab="behaviour",
         )
 
     @context.route("POST", "/settings/global/prompt", "save_global_prompt")
@@ -817,6 +838,18 @@ def _register_settings_routes(context: RouteContext) -> None:
             notice="Global system prompt saved",
             require_global_settings=True,
             dialog="global",
+            dialog_tab="behaviour",
+        )
+
+    @context.route("POST", "/settings/global/prompt/reset", "reset_global_prompt")
+    async def reset_global_prompt(request: Request) -> Response:
+        return await context.mutations.perform(
+            request,
+            context.state.reset_global_system_prompt,
+            notice="Global system prompt reset",
+            require_global_settings=True,
+            dialog="global",
+            dialog_tab="behaviour",
         )
 
     @context.route(
@@ -843,29 +876,85 @@ def _register_settings_routes(context: RouteContext) -> None:
             operation,
             notice="Model defaults saved",
             require_global_settings=True,
-            dialog="global",
+            dialog="models",
+            dialog_tab="defaults",
         )
 
-    @context.route("POST", "/settings/global/interface", "save_global_interface")
-    async def save_global_interface(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
-        icon_style: MessageActionIconStyle = (
-            "muted_color" if form.flag("muted_color_icons") else "monochrome"
+    @context.route(
+        "POST", "/settings/global/model-defaults/reset", "reset_global_model_defaults"
+    )
+    async def reset_global_model_defaults(request: Request) -> Response:
+        return await context.mutations.perform(
+            request,
+            context.state.reset_model_defaults,
+            notice="Model defaults reset",
+            require_global_settings=True,
+            dialog="models",
+            dialog_tab="defaults",
         )
-        icon_colors: IconColorSettings = _updated_icon_color_settings(
-            context.state, form
+
+    @context.route("POST", "/settings/global/appearance", "save_global_appearance")
+    async def save_global_appearance(request: Request) -> Response:
+        form: _FormValues = await _form_values(request)
+
+        async def operation() -> None:
+            theme: ThemeSettings = _updated_theme_settings(context.state, form)
+            icon_colors: IconColorSettings = _updated_icon_color_settings(
+                context.state, form
+            )
+            activity_start_color, activity_end_color = (
+                _updated_host_stat_activity_colors(context.state, form)
+            )
+            message_action_style: MessageActionStyle = _message_action_style_from_form(
+                context.state, form
+            )
+            await context.state.set_appearance_settings(
+                theme,
+                icon_colors,
+                dark_mode=form.flag("dark_mode"),
+                message_action_style=message_action_style,
+                activity_start_color=activity_start_color,
+                activity_end_color=activity_end_color,
+            )
+
+        return await context.mutations.perform(
+            request,
+            operation,
+            notice="Appearance settings saved",
+            require_global_settings=True,
+            dialog="global",
+            dialog_tab="appearance",
+        )
+
+    @context.route(
+        "POST", "/settings/global/appearance/reset", "reset_global_appearance"
+    )
+    async def reset_global_appearance(request: Request) -> Response:
+        return await context.mutations.perform(
+            request,
+            context.state.reset_appearance_settings,
+            notice="Appearance settings reset",
+            require_global_settings=True,
+            dialog="global",
+            dialog_tab="appearance",
+        )
+
+    @context.route(
+        "POST",
+        "/settings/global/appearance/{colorway}/reset",
+        "reset_theme_colorway",
+    )
+    async def reset_theme_colorway(request: Request) -> Response:
+        colorway: ThemeColorway = _theme_colorway_from_text(
+            _path_text(request, "colorway")
         )
         return await context.mutations.perform(
             request,
-            lambda: context.state.set_global_settings(
-                context.state.config.generation,
-                context.state.config.server,
-                message_action_icon_style=icon_style,
-                icon_colors=icon_colors,
-            ),
-            notice="Interface settings saved",
+            lambda: context.state.reset_theme_colorway(colorway),
+            notice=f"{colorway.label} colourway reset",
             require_global_settings=True,
             dialog="global",
+            dialog_tab="appearance",
         )
 
     @context.route("POST", "/settings/global/generation", "save_global_generation")
@@ -886,6 +975,20 @@ def _register_settings_routes(context: RouteContext) -> None:
             notice="Generation defaults saved",
             require_global_settings=True,
             dialog="global",
+            dialog_tab="behaviour",
+        )
+
+    @context.route(
+        "POST", "/settings/global/generation/reset", "reset_global_generation"
+    )
+    async def reset_global_generation(request: Request) -> Response:
+        return await context.mutations.perform(
+            request,
+            context.state.reset_generation_defaults,
+            notice="Generation defaults reset",
+            require_global_settings=True,
+            dialog="global",
+            dialog_tab="behaviour",
         )
 
 
@@ -990,6 +1093,16 @@ def _register_access_routes(context: RouteContext) -> None:
             dialog="access",
         )
 
+    @context.route("POST", "/access/defaults/reset", "reset_access_defaults")
+    async def reset_access_defaults(request: Request) -> Response:
+        return await context.mutations.perform(
+            request,
+            context.state.reset_access_defaults,
+            notice="Access defaults reset",
+            require_access_management=True,
+            dialog="access",
+        )
+
     @context.route("POST", "/access/devices/{device_id}", "save_device_access")
     async def save_device_access(request: Request) -> Response:
         device_id: str = _path_text(request, "device_id")
@@ -1048,6 +1161,7 @@ def _register_access_routes(context: RouteContext) -> None:
             notice="Model inventory refreshed",
             require_global_settings=True,
             dialog="models",
+            dialog_tab="loaded",
         )
 
     @context.route(
@@ -1061,6 +1175,7 @@ def _register_access_routes(context: RouteContext) -> None:
             notice="Model instance unloaded",
             require_global_settings=True,
             dialog="models",
+            dialog_tab="loaded",
         )
 
     @context.route("POST", "/host-stats/refresh", "refresh_host_stats")
@@ -1112,6 +1227,15 @@ def _path_text(request: Request, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise HTTPException(400, f"invalid {name}")
     return value
+
+
+def _theme_colorway_from_text(value: str) -> ThemeColorway:
+    """Parse one URL colourway identifier at the HTTP boundary."""
+
+    try:
+        return ThemeColorway(value)
+    except ValueError as exc:
+        raise HTTPException(400, "invalid colourway") from exc
 
 
 def _query_text(request: Request, name: str) -> str:

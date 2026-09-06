@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Final, Literal
+
 from ...models import Message
 from ...runtime import ModelDescriptor, ModelInstanceDescriptor
 from ...state import AppState
@@ -14,15 +16,30 @@ from ..html import (
     Dialog,
     Div,
     Form,
+    Input,
+    Option,
     P,
     Pre,
+    Section,
+    Select,
+    Small,
     Span,
     Summary,
     Textarea,
 )
-from .controls import close_dialog_button, post_button
+from .controls import close_dialog_button, field, form_submit_actions, post_button
 from .feedback import dialog_feedback
 from .host_stats import render_content as _render_host_stats_content
+from .tabs import DialogTab, render_dialog_tab_list, render_dialog_tab_panel
+
+type ModelsTab = Literal["loaded", "defaults"]
+
+_LOADED_MODELS_TAB: Final[DialogTab] = DialogTab("loaded", "Loaded")
+_MODEL_DEFAULTS_TAB: Final[DialogTab] = DialogTab("defaults", "Defaults")
+_MODELS_TABS: Final[tuple[DialogTab, ...]] = (
+    _LOADED_MODELS_TAB,
+    _MODEL_DEFAULTS_TAB,
+)
 
 
 def render_message_delete_dialog() -> HTML:
@@ -272,9 +289,59 @@ def render_continuity_rewrite_dialog(message: Message) -> HTML:
     )
 
 
-def render_models_dialog(state: AppState, *, notice: str = "", error: str = "") -> HTML:
-    """Render metadata for every loaded LM Studio model instance."""
+def render_models_dialog(
+    state: AppState,
+    *,
+    active_tab: ModelsTab = "loaded",
+    notice: str = "",
+    error: str = "",
+) -> HTML:
+    """Render loaded LM Studio instances and app-wide model defaults."""
 
+    return Dialog(
+        Div(
+            H2("Models", id="models-dialog-title", cls="jouzetsu-modal-title"),
+            P(
+                "Manage loaded LM Studio instances and the defaults used when a chat has no model override.",
+                id="models-dialog-description",
+                cls="jouzetsu-dialog-description",
+            ),
+            dialog_feedback(notice=notice, error=error),
+            render_dialog_tab_list(
+                "models-dialog",
+                _MODELS_TABS,
+                active_tab,
+                label="Model settings sections",
+            ),
+            _loaded_models_panel(state, active_tab),
+            render_dialog_tab_panel(
+                "models-dialog",
+                _MODEL_DEFAULTS_TAB,
+                active_tab,
+                _model_defaults_form(state),
+            ),
+            Div(
+                close_dialog_button(
+                    "models-dialog", marker="loaded-models-close-button"
+                ),
+                cls="jouzetsu-dialog-actions",
+            ),
+            cls="jouzetsu-modal-card jouzetsu-models-card",
+        ),
+        id="models-dialog",
+        cls="jouzetsu-dialog",
+        aria_labelledby="models-dialog-title",
+        aria_describedby="models-dialog-description",
+    )
+
+
+def models_tab_from_text(value: str) -> ModelsTab:
+    """Return a supported Models tab, defaulting to loaded instances."""
+
+    return "defaults" if value == "defaults" else "loaded"
+
+
+def _loaded_models_panel(state: AppState, active_tab: ModelsTab) -> HTML:
     model_cards: tuple[HTML, ...] = tuple(
         render_loaded_model_card(state, model, instance)
         for model in state.model_inventory
@@ -283,39 +350,120 @@ def render_models_dialog(state: AppState, *, notice: str = "", error: str = "") 
     model_content: tuple[HTML, ...] = model_cards or (
         P("No loaded models.", cls="jouzetsu-empty-state"),
     )
-    return Dialog(
-        Div(
-            H2("Models", id="models-dialog-title", cls="jouzetsu-modal-title"),
-            P(
-                "Loaded LM Studio instances.",
-                id="models-dialog-description",
-                cls="jouzetsu-dialog-description",
+    return render_dialog_tab_panel(
+        "models-dialog",
+        _LOADED_MODELS_TAB,
+        active_tab,
+        Form(
+            Button(
+                "Refresh",
+                type="submit",
+                cls="jouzetsu-button",
+                data_testid="refresh-models-button",
             ),
-            dialog_feedback(notice=notice, error=error),
-            Form(
-                Button(
-                    "Refresh",
-                    type="submit",
-                    cls="jouzetsu-button",
-                    data_testid="refresh-models-button",
-                ),
-                action="/models/refresh",
-                method="post",
-                cls="jouzetsu-inline-form",
-            ),
-            H3("Loaded models", data_testid="models-tab"),
-            Div(
-                *model_content,
-                cls="jouzetsu-model-list",
-                data_testid="loaded-model-list",
-            ),
-            close_dialog_button("models-dialog", marker="loaded-models-close-button"),
-            cls="jouzetsu-modal-card jouzetsu-models-card",
+            action="/models/refresh",
+            method="post",
+            cls="jouzetsu-inline-form",
         ),
-        id="models-dialog",
-        cls="jouzetsu-dialog",
-        aria_labelledby="models-dialog-title",
-        aria_describedby="models-dialog-description",
+        H3("Loaded models", data_testid="models-tab"),
+        Div(
+            *model_content,
+            cls="jouzetsu-model-list",
+            data_testid="loaded-model-list",
+        ),
+    )
+
+
+def _model_defaults_form(state: AppState) -> HTML:
+    configured_default: str = state.config.server.default_model
+    current_model_key: str = state.current_model_key()
+    return Form(
+        Section(
+            H3("Model defaults", cls="jouzetsu-section-title"),
+            Div(
+                field(
+                    "Default model",
+                    Select(
+                        Option(
+                            "No global default",
+                            value="",
+                            selected=not configured_default,
+                        ),
+                        *(
+                            Option(
+                                state.model_display_name(model_key),
+                                value=model_key,
+                                selected=model_key == configured_default,
+                            )
+                            for model_key in _default_model_keys(state)
+                        ),
+                        name="default_model",
+                        data_testid="model-default-model",
+                    ),
+                ),
+                field(
+                    "Current model alias",
+                    Input(
+                        value=state.current_model_alias(),
+                        name="model_alias",
+                        disabled=not current_model_key,
+                        placeholder="No active model",
+                        data_testid="model-current-model-alias",
+                    ),
+                ),
+                field(
+                    "Auto-unload idle minutes",
+                    Input(
+                        value=_auto_unload_editor_value(state),
+                        name="auto_unload_minutes",
+                        type="number",
+                        min=1,
+                        step=1,
+                        placeholder=_auto_unload_placeholder(state),
+                        data_testid="model-auto-unload-minutes",
+                    ),
+                ),
+                cls="jouzetsu-form-grid is-two-columns",
+            ),
+            Small(
+                "Aliases and auto-unload apply to the active model. Leave auto-unload blank to use LM Studio's value.",
+                cls="jouzetsu-form-help",
+            ),
+            cls="jouzetsu-dialog-section",
+        ),
+        form_submit_actions(
+            "Save model defaults",
+            "save-model-defaults-button",
+            reset_action="/settings/global/model-defaults/reset",
+            reset_marker="reset-model-defaults-button",
+            reset_confirmation="Reset model defaults to their built-in values?",
+        ),
+        action="/settings/global/model-defaults",
+        method="post",
+        cls="jouzetsu-global-settings-form",
+    )
+
+
+def _default_model_keys(state: AppState) -> tuple[str, ...]:
+    candidates: tuple[str, ...] = (
+        *state.config.server.model_aliases,
+        *(model.key for model in state.model_inventory),
+        state.config.server.default_model,
+    )
+    return tuple(dict.fromkeys(key for key in candidates if key))
+
+
+def _auto_unload_editor_value(state: AppState) -> str:
+    configured_value: int | None = state.config.server.auto_unload_minutes
+    return str(configured_value) if configured_value is not None else ""
+
+
+def _auto_unload_placeholder(state: AppState) -> str:
+    runtime_value: int | None = state.current_model_auto_unload_minutes()
+    return (
+        f"LM Studio: {runtime_value} minutes"
+        if runtime_value is not None
+        else "LM Studio default"
     )
 
 

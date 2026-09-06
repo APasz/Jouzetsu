@@ -9,7 +9,7 @@ from typing import cast
 import pytest
 
 from jouzetsu.access import AccessDecision
-from jouzetsu.config import AppConfig, MessageActionIconStyle, StarterPrompt
+from jouzetsu.config import AppConfig, MessageActionStyle, StarterPrompt
 from jouzetsu.models import CharacterChatBinding, Chat, ChatPromptMode, Message
 from jouzetsu.runtime import (
     GenerationMetrics,
@@ -61,16 +61,14 @@ def _render_message(
     index: int,
     *,
     generating: bool = False,
-    muted_actions: bool = False,
+    message_action_style: MessageActionStyle = MessageActionStyle.UNIFORM,
 ) -> str:
     return str(
         render_message(
             _chat_view(
                 Chat(id="chat-message-test", messages=messages),
                 generating=generating,
-                message_action_icon_style="muted_color"
-                if muted_actions
-                else "monochrome",
+                message_action_style=message_action_style,
             ),
             messages,
             index,
@@ -86,8 +84,8 @@ def _chat_view(
     runtime_status: RuntimeStatus | None = None,
     generation_reasoning: str = "",
     empty_state_message: str = "An excellent blank canvas.",
-    message_action_icon_style: MessageActionIconStyle = "monochrome",
     starter_prompts: tuple[StarterPrompt, ...] = (),
+    message_action_style: MessageActionStyle = MessageActionStyle.UNIFORM,
 ) -> ChatView:
     """Build the explicit input consumed by the chat renderers."""
 
@@ -97,8 +95,8 @@ def _chat_view(
         runtime_status=runtime_status or RuntimeStatus(RuntimePhase.READY),
         generation_reasoning=generation_reasoning,
         empty_state_message=empty_state_message,
-        message_action_icon_style=message_action_icon_style,
         starter_prompts=starter_prompts,
+        message_action_style=message_action_style,
     )
 
 
@@ -383,7 +381,7 @@ def test_notice_uses_explicit_status_and_error_semantics_with_a_dismiss_control(
     assert 'role="alert"' in error_markup
 
 
-def test_muted_action_style_is_reflected_in_message_markup() -> None:
+def test_message_actions_always_use_the_shared_action_group() -> None:
     markup: str = _render_message(
         [
             Message(
@@ -391,12 +389,22 @@ def test_muted_action_style_is_reflected_in_message_markup() -> None:
             )
         ],
         0,
-        muted_actions=True,
     )
 
-    assert "jouzetsu-message-actions jouzetsu-action-icons-muted" in markup
+    assert 'class="jouzetsu-message-actions"' in markup
+    assert "jouzetsu-action-icons-muted" not in markup
     assert "is-regenerate" in markup
     assert 'aria-label="Regenerate the last assistant message"' in markup
+
+
+def test_message_actions_enable_semantic_colours_only_when_selected() -> None:
+    markup: str = _render_message(
+        [Message(id="assistant-colour", role="assistant", content="Answer")],
+        0,
+        message_action_style=MessageActionStyle.SEMANTIC,
+    )
+
+    assert 'class="jouzetsu-message-actions is-semantic"' in markup
 
 
 def test_composer_places_the_message_input_before_actions_for_keyboard_navigation() -> (
@@ -523,8 +531,10 @@ def test_generating_chat_disables_every_generation_sensitive_setting() -> None:
         "active-chat-temperature",
         "active-chat-top-p",
         "active-chat-max-tokens",
+        "reset-chat-sampling-button",
         "save-chat-sampling-button",
         "active-chat-prompt",
+        "reset-chat-prompt-button",
         "save-chat-prompt-button",
         "active-chat-british-spellings",
         "active-chat-save-reasoning",

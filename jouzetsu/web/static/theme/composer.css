@@ -11,8 +11,8 @@
         max(8px, env(safe-area-inset-right))
         calc(6px + env(safe-area-inset-bottom))
         max(8px, env(safe-area-inset-left));
-    border-top: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-surface);
+    border-top: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface);
 }
 
 .jouzetsu-composer.is-resized {
@@ -48,15 +48,15 @@
     left: 50%;
     width: 36px;
     height: 2px;
-    background: var(--jouzetsu-border-strong);
+    background: var(--jouzetsu-app-border-strong);
     content: "";
     transform: translateX(-50%);
 }
 
 .jouzetsu-composer-resize-handle:focus-visible::after,
 .jouzetsu-composer-resize-handle:hover::after {
-    background: var(--jouzetsu-secondary);
-    outline: 1px solid var(--jouzetsu-secondary);
+    background: var(--jouzetsu-user-accent);
+    outline: 1px solid var(--jouzetsu-user-accent);
 }
 
 .jouzetsu-composer-form {
@@ -66,16 +66,16 @@
 
 .jouzetsu-generation-reasoning {
     margin: 0 0 6px;
-    border: 1px solid var(--jouzetsu-border);
+    border: 1px solid var(--jouzetsu-assistant-muted);
     border-radius: 6px;
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-text-dim);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-text-muted);
 }
 
 .jouzetsu-generation-reasoning-summary {
     padding: 5px 8px;
     cursor: pointer;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-assistant-foreground);
     font-size: 12px;
     font-weight: 700;
     user-select: none;
@@ -114,8 +114,8 @@
 }
 
 .jouzetsu-generation-strip {
-    border: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-surface-2);
+    border: 1px solid var(--jouzetsu-assistant-muted);
+    background: var(--jouzetsu-app-surface-raised);
     padding: 6px 6px 0;
 }
 
@@ -162,7 +162,7 @@
     row-gap: 2px;
     min-height: 16px;
     min-width: 0;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-system-foreground);
     font-size: 12px;
     line-height: 1.2;
 }
@@ -192,14 +192,14 @@
     grid-row: 2;
     height: 2px;
     overflow: hidden;
-    background: var(--jouzetsu-primary-dim);
+    background: var(--jouzetsu-assistant-muted);
 }
 
 .jouzetsu-composer-status-progress-fill {
     display: block;
     width: var(--jouzetsu-composer-status-load-progress, 0%);
     height: 100%;
-    background: var(--jouzetsu-primary);
+    background: var(--jouzetsu-assistant-accent);
     opacity: 0.8;
     transition: width 160ms ease-out;
 }
@@ -210,7 +210,7 @@
     grid-row: 1;
     justify-self: end;
     gap: 8px;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
@@ -226,13 +226,13 @@
 }
 
 .jouzetsu-composer-validation {
-    color: var(--jouzetsu-primary-hover);
+    color: var(--jouzetsu-system-foreground);
     font-size: 12px;
     line-height: 1.2;
 }
 
 .jouzetsu-generation-status {
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-assistant-foreground);
 }
 
 .jouzetsu-generation-strip .jouzetsu-composer-status {
@@ -259,12 +259,13 @@
 }
 
 .jouzetsu-message-input:focus {
-    border-color: var(--jouzetsu-secondary);
-    box-shadow: inset 0 0 0 1px var(--jouzetsu-secondary-dim);
+    border-color: var(--jouzetsu-user-accent);
+    box-shadow: inset 0 0 0 1px var(--jouzetsu-user-muted);
 }
 
 .jouzetsu-message-input.is-editing {
-    border-color: var(--jouzetsu-edit);
+    border-color: var(--jouzetsu-user-hover);
+    box-shadow: inset 0 0 0 1px var(--jouzetsu-user-focus);
 }
 
 .jouzetsu-composer-primary {
@@ -327,9 +328,9 @@
 .jouzetsu-suggestion-button {
     min-height: 32px;
     padding: 6px 10px;
-    border: 1px solid var(--jouzetsu-border-strong);
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-text);
+    border: 1px solid var(--jouzetsu-app-border-strong);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-text);
     font-size: 12px;
     text-decoration: none;
 }
@@ -338,37 +339,37 @@
 .jouzetsu-button:focus-visible,
 .jouzetsu-suggestion-button:hover,
 .jouzetsu-suggestion-button:focus-visible {
-    border-color: var(--jouzetsu-secondary);
-    background: var(--jouzetsu-secondary-soft);
-    color: var(--jouzetsu-text);
+    border-color: var(--jouzetsu-control-accent);
+    background: var(--jouzetsu-control-subtle);
+    color: var(--jouzetsu-app-text);
     outline: none;
 }
 
 .jouzetsu-button-primary {
-    border-color: var(--jouzetsu-primary);
-    background: var(--jouzetsu-primary);
-    color: var(--jouzetsu-on-accent);
+    border-color: var(--jouzetsu-control-accent);
+    background: var(--jouzetsu-control-accent);
+    color: var(--jouzetsu-control-on-accent);
     font-weight: 700;
 }
 
 .jouzetsu-button-primary:hover,
 .jouzetsu-button-primary:focus-visible {
-    border-color: var(--jouzetsu-primary-hover);
-    background: var(--jouzetsu-primary-hover);
-    color: var(--jouzetsu-on-accent);
+    border-color: var(--jouzetsu-control-hover);
+    background: var(--jouzetsu-control-hover);
+    color: var(--jouzetsu-control-on-hover);
 }
 
 .jouzetsu-button-danger {
-    border-color: var(--jouzetsu-primary-dim);
-    background: var(--jouzetsu-primary-soft);
-    color: var(--jouzetsu-primary);
+    border-color: var(--jouzetsu-control-muted);
+    background: var(--jouzetsu-control-subtle);
+    color: var(--jouzetsu-control-foreground);
 }
 
 .jouzetsu-button-muted {
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
 }
 
 .jouzetsu-suggestion-button {
-    border-color: var(--jouzetsu-secondary-dim);
-    color: var(--jouzetsu-secondary);
+    border-color: var(--jouzetsu-control-muted);
+    color: var(--jouzetsu-control-foreground);
 }

@@ -155,13 +155,19 @@ export class ChatController {
         }
     }
 
-    async submitLiveForm(form) {
+    async submitLiveForm(form, submitter = null) {
         addCsrfToken(form);
         form.dataset.liveSaving = 'true';
         form.setAttribute('aria-busy', 'true');
         try {
-            const response = await window.fetch(form.action, {
-                method: form.method || 'POST',
+            const action = submitter?.hasAttribute('formaction')
+                ? submitter.formAction
+                : form.action;
+            const method = submitter?.hasAttribute('formmethod')
+                ? submitter.formMethod
+                : form.method || 'POST';
+            const response = await window.fetch(action, {
+                method,
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'HX-Request': 'true' },
                 body: liveFormBody(form),
                 cache: 'no-store',
@@ -178,7 +184,7 @@ export class ChatController {
                 return;
             }
             await Promise.all([this.replaceFragment(), this.refreshPanels()]);
-            this.#notices.announce(form.dataset.liveNotice || 'Saved');
+            this.#notices.announce(submitter?.dataset.liveNotice || form.dataset.liveNotice || 'Saved');
         } catch {
             this.#notices.announce('Could not save this change', true);
         } finally {

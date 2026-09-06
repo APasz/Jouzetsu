@@ -2,38 +2,81 @@
 
 from __future__ import annotations
 
-from ...config import GenerationSettings, SpellingReplacement
+from dataclasses import fields
+from typing import Final, Literal, cast
+
+from ...config import (
+    AppColorwaySettings,
+    ColorwaySettings,
+    GenerationSettings,
+    MessageAction,
+    MessageActionStyle,
+    SpellingReplacement,
+    ThemeColorway,
+    builtin_message_action_color,
+)
 from ...state import AppState
 from ..html import (
     H2,
     H3,
     HTML,
     Button,
+    Details,
     Dialog,
     Div,
     Form,
     Input,
+    Label,
     Option,
     P,
     Section,
     Select,
     Small,
     Span,
+    Summary,
     Textarea,
 )
+from ..theme import resolved_theme_colours
 from .context import PageContext
-from .controls import checkbox, close_dialog_button, field, post_button
+from .controls import (
+    checkbox,
+    close_dialog_button,
+    field,
+    form_submit_actions,
+    post_button,
+    reset_form_button,
+)
 from .feedback import dialog_feedback
+from .tabs import DialogTab, render_dialog_tab_list, render_dialog_tab_panel
+
+type GlobalSettingsTab = Literal["behaviour", "appearance"]
+
+_BEHAVIOUR_TAB: Final[DialogTab] = DialogTab("behaviour", "Behaviour")
+_APPEARANCE_TAB: Final[DialogTab] = DialogTab("appearance", "Appearance")
+_GLOBAL_SETTINGS_TABS: Final[tuple[DialogTab, ...]] = (
+    _BEHAVIOUR_TAB,
+    _APPEARANCE_TAB,
+)
+_COLOURWAY_DESCRIPTIONS: Final[dict[ThemeColorway, str]] = {
+    ThemeColorway.APP: "Neutral surfaces and text, plus the shared accent for controls and key interface visuals.",
+    ThemeColorway.USER: "Your messages, composer accents, and send button.",
+    ThemeColorway.ASSISTANT: "Assistant replies, reasoning, and generation highlights.",
+    ThemeColorway.SYSTEM: "System messages, notifications, and inline feedback.",
+}
+_APP_EDITOR_EXCLUDED_FIELDS: Final[frozenset[str]] = frozenset(
+    {"accent", "key_visual", *(action.color_field for action in MessageAction)}
+)
 
 
 def render_global_settings_dialog(
     state: AppState,
     context: PageContext,
     *,
+    active_tab: GlobalSettingsTab = "behaviour",
     notice: str = "",
     error: str = "",
 ) -> HTML:
-    """Render application-wide defaults grouped by ownership and persistence route."""
+    """Render application-wide behaviour and appearance defaults."""
 
     return Dialog(
         Div(
@@ -43,15 +86,30 @@ def render_global_settings_dialog(
                 cls="jouzetsu-modal-title",
             ),
             P(
-                "Defaults used by every chat without its own override.",
+                "Set chat-wide behaviour and the application's appearance.",
                 id="global-settings-dialog-description",
                 cls="jouzetsu-dialog-description",
             ),
             dialog_feedback(notice=notice, error=error),
-            _system_prompt_form(state),
-            _model_defaults_form(state),
-            _interface_form(state),
-            _generation_defaults_form(state),
+            render_dialog_tab_list(
+                "global-settings-dialog",
+                _GLOBAL_SETTINGS_TABS,
+                active_tab,
+                label="Global settings sections",
+            ),
+            render_dialog_tab_panel(
+                "global-settings-dialog",
+                _BEHAVIOUR_TAB,
+                active_tab,
+                _system_prompt_form(state),
+                _generation_defaults_form(state),
+            ),
+            render_dialog_tab_panel(
+                "global-settings-dialog",
+                _APPEARANCE_TAB,
+                active_tab,
+                _appearance_form(state),
+            ),
             Div(
                 close_dialog_button("global-settings-dialog"),
                 cls="jouzetsu-dialog-actions",
@@ -76,6 +134,12 @@ def render_global_settings_dialog(
     )
 
 
+def global_settings_tab_from_text(value: str) -> GlobalSettingsTab:
+    """Return a supported Global Settings tab, defaulting to behaviour."""
+
+    return "appearance" if value == "appearance" else "behaviour"
+
+
 def _system_prompt_form(state: AppState) -> HTML:
     return Form(
         Section(
@@ -92,134 +156,332 @@ def _system_prompt_form(state: AppState) -> HTML:
             ),
             cls="jouzetsu-dialog-section",
         ),
-        _submit_actions("Save system prompt", "save-global-prompt-button"),
+        form_submit_actions(
+            "Save system prompt",
+            "save-global-prompt-button",
+            reset_action="/settings/global/prompt/reset",
+            reset_marker="reset-global-prompt-button",
+            reset_confirmation="Reset the global system prompt to its default?",
+        ),
         action="/settings/global/prompt",
         method="post",
         cls="jouzetsu-global-settings-form",
     )
 
 
-def _model_defaults_form(state: AppState) -> HTML:
-    configured_default: str = state.config.server.default_model
-    current_model_key: str = state.current_model_key()
-    return Form(
-        Section(
-            H3("Model defaults", cls="jouzetsu-section-title"),
+def _appearance_form(state: AppState) -> HTML:
+    """Present four main colours with optional overrides grouped by ownership."""
+
+    colorways = state.config.theme.colorways()
+    effective_colours = resolved_theme_colours(state.config)
+    return Div(
+        Form(
+            Small(
+                "Choose a main colour for each part of the interface. Automatic shades preserve readable text and keep App surfaces neutral.",
+                cls="jouzetsu-form-help",
+            ),
+            *(
+                _colourway_editor(
+                    state,
+                    owner,
+                    settings,
+                    effective_colours=effective_colours[owner],
+                    reset_form_id=_colourway_reset_form_id(owner),
+                )
+                for owner, settings in colorways
+            ),
+            form_submit_actions(
+                "Save appearance",
+                "save-global-appearance-button",
+                reset_action="/settings/global/appearance/reset",
+                reset_marker="reset-global-appearance-button",
+                reset_confirmation="Reset all appearance settings to their defaults?",
+            ),
+            action="/settings/global/appearance",
+            method="post",
+            cls="jouzetsu-global-settings-form",
+        ),
+        *(_colourway_reset_form(owner) for owner, _settings in colorways),
+    )
+
+
+def _colourway_editor(
+    state: AppState,
+    owner: ThemeColorway,
+    settings: ColorwaySettings,
+    *,
+    effective_colours: dict[str, str],
+    reset_form_id: str,
+) -> HTML:
+    is_app: bool = isinstance(settings, AppColorwaySettings)
+    return Section(
+        H3(owner.label, cls="jouzetsu-appearance-group-title"),
+        Small(_COLOURWAY_DESCRIPTIONS[owner], cls="jouzetsu-form-help"),
+        Div(
+            field(
+                "Main colour",
+                Input(
+                    value=settings.accent,
+                    name=f"theme_{owner.value}_accent",
+                    type="color",
+                    data_testid=f"theme-{owner.value}-accent-color",
+                ),
+            ),
+            (
+                _key_visual_field(
+                    settings, preview=effective_colours["key_visual"]
+                )
+                if is_app
+                else None
+            ),
+            cls="jouzetsu-form-grid is-two-columns" if is_app else None,
+        ),
+        (
+            Small(
+                "Key visuals cover navigation, active tabs, and message actions. "
+                "Use Auto to keep them following Main colour.",
+                cls="jouzetsu-form-help",
+            )
+            if is_app
+            else None
+        ),
+        (
+            checkbox(
+                "dark_mode",
+                checked=state.config.ui.dark_mode,
+                label="Dark appearance",
+                marker="appearance-dark-mode",
+            )
+            if owner is ThemeColorway.APP
+            else None
+        ),
+        Details(
+            Summary("Advanced", cls="jouzetsu-appearance-advanced-title"),
+            Small(
+                "Pick an override colour, or use Auto to restore the generated colour. "
+                "Uniform message actions follow the main App colour unless you "
+                "override them.",
+                cls="jouzetsu-form-help",
+            ),
             Div(
-                field(
-                    "Default model",
-                    Select(
-                        Option(
-                            "No global default",
-                            value="",
-                            selected=not configured_default,
-                        ),
-                        *(
-                            Option(
-                                state.model_display_name(model_key),
-                                value=model_key,
-                                selected=model_key == configured_default,
-                            )
-                            for model_key in _default_model_keys(state)
-                        ),
-                        name="default_model",
-                        data_testid="global-default-model",
-                    ),
-                ),
-                field(
-                    "Current model alias",
-                    Input(
-                        value=state.current_model_alias(),
-                        name="model_alias",
-                        disabled=not current_model_key,
-                        placeholder="No active model",
-                        data_testid="global-current-model-alias",
-                    ),
-                ),
-                field(
-                    "Auto-unload idle minutes",
-                    Input(
-                        value=_auto_unload_editor_value(state),
-                        name="auto_unload_minutes",
-                        type="number",
-                        min=1,
-                        step=1,
-                        placeholder=_auto_unload_placeholder(state),
-                        data_testid="global-auto-unload-minutes",
-                    ),
+                *(
+                    _colour_override_field(
+                        label=cast(str, item.metadata["label"]),
+                        name=f"theme_{owner.value}_{item.name}",
+                        value=cast(str | None, getattr(settings, item.name)),
+                        preview=effective_colours[item.name],
+                        marker=f"theme-{owner.value}-{item.name.replace('_', '-')}-override",
+                    )
+                    for item in fields(settings)
+                    if item.name not in _APP_EDITOR_EXCLUDED_FIELDS
                 ),
                 cls="jouzetsu-form-grid is-two-columns",
             ),
-            Small(
-                "Leave auto-unload blank to use LM Studio's value for the active model.",
-                cls="jouzetsu-form-help",
-            ),
-            cls="jouzetsu-dialog-section",
+            *(_app_appearance_controls(state) if owner is ThemeColorway.APP else ()),
+            cls="jouzetsu-appearance-advanced",
         ),
-        _submit_actions("Save model defaults", "save-global-model-defaults-button"),
-        action="/settings/global/model-defaults",
-        method="post",
-        cls="jouzetsu-global-settings-form",
+        Div(
+            reset_form_button(
+                action=f"/settings/global/appearance/{owner.value}/reset",
+                marker=f"reset-theme-{owner.value}-button",
+                label=f"Reset {owner.label} colours",
+                confirmation=(
+                    f"Reset the {owner.label} colourway to its defaults? "
+                    "Any unsaved appearance changes will be discarded."
+                ),
+                form_id=reset_form_id,
+            ),
+            cls="jouzetsu-dialog-actions",
+        ),
+        cls="jouzetsu-appearance-group",
+        data_testid=f"theme-{owner.value}-colourway",
     )
 
 
-def _default_model_keys(state: AppState) -> tuple[str, ...]:
-    candidates: tuple[str, ...] = (
-        *state.config.server.model_aliases,
-        *(model.key for model in state.model_inventory),
-        state.config.server.default_model,
+def _colour_override_field(
+    *,
+    label: str,
+    name: str,
+    value: str | None,
+    preview: str,
+    marker: str,
+) -> HTML:
+    """Render one compact override picker with an explicit automatic state."""
+
+    automatic: bool = value is None
+    automatic_marker: str = f"{marker.removesuffix('-override')}-automatic"
+    return Div(
+        Span(label, cls="jouzetsu-field-label"),
+        Div(
+            Input(
+                value=value or preview,
+                name=name,
+                type="color",
+                aria_label=f"Select {label.lower()}",
+                data_colour_override_picker="true",
+                data_testid=marker,
+            ),
+            Input(
+                type="hidden",
+                name=f"{name}_automatic_present",
+                value="true",
+            ),
+            Label(
+                Input(
+                    type="checkbox",
+                    name=f"{name}_automatic",
+                    value="true",
+                    checked=automatic,
+                    aria_label=f"Use automatic {label.lower()}",
+                    data_colour_override_automatic="true",
+                    data_testid=automatic_marker,
+                ),
+                Span("Auto"),
+                cls="jouzetsu-colour-override-automatic",
+            ),
+            cls=(
+                "jouzetsu-colour-override is-automatic"
+                if automatic
+                else "jouzetsu-colour-override"
+            ),
+            data_colour_override="true",
+            role="group",
+            aria_label=label,
+        ),
+        cls="jouzetsu-field",
     )
-    return tuple(dict.fromkeys(key for key in candidates if key))
 
 
-def _interface_form(state: AppState) -> HTML:
-    icon_colors = state.config.ui.icon_colors
+def _colourway_reset_form_id(owner: ThemeColorway) -> str:
+    """Return the separate target form for a colourway-specific reset control."""
+
+    return f"theme-{owner.value}-reset-form"
+
+
+def _colourway_reset_form(owner: ThemeColorway) -> HTML:
+    """Keep a colourway reset out of the shared form's implicit-submit order."""
+
     return Form(
-        Section(
-            H3("Interface", cls="jouzetsu-section-title"),
-            checkbox(
-                "muted_color_icons",
-                checked=state.config.ui.message_action_icon_style == "muted_color",
-                label="Muted coloured message action icons",
-                marker="global-message-action-icon-style",
-            ),
-            H3("App icon", cls="jouzetsu-section-title"),
-            Div(
-                field(
-                    "Linework",
-                    Input(
-                        value=icon_colors.linework_color,
-                        name="icon_linework_color",
-                        type="color",
-                        data_testid="icon-linework-color",
-                    ),
-                ),
-                field(
-                    "Accent",
-                    Input(
-                        value=icon_colors.accent_color,
-                        name="icon_accent_color",
-                        type="color",
-                        data_testid="icon-accent-color",
-                    ),
-                ),
-                field(
-                    "Surface",
-                    Input(
-                        value=icon_colors.surface_color,
-                        name="icon_surface_color",
-                        type="color",
-                        data_testid="icon-surface-color",
-                    ),
-                ),
-                cls="jouzetsu-form-grid is-three-columns",
-            ),
-            cls="jouzetsu-dialog-section",
-        ),
-        _submit_actions("Save interface", "save-global-interface-button"),
-        action="/settings/global/interface",
+        id=_colourway_reset_form_id(owner),
+        action=f"/settings/global/appearance/{owner.value}/reset",
         method="post",
-        cls="jouzetsu-global-settings-form",
+        hidden=True,
+    )
+
+
+def _key_visual_field(settings: AppColorwaySettings, *, preview: str) -> HTML:
+    """Render the independently configurable App emphasis colour prominently."""
+
+    return _colour_override_field(
+        label="Key visual colour",
+        name="theme_app_key_visual",
+        value=settings.key_visual,
+        preview=preview,
+        marker="theme-app-key-visual-color",
+    )
+
+
+def _app_appearance_controls(state: AppState) -> tuple[HTML, ...]:
+    app: AppColorwaySettings = state.config.theme.app
+    icon = state.config.ui.icon_colors
+    host = state.config.host_stats
+    return (
+        _message_action_style_control(state.config.ui.message_action_style),
+        _appearance_feature(
+            "Semantic message actions",
+            tuple(
+                (
+                    action.label,
+                    f"theme_app_{action.color_field}",
+                    getattr(app, action.color_field)
+                    or builtin_message_action_color(action),
+                    f"theme-app-{action.color_field.replace('_', '-')}-color",
+                )
+                for action in MessageAction
+            ),
+        ),
+        _appearance_feature(
+            "App icon",
+            (
+                (
+                    "Linework",
+                    "icon_linework_color",
+                    icon.linework_color,
+                    "icon-linework-color",
+                ),
+                ("Accent", "icon_accent_color", icon.accent_color, "icon-accent-color"),
+                (
+                    "Surface",
+                    "icon_surface_color",
+                    icon.surface_color,
+                    "icon-surface-color",
+                ),
+            ),
+        ),
+        _appearance_feature(
+            "Host activity meter",
+            (
+                (
+                    "Low activity",
+                    "activity_start_color",
+                    host.activity_start_color,
+                    "host-stats-activity-start-color",
+                ),
+                (
+                    "High activity",
+                    "activity_end_color",
+                    host.activity_end_color,
+                    "host-stats-activity-end-color",
+                ),
+            ),
+        ),
+    )
+
+
+def _message_action_style_control(style: MessageActionStyle) -> HTML:
+    """Render the action-colour policy before its semantic palette."""
+
+    return Div(
+        field(
+            "Message action style",
+            Select(
+                *(
+                    Option(
+                        candidate.label,
+                        value=candidate.value,
+                        selected=candidate is style,
+                    )
+                    for candidate in MessageActionStyle
+                ),
+                name="message_action_style",
+                data_testid="message-action-style",
+            ),
+        ),
+        Small(
+            "Uniform uses the App message action colour. Semantic uses the action "
+            "colours below; other message controls remain App-coloured.",
+            cls="jouzetsu-form-help",
+        ),
+        cls="jouzetsu-dialog-section",
+    )
+
+
+def _appearance_feature(
+    label: str, controls: tuple[tuple[str, str, str, str], ...]
+) -> HTML:
+    return Div(
+        Span(label, cls="jouzetsu-field-label"),
+        Div(
+            *(
+                field(
+                    title,
+                    Input(value=value, name=name, type="color", data_testid=marker),
+                )
+                for title, name, value, marker in controls
+            ),
+            cls="jouzetsu-form-grid",
+        ),
+        cls="jouzetsu-dialog-section",
     )
 
 
@@ -282,7 +544,13 @@ def _generation_defaults_form(state: AppState) -> HTML:
             _spelling_replacements_editor(settings.british_spelling_replacements),
             cls="jouzetsu-dialog-section",
         ),
-        _submit_actions("Save generation defaults", "save-global-generation-button"),
+        form_submit_actions(
+            "Save generation defaults",
+            "save-global-generation-button",
+            reset_action="/settings/global/generation/reset",
+            reset_marker="reset-global-generation-button",
+            reset_confirmation="Reset generation defaults to their built-in values?",
+        ),
         action="/settings/global/generation",
         method="post",
         cls="jouzetsu-global-settings-form",
@@ -353,34 +621,8 @@ def _spelling_replacement_row(replacement: SpellingReplacement) -> HTML:
     )
 
 
-def _submit_actions(label: str, marker: str) -> HTML:
-    return Div(
-        Button(
-            label,
-            type="submit",
-            cls="jouzetsu-button jouzetsu-button-primary",
-            data_testid=marker,
-        ),
-        cls="jouzetsu-dialog-actions",
-    )
-
-
 def _format_spelling_replacements(replacements: list[SpellingReplacement]) -> str:
     return "\n".join(
         f"{replacement.source}\t{replacement.replacement}"
         for replacement in replacements
-    )
-
-
-def _auto_unload_editor_value(state: AppState) -> str:
-    configured_value: int | None = state.config.server.auto_unload_minutes
-    return str(configured_value) if configured_value is not None else ""
-
-
-def _auto_unload_placeholder(state: AppState) -> str:
-    runtime_value: int | None = state.current_model_auto_unload_minutes()
-    return (
-        f"LM Studio: {runtime_value} minutes"
-        if runtime_value is not None
-        else "LM Studio default"
     )

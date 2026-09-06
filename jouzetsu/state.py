@@ -15,9 +15,14 @@ from .config import (
     ConfigStore,
     GenerationSettings,
     HostStatsDeviceSettings,
+    HostStatsSettings,
     IconColorSettings,
-    MessageActionIconStyle,
+    MessageActionStyle,
     ServerSettings,
+    ThemeColorway,
+    ThemeSettings,
+    UiSettings,
+    default_config,
 )
 from .controllers import AccessController, PersistenceController, RuntimeController
 from .empty_chat_messages import EmptyChatMessageProvider
@@ -890,6 +895,13 @@ class AppState:
             replace(self.config.generation, system_prompt=trimmed_or_empty(prompt))
         )
 
+    async def reset_global_system_prompt(self) -> None:
+        """Restore the global fallback system prompt without changing generation defaults."""
+
+        defaults: AppConfig = default_config(self.config.paths)
+        await self.set_global_system_prompt(defaults.generation.system_prompt)
+        log.info("global system prompt reset")
+
     async def set_generation_defaults(self, settings: GenerationSettings) -> None:
         """Validate and atomically persist global generation defaults."""
         settings.validate()
@@ -906,11 +918,23 @@ class AppState:
             len(settings.system_prompt),
         )
 
+    async def reset_generation_defaults(self) -> None:
+        """Restore fields owned by Generation defaults, retaining separate prompt settings."""
+
+        current: GenerationSettings = self.config.generation
+        defaults: GenerationSettings = default_config(self.config.paths).generation
+        settings: GenerationSettings = replace(
+            defaults,
+            system_prompt=current.system_prompt,
+            british_english=current.british_english,
+        )
+        await self.set_generation_defaults(settings)
+        log.info("generation defaults reset")
+
     async def set_global_settings(
         self,
         generation: GenerationSettings,
         server: ServerSettings,
-        message_action_icon_style: MessageActionIconStyle | None = None,
         icon_colors: IconColorSettings | None = None,
     ) -> None:
         """Validate and atomically persist settings edited in the global dialog."""
@@ -920,8 +944,6 @@ class AppState:
             icon_colors.validate()
         self.config.generation = generation
         self.config.server.apply(server)
-        if message_action_icon_style is not None:
-            self.config.ui.message_action_icon_style = message_action_icon_style
         if icon_colors is not None:
             self.config.ui.icon_colors = icon_colors
         for session in self._chat_registry.sessions:
@@ -933,6 +955,94 @@ class AppState:
             server.default_model,
             server.base_url,
         )
+
+    async def reset_model_defaults(self) -> None:
+        """Restore model defaults while retaining connection settings and other aliases."""
+
+        current: ServerSettings = self.config.server
+        aliases: dict[str, str] = dict(current.model_aliases)
+        model_key: str = self.current_model_key()
+        if model_key:
+            _ = aliases.pop(model_key, None)
+        defaults: ServerSettings = default_config(self.config.paths).server
+        settings: ServerSettings = ServerSettings(
+            base_url=current.base_url,
+            api_key=current.api_key,
+            default_model=defaults.default_model,
+            model_aliases=aliases,
+            auto_unload_minutes=defaults.auto_unload_minutes,
+        )
+        await self.set_global_settings(self.config.generation, settings)
+        log.info("model defaults reset current_model=%s", model_key)
+
+    async def set_appearance_settings(
+        self,
+        theme: ThemeSettings,
+        icon_colors: IconColorSettings,
+        *,
+        dark_mode: bool,
+        message_action_style: MessageActionStyle,
+        activity_start_color: str,
+        activity_end_color: str,
+    ) -> None:
+        """Validate and atomically persist visible UI appearance settings."""
+
+        theme.validate()
+        ui: UiSettings = replace(
+            self.config.ui,
+            dark_mode=dark_mode,
+            message_action_style=message_action_style,
+            icon_colors=icon_colors,
+        )
+        ui.validate()
+        host_stats: HostStatsSettings = replace(
+            self.config.host_stats,
+            activity_start_color=activity_start_color,
+            activity_end_color=activity_end_color,
+        )
+        host_stats.validate()
+
+        self.config.theme = theme
+        self.config.ui.dark_mode = ui.dark_mode
+        self.config.ui.message_action_style = ui.message_action_style
+        self.config.ui.icon_colors = ui.icon_colors
+        self.config.host_stats.activity_start_color = host_stats.activity_start_color
+        self.config.host_stats.activity_end_color = host_stats.activity_end_color
+        await self._commit(config=True)
+        log.info("appearance settings updated")
+
+    async def reset_appearance_settings(self) -> None:
+        """Restore all controls exposed by the Appearance settings section."""
+
+        defaults: AppConfig = default_config(self.config.paths)
+        await self.set_appearance_settings(
+            defaults.theme,
+            defaults.ui.icon_colors,
+            dark_mode=defaults.ui.dark_mode,
+            message_action_style=defaults.ui.message_action_style,
+            activity_start_color=defaults.host_stats.activity_start_color,
+            activity_end_color=defaults.host_stats.activity_end_color,
+        )
+        log.info("appearance settings reset")
+
+    async def reset_theme_colorway(self, colorway: ThemeColorway) -> None:
+        """Restore one colourway without changing the rest of Appearance settings."""
+
+        defaults: ThemeSettings = default_config(self.config.paths).theme
+        theme: ThemeSettings
+        match colorway:
+            case ThemeColorway.APP:
+                theme = replace(self.config.theme, app=defaults.app)
+            case ThemeColorway.USER:
+                theme = replace(self.config.theme, user=defaults.user)
+            case ThemeColorway.ASSISTANT:
+                theme = replace(self.config.theme, assistant=defaults.assistant)
+            case ThemeColorway.SYSTEM:
+                theme = replace(self.config.theme, system=defaults.system)
+        theme.validate()
+        self.config.theme = theme
+        await self._commit(config=True)
+        log.info("theme colourway reset colourway=%s", colorway.value)
 
     async def set_access_defaults(
         self,
@@ -959,6 +1069,18 @@ class AppState:
             global_settings_for_approved,
             allow_network_device_reassociation,
         )
+
+    async def reset_access_defaults(self) -> None:
+        """Restore access policy switches without changing known devices or the phrase."""
+
+        defaults = default_config(self.config.paths).access
+        await self.set_access_defaults(
+            default_private=defaults.default_private,
+            allow_localhost_without_approval=defaults.allow_localhost_without_approval,
+            global_settings_for_approved=defaults.global_settings_for_approved,
+            allow_network_device_reassociation=defaults.allow_network_device_reassociation,
+        )
+        log.info("access defaults reset")
 
     async def set_device_access_allowed(
         self, device_id: str, access_allowed: bool

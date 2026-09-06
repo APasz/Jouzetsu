@@ -7,9 +7,9 @@
     display: flex;
     width: min(420px, 100vw);
     overflow: hidden;
-    border: 1px solid var(--jouzetsu-border-strong);
-    background: var(--jouzetsu-surface);
-    box-shadow: 0 0 36px var(--jouzetsu-shadow-panel);
+    border: 1px solid var(--jouzetsu-app-border-strong);
+    background: var(--jouzetsu-app-surface);
+    box-shadow: 0 0 36px var(--jouzetsu-app-shadow-panel);
     transition: transform 160ms ease-out;
 }
 
@@ -32,7 +32,7 @@
     z-index: 9;
     inset: 0;
     display: none;
-    background: var(--jouzetsu-backdrop);
+    background: var(--jouzetsu-app-backdrop);
 }
 
 .jouzetsu-panel-open .jouzetsu-panel-backdrop {
@@ -60,7 +60,7 @@
     justify-content: space-between;
     gap: 8px;
     padding-bottom: 8px;
-    border-bottom: 1px solid var(--jouzetsu-border);
+    border-bottom: 1px solid var(--jouzetsu-app-border);
 }
 
 .jouzetsu-sheet-brand-lockup {
@@ -78,7 +78,7 @@
 }
 
 .jouzetsu-sheet-brand {
-    color: var(--jouzetsu-primary);
+    color: var(--jouzetsu-app-foreground);
     font-family: var(--jouzetsu-font-display);
     font-size: 20px;
     font-weight: 700;
@@ -88,7 +88,7 @@
 
 .jouzetsu-sheet-subtitle,
 .jouzetsu-sheet-footnote {
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 12px;
 }
 
@@ -102,7 +102,7 @@
 
 .jouzetsu-panel-divider {
     min-height: 1px;
-    background: var(--jouzetsu-border);
+    background: var(--jouzetsu-app-border);
 }
 
 .jouzetsu-sheet-footer-meta {
@@ -116,28 +116,29 @@
     width: 100%;
     min-height: 40px;
     justify-content: flex-start;
-    border-color: var(--jouzetsu-primary-dim);
-    background: var(--jouzetsu-primary-soft);
-    color: var(--jouzetsu-primary);
+    border-color: var(--jouzetsu-app-muted);
+    background: var(--jouzetsu-app-subtle);
+    color: var(--jouzetsu-app-foreground);
     text-align: left;
 }
 
 .jouzetsu-new-chat-button:hover,
 .jouzetsu-new-chat-button:focus-visible {
-    background: var(--jouzetsu-primary-dim);
-    color: var(--jouzetsu-text);
+    background: var(--jouzetsu-app-muted);
+    color: var(--jouzetsu-app-text);
 }
 
 .jouzetsu-new-chat-button .jouzetsu-svg-icon {
     width: 17px;
     height: 17px;
+    color: var(--jouzetsu-app-key-visual);
 }
 
 .jouzetsu-panel-title,
 .jouzetsu-modal-title,
 .jouzetsu-section-title {
     margin: 0;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
     font-family: var(--jouzetsu-font-display);
     letter-spacing: 0.035em;
 }
@@ -146,7 +147,7 @@
     max-width: 250px;
     margin: 0;
     overflow: hidden;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
     font-family: var(--jouzetsu-font-display);
     font-size: 21px;
     font-weight: 700;
@@ -161,7 +162,7 @@
 
 .jouzetsu-section-title {
     margin-top: 8px;
-    color: var(--jouzetsu-secondary);
+    color: var(--jouzetsu-app-foreground);
     font-size: 13px;
 }
 
@@ -194,14 +195,14 @@
 
 .jouzetsu-device-section-title {
     margin: 0;
-    color: var(--jouzetsu-secondary);
+    color: var(--jouzetsu-app-foreground);
     font-family: var(--jouzetsu-font-display);
     font-size: 13px;
     letter-spacing: 0.035em;
 }
 
 .jouzetsu-device-section-header small {
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 11px;
 }
 
@@ -210,21 +211,21 @@
     flex-direction: column;
     gap: 10px;
     padding: 10px;
-    border: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-surface-2);
+    border: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface-raised);
 }
 
 .jouzetsu-device-card.is-pending {
-    border-left: 3px solid var(--jouzetsu-primary);
+    border-left: 3px solid var(--jouzetsu-system-accent);
 }
 
 .jouzetsu-device-card.is-allowed {
-    border-left: 3px solid var(--jouzetsu-secondary-dim);
+    border-left: 3px solid var(--jouzetsu-app-muted);
 }
 
 .jouzetsu-device-card.is-current {
-    border-color: var(--jouzetsu-secondary-dim);
-    border-left-color: var(--jouzetsu-secondary);
+    border-color: var(--jouzetsu-app-muted);
+    border-left-color: var(--jouzetsu-app-key-visual);
 }
 
 .jouzetsu-device-card-summary {
@@ -243,7 +244,7 @@
     position: absolute;
     top: 50%;
     right: 0;
-    color: var(--jouzetsu-secondary);
+    color: var(--jouzetsu-app-foreground);
     content: "+";
     font-size: 18px;
     line-height: 1;
@@ -255,7 +256,7 @@
 }
 
 .jouzetsu-device-card-summary:focus-visible {
-    outline: 1px solid var(--jouzetsu-secondary);
+    outline: 1px solid var(--jouzetsu-app-key-visual);
     outline-offset: 4px;
 }
 
@@ -289,35 +290,31 @@
     display: inline-flex;
     width: fit-content;
     padding: 2px 5px;
-    border: 1px solid var(--jouzetsu-border-strong);
+    border: 1px solid var(--jouzetsu-app-border-strong);
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
 }
 
-.jouzetsu-device-status.is-pending {
-    border-color: var(--jouzetsu-primary-dim);
-    background: var(--jouzetsu-primary-soft);
-    color: var(--jouzetsu-primary-hover);
-}
-
-.jouzetsu-device-status.is-allowed,
-.jouzetsu-device-current-label {
-    border-color: var(--jouzetsu-secondary-dim);
-    background: var(--jouzetsu-secondary-soft);
-    color: var(--jouzetsu-secondary);
+.jouzetsu-device-status.is-pending,
+.jouzetsu-device-status.is-allowed {
+    border-color: var(--jouzetsu-system-muted);
+    background: var(--jouzetsu-system-subtle);
+    color: var(--jouzetsu-system-foreground);
 }
 
 .jouzetsu-device-current-label {
-    color: var(--jouzetsu-text-dim);
+    border-color: var(--jouzetsu-app-muted);
+    background: var(--jouzetsu-app-subtle);
+    color: var(--jouzetsu-app-text-muted);
 }
 
 .jouzetsu-device-name {
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
     font-size: 13px;
     font-weight: 700;
     text-overflow: ellipsis;
@@ -327,7 +324,7 @@
 .jouzetsu-device-network,
 .jouzetsu-device-last-active {
     overflow-wrap: anywhere;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 11px;
 }
 
@@ -337,7 +334,7 @@
     gap: 10px;
     margin: 0;
     padding-top: 10px;
-    border-top: 1px solid var(--jouzetsu-border);
+    border-top: 1px solid var(--jouzetsu-app-border);
 }
 
 .jouzetsu-device-card-actions {
@@ -351,8 +348,8 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1px;
-    border: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-border);
+    border: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-border);
 }
 
 .jouzetsu-device-metadata-item {
@@ -361,7 +358,7 @@
     min-width: 0;
     gap: 3px;
     padding: 7px 8px;
-    background: var(--jouzetsu-surface);
+    background: var(--jouzetsu-app-surface);
 }
 
 .jouzetsu-device-metadata-item:last-child {
@@ -369,14 +366,14 @@
 }
 
 .jouzetsu-device-metadata-label {
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 10px;
     text-transform: uppercase;
 }
 
 .jouzetsu-device-metadata-value {
     overflow-wrap: anywhere;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
     font-size: 11px;
 }
 
@@ -399,7 +396,7 @@
     padding: 8px 10px;
     border-color: transparent;
     background: transparent;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     text-align: left;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -408,12 +405,12 @@
 .jouzetsu-chat-item:hover,
 .jouzetsu-chat-item.is-active {
     border-color: transparent;
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-primary);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-foreground);
 }
 
 .jouzetsu-chat-item.is-active {
-    border-left: 3px solid var(--jouzetsu-primary);
+    border-left: 3px solid var(--jouzetsu-app-key-visual);
 }
 
 .jouzetsu-utility-link {
@@ -425,7 +422,7 @@
     padding: 6px 8px;
     border: 0;
     background: transparent;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 12px;
     line-height: 1;
     text-align: left;
@@ -434,15 +431,15 @@
 
 .jouzetsu-utility-link:hover,
 .jouzetsu-utility-link:focus-visible {
-    background: var(--jouzetsu-surface-2);
-    color: var(--jouzetsu-text);
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-text);
     outline: none;
 }
 
 .jouzetsu-utility-icon {
     flex: 0 0 16px;
     width: 16px;
-    color: var(--jouzetsu-secondary);
+    color: var(--jouzetsu-app-foreground);
     font-size: 16px;
     text-align: center;
 }
@@ -465,8 +462,8 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1px;
-    border: 1px solid var(--jouzetsu-border);
-    background: var(--jouzetsu-border);
+    border: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-border);
 }
 
 .jouzetsu-chat-metadata-item:last-child {
@@ -479,18 +476,18 @@
     min-width: 0;
     gap: 3px;
     padding: 7px 8px;
-    background: var(--jouzetsu-surface-2);
+    background: var(--jouzetsu-app-surface-raised);
 }
 
 .jouzetsu-chat-metadata-label {
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 10px;
     text-transform: uppercase;
 }
 
 .jouzetsu-chat-metadata-value {
     overflow: hidden;
-    color: var(--jouzetsu-text);
+    color: var(--jouzetsu-app-text);
     font-family: var(--jouzetsu-font-mono);
     font-size: 11px;
     text-overflow: ellipsis;
@@ -499,7 +496,7 @@
 
 .jouzetsu-danger-zone {
     padding: 9px 10px;
-    border: 1px solid var(--jouzetsu-primary-dim);
+    border: 1px solid var(--jouzetsu-app-muted);
 }
 
 .jouzetsu-field {
@@ -511,7 +508,7 @@
 
 .jouzetsu-field-label,
 .jouzetsu-form-help {
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 11px;
 }
 
@@ -525,6 +522,58 @@
 
 .jouzetsu-field textarea {
     min-height: 94px;
+}
+
+.jouzetsu-colour-override {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+    min-height: 34px;
+}
+
+.jouzetsu-colour-override > input[type="color"] {
+    width: 100%;
+    min-width: 0;
+    height: 34px;
+    min-height: 34px;
+    padding: 2px;
+    border-right: 0;
+    cursor: pointer;
+}
+
+.jouzetsu-colour-override-automatic {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    gap: 4px;
+    padding: 0 7px;
+    border: 1px solid var(--jouzetsu-app-border-strong);
+    border-left: 0;
+    background: var(--jouzetsu-app-surface-raised);
+    color: var(--jouzetsu-app-text-muted);
+    cursor: pointer;
+    font-size: 10px;
+    user-select: none;
+}
+
+.jouzetsu-colour-override-automatic input[type="checkbox"] {
+    width: 13px;
+    min-width: 13px;
+    height: 13px;
+    min-height: 13px;
+    margin: 0;
+    padding: 0;
+    accent-color: var(--jouzetsu-app-key-visual);
+}
+
+.jouzetsu-colour-override.is-automatic > input[type="color"] {
+    opacity: 0.55;
+}
+
+.jouzetsu-colour-override.is-automatic .jouzetsu-colour-override-automatic {
+    border-color: var(--jouzetsu-app-key-visual);
+    background: var(--jouzetsu-app-subtle);
+    color: var(--jouzetsu-app-foreground);
 }
 
 .jouzetsu-spelling-rows {
@@ -546,15 +595,15 @@
 }
 
 .jouzetsu-spelling-arrow {
-    color: var(--jouzetsu-secondary);
+    color: var(--jouzetsu-app-foreground);
 }
 
 .jouzetsu-spelling-remove {
     min-height: 32px;
     padding: 5px 8px;
-    border-color: var(--jouzetsu-primary-dim);
-    background: var(--jouzetsu-primary-soft);
-    color: var(--jouzetsu-primary-hover);
+    border-color: var(--jouzetsu-app-muted);
+    background: var(--jouzetsu-app-subtle);
+    color: var(--jouzetsu-app-foreground);
     font-size: 11px;
 }
 
@@ -566,30 +615,30 @@
 }
 
 .jouzetsu-spelling-validation {
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 11px;
 }
 
 .jouzetsu-spelling-validation.is-error {
-    color: var(--jouzetsu-primary-hover);
+    color: var(--jouzetsu-system-foreground);
 }
 
 .jouzetsu-spelling-row input.is-invalid {
-    border-color: var(--jouzetsu-primary);
+    border-color: var(--jouzetsu-system-accent);
 }
 
 .jouzetsu-check-label {
     display: flex;
     align-items: center;
     gap: 8px;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 12px;
 }
 
 .jouzetsu-check-label input {
     width: 16px;
     min-height: 16px;
-    accent-color: var(--jouzetsu-primary);
+    accent-color: var(--jouzetsu-app-key-visual);
 }
 
 .jouzetsu-dialog {
@@ -598,13 +647,13 @@
     margin: auto;
     padding: 0;
     overflow: auto;
-    border: 1px solid var(--jouzetsu-border-strong);
-    background: var(--jouzetsu-surface);
-    color: var(--jouzetsu-text);
+    border: 1px solid var(--jouzetsu-app-border-strong);
+    background: var(--jouzetsu-app-surface);
+    color: var(--jouzetsu-app-text);
 }
 
 .jouzetsu-dialog::backdrop {
-    background: var(--jouzetsu-backdrop);
+    background: var(--jouzetsu-app-backdrop);
 }
 
 .jouzetsu-modal-card {
@@ -616,23 +665,23 @@
 
 .jouzetsu-dialog-description {
     margin: -4px 0 0;
-    color: var(--jouzetsu-text-dim);
+    color: var(--jouzetsu-app-text-muted);
     font-size: 12px;
     line-height: 1.4;
 }
 
 .jouzetsu-dialog-feedback {
     padding: 8px 10px;
-    border: 1px solid var(--jouzetsu-secondary-dim);
-    background: transparent;
-    color: var(--jouzetsu-text);
+    border: 1px solid var(--jouzetsu-system-muted);
+    border-left: 3px solid var(--jouzetsu-system-accent);
+    background: var(--jouzetsu-system-subtle);
+    color: var(--jouzetsu-system-body);
     font-size: 12px;
 }
 
 .jouzetsu-dialog-feedback.is-error {
-    border-color: var(--jouzetsu-primary-dim);
-    background: transparent;
-    color: var(--jouzetsu-primary-hover);
+    border-color: var(--jouzetsu-system-accent);
+    border-left: 3px solid var(--jouzetsu-system-accent);
 }
 
 .jouzetsu-dialog-section {
@@ -670,4 +719,38 @@
 
 .jouzetsu-form-grid.is-chat-sampling-grid > :last-child {
     grid-column: 1 / -1;
+}
+
+.jouzetsu-appearance-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 9px;
+    border: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface-raised);
+}
+
+.jouzetsu-appearance-group-title {
+    margin: 0;
+    color: var(--jouzetsu-app-foreground);
+    font-family: var(--jouzetsu-font-display);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.035em;
+}
+
+.jouzetsu-appearance-advanced-title {
+    padding: 4px 0;
+    color: var(--jouzetsu-app-text-muted);
+    cursor: pointer;
+}
+
+.jouzetsu-appearance-advanced > :not(summary) {
+    margin-top: 10px;
+}
+
+.jouzetsu-appearance-advanced input:not([type="color"], [type="checkbox"]) {
+    width: 100%;
+    min-width: 0;
+    font-family: var(--jouzetsu-font-mono);
 }

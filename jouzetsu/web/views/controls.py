@@ -58,6 +58,68 @@ def close_dialog_button(dialog_id: str, *, marker: str = "") -> HTML:
     )
 
 
+def reset_form_button(
+    *,
+    action: str,
+    marker: str,
+    label: str = "Reset to defaults",
+    confirmation: str = "",
+    disabled: bool = False,
+    live_notice: str = "",
+    form_id: str = "",
+) -> HTML:
+    """Render a reset submitter that can target one section of a shared form."""
+
+    attributes: dict[str, object] = {
+        "type": "submit",
+        "formaction": action,
+        "formmethod": "post",
+        "formnovalidate": True,
+        "cls": "jouzetsu-button jouzetsu-button-muted",
+        "data_testid": marker,
+        "disabled": disabled,
+    }
+    if confirmation:
+        attributes["data_confirm"] = confirmation
+    if live_notice:
+        attributes["data_live_notice"] = live_notice
+    if form_id:
+        attributes["form"] = form_id
+    return Button(label, **attributes)
+
+
+def form_submit_actions(
+    label: str,
+    marker: str,
+    *,
+    reset_action: str | None = None,
+    reset_marker: str = "",
+    reset_label: str = "Reset to defaults",
+    reset_confirmation: str = "",
+) -> HTML:
+    """Render optional reset and primary save actions for one settings form."""
+
+    return Div(
+        Button(
+            label,
+            type="submit",
+            cls="jouzetsu-button jouzetsu-button-primary",
+            data_testid=marker,
+        ),
+        (
+            reset_form_button(
+                action=reset_action,
+                marker=reset_marker,
+                label=reset_label,
+                confirmation=reset_confirmation,
+            )
+            if reset_action is not None
+            else None
+        ),
+        cls="jouzetsu-dialog-actions",
+    )
+
+
 def field(label: str, control: HTML, *, classes: str = "") -> HTML:
     """Associate one visible field label with a control without generated IDs."""
 

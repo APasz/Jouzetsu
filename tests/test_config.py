@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
@@ -13,12 +14,15 @@ from jouzetsu.config import (
     ConfigStore,
     ConfigValidationError,
     EnvironmentOverrides,
+    MessageActionStyle,
     SpellingReplacement,
     ThemeSettings,
+    decode_config,
     default_config,
     encode_config,
     resolve_app_home,
 )
+from jouzetsu.config.defaults import legacy_theme_values
 
 
 class ConfigStoreTests(unittest.TestCase):
@@ -70,9 +74,12 @@ class ConfigStoreTests(unittest.TestCase):
             config.generation.british_spelling_replacements = [
                 SpellingReplacement("color", "colour")
             ]
-            theme_values = config.theme.values()
-            theme_values["primary"] = "#112233"
-            config.theme = ThemeSettings(**theme_values)
+            config.theme = replace(
+                config.theme,
+                user=replace(config.theme.user, accent="#112233", muted="#223344"),
+                app=replace(config.theme.app, message_action_delete="#334455"),
+            )
+            config.ui.message_action_style = MessageActionStyle.SEMANTIC
 
             store.save(config)
 
@@ -81,8 +88,112 @@ class ConfigStoreTests(unittest.TestCase):
                 saved["generation"]["british_spelling_replacements"],
                 [{"source": "color", "replacement": "colour"}],
             )
-            self.assertEqual(saved["theme"]["primary"], "#112233")
-            self.assertEqual(len(saved["theme"]), len(config.theme.values()))
+            self.assertEqual(
+                saved["theme"]["user"], {"accent": "#112233", "muted": "#223344"}
+            )
+            self.assertEqual(
+                saved["theme"]["app"],
+                {"accent": "#7439b0", "message_action_delete": "#334455"},
+            )
+            self.assertEqual(saved["ui"]["message_action_style"], "semantic")
+            self.assertEqual(
+                set(saved["theme"]), {"app", "user", "assistant", "system"}
+            )
+            self.assertEqual(store.load().theme, config.theme)
+
+    def test_legacy_theme_preserves_custom_colours_and_releases_default_shades(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            paths = AppPaths.for_home(Path(tmp_dir))
+            document = encode_config(default_config(paths))
+            legacy = dict(legacy_theme_values())
+            legacy.update(
+                primary="#123456",
+                secondary="#654321",
+                secondary_muted="#112233",
+                action_delete="#234567",
+                action_merge_muted="#102030",
+                canvas="#010203",
+            )
+            document["theme"] = legacy
+
+            config = decode_config(document, paths=paths)
+
+            self.assertEqual(config.theme.user.accent, "#123456")
+            self.assertIsNone(config.theme.user.muted)
+            self.assertIsNone(config.theme.user.hover)
+            self.assertEqual(config.theme.assistant.accent, "#654321")
+            self.assertEqual(config.theme.assistant.muted, "#112233")
+            self.assertEqual(config.theme.app.message_action_delete, "#234567")
+            self.assertEqual(config.theme.app.message_action_merge, "#102030")
+            self.assertEqual(config.theme.app.canvas, "#010203")
+            self.assertIsNone(config.theme.app.surface)
+            self.assertEqual(config.theme.system, ThemeSettings().system)
+            encoded = encode_config(config)
+            self.assertEqual(decode_config(encoded, paths=paths).theme, config.theme)
+            self.assertNotIn("primary", cast(dict[str, object], encoded["theme"]))
+
+    def test_colourway_decode_rejects_unknown_and_invalid_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            paths = AppPaths.for_home(Path(tmp_dir))
+            document = encode_config(default_config(paths))
+            theme: dict[str, object] = dict(ThemeSettings().values())
+            theme["system"] = {
+                "accent": "#112233",
+                "subtle": "invalid",
+                "surprise": "#445566",
+            }
+            document["theme"] = theme
+
+            with self.assertRaises(ConfigValidationError) as context:
+                decode_config(document, paths=paths)
+
+            self.assertIn("config.theme.system.subtle", str(context.exception))
+            self.assertIn("config.theme.system.surprise", str(context.exception))
+
+    def test_legacy_message_action_style_migrates_on_the_next_save(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            paths = AppPaths.for_home(Path(tmp_dir))
+            document = encode_config(default_config(paths))
+            ui = cast(dict[str, object], document["ui"])
+            _ = ui.pop("message_action_style")
+            ui["message_action_icon_style"] = "muted_color"
+
+            config = decode_config(document, paths=paths)
+            encoded = encode_config(config)
+
+            self.assertIs(config.ui.message_action_style, MessageActionStyle.SEMANTIC)
+            self.assertEqual(
+                cast(dict[str, object], encoded["ui"])["message_action_style"],
+                "semantic",
+            )
+            self.assertNotIn(
+                "message_action_icon_style", cast(dict[str, object], encoded["ui"])
+            )
+
+    def test_missing_message_action_style_defaults_to_uniform(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            paths = AppPaths.for_home(Path(tmp_dir))
+            document = encode_config(default_config(paths))
+            _ = cast(dict[str, object], document["ui"]).pop("message_action_style")
+
+            config = decode_config(document, paths=paths)
+
+            self.assertIs(config.ui.message_action_style, MessageActionStyle.UNIFORM)
+
+    def test_config_rejects_an_invalid_message_action_style(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            paths = AppPaths.for_home(Path(tmp_dir))
+            document = encode_config(default_config(paths))
+            cast(dict[str, object], document["ui"])["message_action_style"] = "rainbow"
+
+            with self.assertRaises(ConfigValidationError) as context:
+                decode_config(document, paths=paths)
+
+            self.assertIn(
+                "config.ui.message_action_style: is invalid", str(context.exception)
+            )
 
     def test_environment_overrides_are_never_written_back(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

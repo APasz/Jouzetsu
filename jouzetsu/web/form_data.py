@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import cast
+from dataclasses import dataclass, replace
+from typing import Final, cast
 
 from starlette.datastructures import FormData
 from starlette.exceptions import HTTPException
@@ -12,13 +12,24 @@ from starlette.requests import Request
 
 from ..character_presets import CharacterFieldKind, CharacterFieldPreset
 from ..config import (
+    AppColorwaySettings,
+    ColorwaySettings,
     GenerationSettings,
+    HostStatsSettings,
     IconColorSettings,
+    MessageAction,
+    MessageActionStyle,
     ServerSettings,
     SpellingReplacement,
+    ThemeSettings,
+    builtin_message_action_color,
 )
 from ..models import CharacterField, CharacterName
 from ..state import AppState
+
+_APP_SPECIAL_COLOR_FIELDS: Final[frozenset[str]] = frozenset(
+    {"key_visual", *(action.color_field for action in MessageAction)}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,7 +247,7 @@ def updated_server_settings(
 
 
 def updated_icon_color_settings(state: AppState, form: FormValues) -> IconColorSettings:
-    """Construct the complete, validated icon palette from interface controls."""
+    """Construct the complete, validated icon palette from appearance controls."""
 
     current: IconColorSettings = state.config.ui.icon_colors
     colors: IconColorSettings = IconColorSettings(
@@ -252,6 +263,160 @@ def updated_icon_color_settings(state: AppState, form: FormValues) -> IconColorS
     )
     colors.validate()
     return colors
+
+
+def message_action_style_from_form(
+    state: AppState, form: FormValues
+) -> MessageActionStyle:
+    """Read the finite message-action presentation choice from Appearance."""
+
+    raw: str = form.text(
+        "message_action_style", default=state.config.ui.message_action_style.value
+    ).strip()
+    try:
+        return MessageActionStyle(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "message_action_style must be a supported action style"
+        ) from exc
+
+
+def updated_theme_settings(state: AppState, form: FormValues) -> ThemeSettings:
+    """Read independent colourways, treating blank overrides as automatic."""
+
+    current: ThemeSettings = state.config.theme
+    colorways = {
+        owner.value: _updated_colorway(settings, form, prefix=f"theme_{owner.value}")
+        for owner, settings in current.colorways()
+    }
+    theme = replace(current, **colorways)
+    theme.validate()
+    return theme
+
+
+def _updated_colorway[C: ColorwaySettings](
+    current: C, form: FormValues, *, prefix: str
+) -> C:
+    values: dict[str, str | None] = {}
+    for name, value in current.values().items():
+        if (
+            isinstance(current, AppColorwaySettings)
+            and name in _APP_SPECIAL_COLOR_FIELDS
+        ):
+            continue
+        field_name: str = f"{prefix}_{name}"
+        if name == "accent":
+            values[name] = form.text(field_name, default=cast(str, value)).strip()
+        else:
+            values[name] = _optional_colour_override_from_form(
+                form, field_name=field_name, current=value
+            )
+    if isinstance(current, AppColorwaySettings):
+        main_colour: str = cast(str, values["accent"])
+        values["key_visual"] = key_visual_from_form(
+            current, form, prefix=prefix, main_colour=main_colour
+        )
+        values.update(_message_action_colours_from_form(current, form, prefix=prefix))
+    return replace(current, **values)
+
+
+def _optional_colour_override_from_form(
+    form: FormValues, *, field_name: str, current: str | None
+) -> str | None:
+    """Read one optional colour, allowing its paired Auto control to clear it."""
+
+    if _automatic_override_state(form, field_name=field_name) is True:
+        return None
+    selected: str = form.text(field_name, default=current or "").strip()
+    return selected or None
+
+
+def key_visual_from_form(
+    current: AppColorwaySettings,
+    form: FormValues,
+    *,
+    prefix: str,
+    main_colour: str,
+) -> str | None:
+    """Read Key Visual's Auto state while supporting pre-toggle form submissions."""
+
+    field_name = f"{prefix}_key_visual"
+    automatic: bool | None = _automatic_override_state(form, field_name=field_name)
+    if automatic is True:
+        return None
+    if not form.has(field_name):
+        return current.key_visual
+    selected: str = form.text(field_name).strip()
+    if not selected:
+        return None
+    if automatic is False:
+        return selected
+    if selected.casefold() == main_colour.casefold():
+        return None
+    if current.key_visual is None and selected.casefold() == current.accent.casefold():
+        return None
+    return selected
+
+
+def _automatic_override_state(
+    form: FormValues, *, field_name: str
+) -> bool | None:
+    """Return an explicit Auto state, or ``None`` for submissions from older forms."""
+
+    automatic_field: str = f"{field_name}_automatic"
+    if not (
+        form.has(f"{automatic_field}_present") or form.has(automatic_field)
+    ):
+        return None
+    return form.flag(automatic_field)
+
+
+def _message_action_colours_from_form(
+    current: AppColorwaySettings, form: FormValues, *, prefix: str
+) -> dict[str, str | None]:
+    """Read semantic action overrides while preserving unavailable controls."""
+
+    return {
+        action.color_field: _message_action_colour_from_form(
+            current, form, prefix=prefix, action=action
+        )
+        for action in MessageAction
+    }
+
+
+def _message_action_colour_from_form(
+    current: AppColorwaySettings,
+    form: FormValues,
+    *,
+    prefix: str,
+    action: MessageAction,
+) -> str | None:
+    field_name: str = f"{prefix}_{action.color_field}"
+    if not form.has(field_name):
+        return getattr(current, action.color_field)
+    selected: str = form.text(field_name).strip()
+    if not selected or selected.casefold() == builtin_message_action_color(action):
+        return None
+    return selected
+
+
+def updated_host_stat_activity_colors(
+    state: AppState, form: FormValues
+) -> tuple[str, str]:
+    """Read validated host-meter endpoint colours without changing visibility settings."""
+
+    current: HostStatsSettings = state.config.host_stats
+    updated: HostStatsSettings = replace(
+        current,
+        activity_start_color=form.text(
+            "activity_start_color", default=current.activity_start_color
+        ).strip(),
+        activity_end_color=form.text(
+            "activity_end_color", default=current.activity_end_color
+        ).strip(),
+    )
+    updated.validate()
+    return updated.activity_start_color, updated.activity_end_color
 
 
 def _parse_spelling_replacements(raw: str) -> list[SpellingReplacement]:

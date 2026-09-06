@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from collections.abc import AsyncIterator, Iterable, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import cast, override
 from unittest.mock import patch
@@ -14,10 +15,15 @@ from jouzetsu.config import (
     AppConfig,
     AppPaths,
     ConfigStore,
+    DeviceAccessSettings,
     GenerationSettings,
     IconColorSettings,
+    MessageActionStyle,
     ServerSettings,
+    ThemeColorway,
+    ThemeSettings,
     UiSettings,
+    default_config,
 )
 from jouzetsu.continuity import CONTINUITY_REVIEW_PROMPT
 from jouzetsu.events import StateChangeKind
@@ -48,6 +54,7 @@ from jouzetsu.runtime import (
 from jouzetsu.state import AppState
 from jouzetsu.state_generation import GenerationController
 from jouzetsu.storage import ChatStorage
+from jouzetsu.web.theme import render_theme_css
 
 
 class FakeLMStudioClient(LMStudioClient):
@@ -1415,19 +1422,6 @@ class AppStateTests(unittest.TestCase):
         self.assertIs(self.state.config.server, original_server)
         self.assertEqual(self.state.config.server, updated_server)
 
-    def test_set_global_settings_persists_message_action_icon_style(self) -> None:
-        asyncio.run(
-            self.state.set_global_settings(
-                self.state.config.generation,
-                self.state.config.server,
-                message_action_icon_style="muted_color",
-            )
-        )
-
-        ui = _saved_config_section(self.state.config.config_file, "ui")
-        self.assertEqual(ui["message_action_icon_style"], "muted_color")
-        self.assertEqual(self.state.config.ui.message_action_icon_style, "muted_color")
-
     def test_set_global_settings_persists_icon_colors(self) -> None:
         colors = IconColorSettings(
             linework_color="#101112",
@@ -1453,6 +1447,236 @@ class AppStateTests(unittest.TestCase):
             },
         )
         self.assertEqual(self.state.config.ui.icon_colors, colors)
+
+    def test_set_appearance_settings_persists_the_semantic_palette_and_features(
+        self,
+    ) -> None:
+        theme = replace(
+            self.state.config.theme,
+            user=replace(self.state.config.theme.user, accent="#101112"),
+            app=replace(self.state.config.theme.app, message_action_delete="#131415"),
+        )
+        icon_colors = IconColorSettings(
+            linework_color="#131415",
+            accent_color="#161718",
+            surface_color="#191a1b",
+        )
+
+        asyncio.run(
+            self.state.set_appearance_settings(
+                theme,
+                icon_colors,
+                dark_mode=False,
+                message_action_style=MessageActionStyle.SEMANTIC,
+                activity_start_color="#1c1d1e",
+                activity_end_color="#1f2021",
+            )
+        )
+
+        theme_json = _saved_config_section(self.state.config.config_file, "theme")
+        host_stats_json = _saved_config_section(
+            self.state.config.config_file, "host_stats"
+        )
+        self.assertEqual(theme_json["user"], {"accent": "#101112"})
+        self.assertEqual(
+            theme_json["app"],
+            {"accent": "#7439b0", "message_action_delete": "#131415"},
+        )
+        self.assertFalse(
+            _saved_config_section(self.state.config.config_file, "ui")["dark_mode"]
+        )
+        self.assertEqual(
+            _saved_config_section(self.state.config.config_file, "ui")[
+                "message_action_style"
+            ],
+            "semantic",
+        )
+        self.assertEqual(
+            _saved_config_section(self.state.config.config_file, "ui")["icon_colors"],
+            {
+                "linework_color": "#131415",
+                "accent_color": "#161718",
+                "surface_color": "#191a1b",
+            },
+        )
+        self.assertEqual(host_stats_json["activity_start_color"], "#1c1d1e")
+        self.assertEqual(host_stats_json["activity_end_color"], "#1f2021")
+        self.assertIn("color-scheme: light;", render_theme_css(self.state.config))
+
+    def test_set_appearance_settings_rejects_invalid_values_without_mutation(
+        self,
+    ) -> None:
+        original_theme: ThemeSettings = self.state.config.theme
+        original_icon_colors: IconColorSettings = self.state.config.ui.icon_colors
+        original_activity_start: str = self.state.config.host_stats.activity_start_color
+
+        with self.assertRaisesRegex(
+            ValueError, "activity_start_color must be a six-digit hexadecimal color"
+        ):
+            asyncio.run(
+                self.state.set_appearance_settings(
+                    original_theme,
+                    IconColorSettings(),
+                    dark_mode=self.state.config.ui.dark_mode,
+                    message_action_style=MessageActionStyle.UNIFORM,
+                    activity_start_color="invalid",
+                    activity_end_color="#123456",
+                )
+            )
+
+        self.assertIs(self.state.config.theme, original_theme)
+        self.assertIs(self.state.config.ui.icon_colors, original_icon_colors)
+        self.assertEqual(
+            self.state.config.host_stats.activity_start_color, original_activity_start
+        )
+
+    def test_reset_theme_colorways_restore_only_the_selected_colourway(self) -> None:
+        theme: ThemeSettings = replace(
+            self.state.config.theme,
+            app=replace(
+                self.state.config.theme.app,
+                accent="#101112",
+                message_action_delete="#131415",
+            ),
+            user=replace(self.state.config.theme.user, accent="#131415"),
+            assistant=replace(self.state.config.theme.assistant, accent="#161718"),
+            system=replace(self.state.config.theme.system, accent="#191a1b"),
+        )
+        defaults: ThemeSettings = default_config(self.state.config.paths).theme
+        original_colorways = dict(theme.colorways())
+        default_colorways = dict(defaults.colorways())
+
+        for colorway in ThemeColorway:
+            self.state.config.theme = theme
+
+            asyncio.run(self.state.reset_theme_colorway(colorway))
+
+            colorways = dict(self.state.config.theme.colorways())
+            self.assertEqual(colorways[colorway], default_colorways[colorway])
+            for other in set(ThemeColorway).difference({colorway}):
+                self.assertEqual(colorways[other], original_colorways[other])
+
+        saved = _saved_config_section(self.state.config.config_file, "theme")
+        self.assertEqual(saved["system"], {"accent": defaults.system.accent})
+
+    def test_reset_appearance_restores_visible_controls_only(self) -> None:
+        self.state.config.theme = replace(
+            self.state.config.theme,
+            user=replace(self.state.config.theme.user, accent="#101112"),
+            app=replace(self.state.config.theme.app, message_action_delete="#131415"),
+        )
+        self.state.config.ui.dark_mode = False
+        self.state.config.ui.message_action_style = MessageActionStyle.SEMANTIC
+        self.state.config.ui.icon_colors = IconColorSettings(
+            linework_color="#131415",
+            accent_color="#161718",
+            surface_color="#191a1b",
+        )
+        self.state.config.host_stats.system = False
+        self.state.config.host_stats.activity_start_color = "#1c1d1e"
+        self.state.config.host_stats.activity_end_color = "#1f2021"
+
+        asyncio.run(self.state.reset_appearance_settings())
+
+        defaults: AppConfig = default_config(self.state.config.paths)
+        self.assertEqual(self.state.config.theme, defaults.theme)
+        self.assertEqual(self.state.config.ui.dark_mode, defaults.ui.dark_mode)
+        self.assertEqual(
+            self.state.config.ui.message_action_style,
+            defaults.ui.message_action_style,
+        )
+        self.assertEqual(self.state.config.ui.icon_colors, defaults.ui.icon_colors)
+        self.assertEqual(
+            self.state.config.host_stats.activity_start_color,
+            defaults.host_stats.activity_start_color,
+        )
+        self.assertEqual(
+            self.state.config.host_stats.activity_end_color,
+            defaults.host_stats.activity_end_color,
+        )
+        self.assertFalse(self.state.config.host_stats.system)
+
+    def test_reset_generation_defaults_preserves_separate_prompt_settings(self) -> None:
+        self.state.config.generation = GenerationSettings(
+            temperature=0.2,
+            top_p=0.3,
+            max_tokens=128,
+            system_prompt="Custom prompt",
+            continuity_review=False,
+            british_english=True,
+            british_spelling_replacements=[],
+        )
+
+        asyncio.run(self.state.reset_generation_defaults())
+
+        defaults: GenerationSettings = default_config(
+            self.state.config.paths
+        ).generation
+        generation: GenerationSettings = self.state.config.generation
+        self.assertEqual(generation.temperature, defaults.temperature)
+        self.assertEqual(generation.top_p, defaults.top_p)
+        self.assertEqual(generation.max_tokens, defaults.max_tokens)
+        self.assertEqual(generation.continuity_review, defaults.continuity_review)
+        self.assertEqual(
+            generation.british_spelling_replacements,
+            defaults.british_spelling_replacements,
+        )
+        self.assertEqual(generation.system_prompt, "Custom prompt")
+        self.assertTrue(generation.british_english)
+
+        asyncio.run(self.state.reset_global_system_prompt())
+
+        self.assertEqual(
+            self.state.config.generation.system_prompt,
+            defaults.system_prompt,
+        )
+
+    def test_reset_model_defaults_preserves_connection_and_other_model_aliases(
+        self,
+    ) -> None:
+        server: ServerSettings = self.state.config.server
+        server.base_url = "http://example.test:1234/v1"
+        server.api_key = "custom-key"
+        server.default_model = "demo-model"
+        server.model_aliases = {"demo-model": "Demo", "other-model": "Other"}
+        server.auto_unload_minutes = 15
+
+        asyncio.run(self.state.reset_model_defaults())
+
+        self.assertEqual(server.base_url, "http://example.test:1234/v1")
+        self.assertEqual(server.api_key, "custom-key")
+        self.assertEqual(server.default_model, "")
+        self.assertEqual(server.model_aliases, {"other-model": "Other"})
+        self.assertIsNone(server.auto_unload_minutes)
+
+    def test_reset_access_defaults_preserves_known_devices_and_phrase(self) -> None:
+        access = self.state.config.access
+        device = DeviceAccessSettings(access_allowed=True, label="Known browser")
+        access.default_private = False
+        access.allow_localhost_without_approval = False
+        access.global_settings_for_approved = True
+        access.allow_network_device_reassociation = True
+        access.approval_phrase = "secret phrase"
+        access.devices = {"known-device": device}
+
+        asyncio.run(self.state.reset_access_defaults())
+
+        defaults = default_config(self.state.config.paths).access
+        self.assertEqual(access.default_private, defaults.default_private)
+        self.assertEqual(
+            access.allow_localhost_without_approval,
+            defaults.allow_localhost_without_approval,
+        )
+        self.assertEqual(
+            access.global_settings_for_approved,
+            defaults.global_settings_for_approved,
+        )
+        self.assertEqual(
+            access.allow_network_device_reassociation,
+            defaults.allow_network_device_reassociation,
+        )
+        self.assertEqual(access.approval_phrase, "secret phrase")
+        self.assertIs(access.devices["known-device"], device)
 
     def test_set_generation_defaults_rejects_invalid_values_without_mutating_config(
         self,

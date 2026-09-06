@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Final, Literal
 from urllib.parse import urlencode
 
-from ...config import GenerationSettings, MessageActionIconStyle, StarterPrompt
+from ...config import GenerationSettings, MessageActionStyle, StarterPrompt
 from ...markdown import render_markdown
 from ...models import Chat, ChatSamplingOverrides, Message
 from ...runtime import GenerationMetrics, RuntimePhase, RuntimeStatus
@@ -44,6 +44,7 @@ from .controls import (
     checkbox as _checkbox,
     field as _field,
     post_button as _post_button,
+    reset_form_button as _reset_form_button,
 )
 from .icons import render_icon as _icon
 
@@ -57,8 +58,8 @@ class ChatView:
     runtime_status: RuntimeStatus
     generation_reasoning: str
     empty_state_message: str
-    message_action_icon_style: MessageActionIconStyle
     starter_prompts: tuple[StarterPrompt, ...]
+    message_action_style: MessageActionStyle
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,9 +246,7 @@ def _render_composer_status_load_progress(progress: float | None) -> HTML:
         aria_valuemin="0",
         aria_valuemax="100",
         aria_valuenow=percent_text,
-        aria_valuetext=(
-            f"{round(percent):d}% loaded" if percent is not None else None
-        ),
+        aria_valuetext=(f"{round(percent):d}% loaded" if percent is not None else None),
         data_composer_status_progress="true",
         data_composer_status_load_progress=percent_text,
     )
@@ -559,12 +558,23 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                     "Leave any value blank to inherit its global default.",
                     cls="jouzetsu-form-help",
                 ),
-                Button(
-                    "Save sampling",
-                    type="submit",
-                    cls="jouzetsu-button",
-                    disabled=generating,
-                    data_testid="save-chat-sampling-button",
+                Div(
+                    Button(
+                        "Save sampling",
+                        type="submit",
+                        cls="jouzetsu-button",
+                        disabled=generating,
+                        data_testid="save-chat-sampling-button",
+                    ),
+                    _reset_form_button(
+                        action="/chat/sampling/reset",
+                        marker="reset-chat-sampling-button",
+                        label="Use global defaults",
+                        confirmation="Reset this chat's sampling to the global defaults?",
+                        disabled=generating,
+                        live_notice="Sampling reset to global defaults",
+                    ),
+                    cls="jouzetsu-dialog-actions",
                 ),
                 action="/chat/sampling",
                 method="post",
@@ -592,12 +602,22 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                     cls="jouzetsu-form-help",
                     data_testid="chat-prompt-source",
                 ),
-                Button(
-                    "Save prompt",
-                    type="submit",
-                    cls="jouzetsu-button",
-                    disabled=generating,
-                    data_testid="save-chat-prompt-button",
+                Div(
+                    Button(
+                        "Save prompt",
+                        type="submit",
+                        cls="jouzetsu-button",
+                        disabled=generating,
+                        data_testid="save-chat-prompt-button",
+                    ),
+                    _reset_form_button(
+                        action="/chat/prompt/reset",
+                        marker="reset-chat-prompt-button",
+                        label="Use global default",
+                        confirmation="Reset this chat's prompt to the global default?",
+                        disabled=generating,
+                    ),
+                    cls="jouzetsu-dialog-actions",
                 ),
                 action="/chat/prompt",
                 method="post",
@@ -986,10 +1006,10 @@ def render_message(
         )
     else:
         text = render_markdown(message.content)
-    action_style: MessageActionIconStyle = view.message_action_icon_style
     action_classes: str = "jouzetsu-message-actions"
-    if action_style == "muted_color":
-        action_classes += " jouzetsu-action-icons-muted"
+    if view.message_action_style is MessageActionStyle.SEMANTIC:
+        action_classes += " is-semantic"
+
     return Article(
         Div(
             Div(
