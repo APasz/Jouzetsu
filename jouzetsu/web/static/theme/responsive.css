@@ -4,6 +4,10 @@
         transition: none;
     }
 
+    .jouzetsu-composer-status-progress-fill {
+        transition: none;
+    }
+
     .jouzetsu-message.is-streaming .jouzetsu-message-surface::before {
         background-position: 0 50%;
         animation: none;
@@ -185,6 +189,8 @@
     }
 
     .jouzetsu-composer-footer {
+        --jouzetsu-composer-status-side-rail: 72px;
+
         align-items: flex-start;
         flex-direction: column;
     }
@@ -196,6 +202,7 @@
 
     .jouzetsu-composer-status {
         width: 100%;
+        column-gap: 6px;
     }
 
     .jouzetsu-composer-status-stack {
@@ -208,10 +215,49 @@
 
     .jouzetsu-composer-actions {
         width: 100%;
+        padding-inline-end: 16px;
+        scroll-padding-inline-end: 16px;
+        mask-image: linear-gradient(
+            to right,
+            currentColor 0,
+            currentColor calc(100% - 16px),
+            transparent 100%
+        );
+        mask-repeat: no-repeat;
+        mask-size: 100% 100%;
+        -webkit-mask-image: linear-gradient(
+            to right,
+            currentColor 0,
+            currentColor calc(100% - 16px),
+            transparent 100%
+        );
+        -webkit-mask-repeat: no-repeat;
+        -webkit-mask-size: 100% 100%;
+    }
+
+    .jouzetsu-composer-footer:not(.jouzetsu-generation-strip)
+        .jouzetsu-composer-actions {
+        position: static;
+        max-width: none;
     }
 
     .jouzetsu-app.is-keyboard-open .jouzetsu-composer-actions {
         width: auto;
+    }
+
+    .jouzetsu-app.is-keyboard-open
+        .jouzetsu-composer-footer:not(.jouzetsu-generation-strip)
+        .jouzetsu-composer-actions {
+        position: absolute;
+        top: 6px;
+        right: 0;
+        max-width: var(--jouzetsu-composer-status-side-rail);
+    }
+
+    .jouzetsu-app.is-keyboard-open
+        .jouzetsu-composer-footer:not(.jouzetsu-generation-strip)
+        .jouzetsu-composer-status-stack {
+        width: 100%;
     }
 
     .jouzetsu-generation-strip {

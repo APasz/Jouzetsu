@@ -1,10 +1,16 @@
 /* Composer and buttons */
 .jouzetsu-composer {
+    --jouzetsu-composer-resize-handle-height: 10px;
+
     position: relative;
     min-height: 0;
     max-height: var(--jouzetsu-composer-max-height, 78dvh);
     height: var(--jouzetsu-composer-height);
-    padding: 6px max(8px, env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    padding:
+        var(--jouzetsu-composer-resize-handle-height)
+        max(8px, env(safe-area-inset-right))
+        calc(6px + env(safe-area-inset-bottom))
+        max(8px, env(safe-area-inset-left));
     border-top: 1px solid var(--jouzetsu-border);
     background: var(--jouzetsu-surface);
 }
@@ -27,11 +33,11 @@
 
 .jouzetsu-composer-resize-handle {
     position: absolute;
-    top: -5px;
+    top: 0;
     right: 0;
     left: 0;
     z-index: 2;
-    height: 10px;
+    height: var(--jouzetsu-composer-resize-handle-height);
     cursor: ns-resize;
     touch-action: none;
 }
@@ -60,9 +66,9 @@
 
 .jouzetsu-generation-reasoning {
     margin: 0 0 6px;
-    border: 1px solid var(--jouzetsu-primary-dim);
+    border: 1px solid var(--jouzetsu-border);
     border-radius: 6px;
-    background: var(--jouzetsu-primary-soft);
+    background: var(--jouzetsu-surface-2);
     color: var(--jouzetsu-text-dim);
 }
 
@@ -97,24 +103,63 @@
 }
 
 .jouzetsu-composer-footer {
+    --jouzetsu-composer-status-side-rail: clamp(88px, 16vw, 160px);
+
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 6px;
     min-height: 32px;
-    padding: 0 6px;
+    padding: 6px 0 0;
 }
 
 .jouzetsu-generation-strip {
-    border: 1px solid var(--jouzetsu-primary-dim);
-    background: var(--jouzetsu-primary-soft);
+    border: 1px solid var(--jouzetsu-border);
+    background: var(--jouzetsu-surface-2);
+    padding: 6px 6px 0;
+}
+
+.jouzetsu-composer-footer:not(.jouzetsu-generation-strip) {
+    position: relative;
+    min-height: 38px;
+}
+
+.jouzetsu-composer-footer:not(.jouzetsu-generation-strip)
+    .jouzetsu-composer-status-stack {
+    width: 100%;
+}
+
+.jouzetsu-composer-footer:not(.jouzetsu-generation-strip)
+    .jouzetsu-composer-actions {
+    position: absolute;
+    top: 6px;
+    right: 0;
+    width: auto;
+    max-width: var(--jouzetsu-composer-status-side-rail);
+}
+
+.jouzetsu-composer-footer-has-multiple-actions {
+    align-items: stretch;
+    flex-direction: column;
+}
+
+.jouzetsu-composer-footer.jouzetsu-composer-footer-has-multiple-actions
+    .jouzetsu-composer-actions {
+    position: static;
+    width: 100%;
+    max-width: none;
 }
 
 .jouzetsu-composer-status {
     display: grid;
-    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    grid-template-columns:
+        var(--jouzetsu-composer-status-side-rail)
+        minmax(0, 1fr)
+        var(--jouzetsu-composer-status-side-rail);
+    grid-template-rows: auto 2px;
     align-items: center;
     column-gap: 10px;
+    row-gap: 2px;
     min-height: 16px;
     min-width: 0;
     color: var(--jouzetsu-text-dim);
@@ -123,11 +168,18 @@
 }
 
 .jouzetsu-composer-status-state {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+    overflow: hidden;
     font-weight: 700;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .jouzetsu-composer-status-detail {
+    grid-column: 2;
+    grid-row: 1;
     min-width: 0;
     overflow: hidden;
     text-align: center;
@@ -135,8 +187,27 @@
     white-space: nowrap;
 }
 
+.jouzetsu-composer-status-progress {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    height: 2px;
+    overflow: hidden;
+    background: var(--jouzetsu-primary-dim);
+}
+
+.jouzetsu-composer-status-progress-fill {
+    display: block;
+    width: var(--jouzetsu-composer-status-load-progress, 0%);
+    height: 100%;
+    background: var(--jouzetsu-primary);
+    opacity: 0.8;
+    transition: width 160ms ease-out;
+}
+
 .jouzetsu-composer-status-timers {
     display: flex;
+    grid-column: 3;
+    grid-row: 1;
     justify-self: end;
     gap: 8px;
     color: var(--jouzetsu-text-dim);
@@ -228,7 +299,7 @@
     flex: 0 1 auto;
     flex-wrap: nowrap;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     min-width: 0;
     overflow-x: auto;
     scrollbar-width: none;
@@ -301,4 +372,3 @@
     border-color: var(--jouzetsu-secondary-dim);
     color: var(--jouzetsu-secondary);
 }
-

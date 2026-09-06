@@ -4,6 +4,9 @@ const COMPOSER_STATUS_ELAPSED_INTERVAL_MS = 100;
 const COMPOSER_MAX_VIEWPORT_SHARE = 0.78;
 const KEYBOARD_DETECTION_THRESHOLD_PX = 80;
 const KEYBOARD_BOTTOM_CLEARANCE_PX = 12;
+const COMPOSER_STATUS_PROGRESS_SELECTOR = '[data-composer-status-progress]';
+const COMPOSER_STATUS_PROGRESS_FILL_SELECTOR = '[data-composer-status-progress-fill]';
+const COMPOSER_STATUS_LOAD_PROGRESS_PROPERTY = '--jouzetsu-composer-status-load-progress';
 
 const formatElapsed = (seconds) => `${Math.max(0, seconds).toFixed(1)}s`;
 
@@ -136,6 +139,7 @@ export class ComposerController {
         if (!(currentStatus instanceof HTMLElement) || !(nextStatus instanceof HTMLElement)) return false;
         if (!this.#syncStatusText(currentStatus, nextStatus, '[data-composer-status-state]')) return false;
         if (!this.#syncStatusText(currentStatus, nextStatus, '[data-composer-status-detail]')) return false;
+        if (!this.#syncStatusLoadProgress(currentStatus, nextStatus)) return false;
         const stageSynced = this.#syncStatusDuration(
             currentStatus,
             nextStatus,
@@ -302,6 +306,39 @@ export class ComposerController {
         const nextText = nextStatus.querySelector(selector);
         if (!(currentText instanceof HTMLElement) || !(nextText instanceof HTMLElement)) return false;
         currentText.textContent = nextText.textContent;
+        return true;
+    }
+
+    #syncStatusLoadProgress(currentStatus, nextStatus) {
+        const currentProgress = currentStatus.querySelector(COMPOSER_STATUS_PROGRESS_SELECTOR);
+        const nextProgress = nextStatus.querySelector(COMPOSER_STATUS_PROGRESS_SELECTOR);
+        const currentFill = currentProgress?.querySelector(
+            COMPOSER_STATUS_PROGRESS_FILL_SELECTOR,
+        );
+        if (
+            !(currentProgress instanceof HTMLElement)
+            || !(nextProgress instanceof HTMLElement)
+            || !(currentFill instanceof HTMLElement)
+        ) return false;
+        const nextPercent = Number.parseFloat(nextProgress.dataset.composerStatusLoadProgress || '');
+        if (!Number.isFinite(nextPercent)) {
+            currentProgress.hidden = true;
+            delete currentProgress.dataset.composerStatusLoadProgress;
+            currentProgress.removeAttribute('aria-valuenow');
+            currentProgress.removeAttribute('aria-valuetext');
+            currentFill.style.removeProperty(COMPOSER_STATUS_LOAD_PROGRESS_PROPERTY);
+            return true;
+        }
+        const percent = Math.min(100, Math.max(0, nextPercent));
+        const percentText = percent.toFixed(3);
+        currentProgress.hidden = false;
+        currentProgress.dataset.composerStatusLoadProgress = percentText;
+        currentProgress.setAttribute('aria-valuenow', percentText);
+        currentProgress.setAttribute('aria-valuetext', `${Math.round(percent)}% loaded`);
+        currentFill.style.setProperty(
+            COMPOSER_STATUS_LOAD_PROGRESS_PROPERTY,
+            `${percentText}%`,
+        );
         return true;
     }
 

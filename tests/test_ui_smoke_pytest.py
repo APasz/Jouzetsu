@@ -585,6 +585,40 @@ def test_chat_client_keeps_the_chat_shell_inside_the_visual_viewport() -> None:
     assert ".jouzetsu-app.is-keyboard-open .jouzetsu-composer-footer" in styles
 
 
+def test_composer_layout_uses_shared_rails_and_reserves_progress_space() -> None:
+    styles: str = _theme_styles()
+
+    assert "top: -5px;" not in styles
+    assert "--jouzetsu-composer-resize-handle-height: 10px;" in styles
+    assert "padding: 6px 0 0;" in styles
+    assert "padding: 6px 6px 0;" in styles
+    assert "--jouzetsu-composer-status-side-rail: clamp(88px, 16vw, 160px);" in styles
+    assert "min-height: 38px;" in styles
+    assert "max-width: var(--jouzetsu-composer-status-side-rail);" in styles
+    assert ".jouzetsu-composer-footer-has-multiple-actions" in styles
+    assert "grid-template-rows: auto 2px;" in styles
+    assert "grid-column: 1 / -1;" in styles
+    assert "--jouzetsu-composer-status-side-rail: 72px;" in styles
+    assert "position: static;" in styles
+    assert "scroll-padding-inline-end: 16px;" in styles
+    assert "-webkit-mask-image: linear-gradient(" in styles
+
+
+def test_generation_panels_use_neutral_surface_tokens() -> None:
+    styles: str = _theme_styles()
+
+    for selector in (
+        ".jouzetsu-generation-reasoning {",
+        ".jouzetsu-generation-strip {",
+    ):
+        panel_styles: str = styles.split(selector, maxsplit=1)[1].split(
+            "}", maxsplit=1
+        )[0]
+        assert "var(--jouzetsu-border)" in panel_styles
+        assert "var(--jouzetsu-surface-2)" in panel_styles
+        assert "var(--jouzetsu-primary" not in panel_styles
+
+
 def test_chat_client_ticks_the_loading_status_elapsed_value() -> None:
     script: str = _chat_client_source()
 
@@ -594,6 +628,9 @@ def test_chat_client_ticks_the_loading_status_elapsed_value() -> None:
     assert "syncStatusElapsedTimer()" in script
     assert "composerStatusStageElapsedSeconds" in script
     assert "composerStatusOverallElapsedSeconds" in script
+    assert "#syncStatusLoadProgress(" in script
+    assert "composerStatusLoadProgress" in script
+    assert "data-composer-status-progress" in script
     assert "this.#composer.syncLiveStatus(" in script
 
 

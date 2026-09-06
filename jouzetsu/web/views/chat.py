@@ -98,12 +98,13 @@ _COMPOSER_SUBMIT_ARIA_SHORTCUTS: Final[str] = "Shift+Enter Meta+Enter"
 
 @dataclass(frozen=True, slots=True)
 class _ComposerStatus:
-    """Three-column content shared by full and incremental composer renders."""
+    """Status-line content shared by full and incremental composer renders."""
 
     state: _ComposerStatusState
     detail: str = ""
     stage_elapsed_seconds: float | None = None
     overall_elapsed_seconds: float | None = None
+    load_progress: float | None = None
 
 
 class _ComposerStatusState(Enum):
@@ -116,8 +117,12 @@ class _ComposerStatusState(Enum):
     LOADING = "Loading"
     NO_MODEL = "No model"
     OFFLINE = "Offline"
+    PREPARING = "Preparing"
+    PROCESSING = "Processing"
     READY = "Ready"
     REASONING = "Reasoning"
+    REVIEWING = "Reviewing"
+    STOPPING = "Stopping"
     UNLOADED = "Unloaded"
 
 
@@ -190,8 +195,10 @@ def _render_composer_status_content(status: _ComposerStatus) -> tuple[HTML, ...]
                 status.overall_elapsed_seconds, timer="overall"
             ),
             cls="jouzetsu-composer-status-timers",
+            aria_live="off",
             data_composer_status_timers="true",
         ),
+        _render_composer_status_load_progress(status.load_progress),
     )
 
 
@@ -213,6 +220,43 @@ def _render_composer_status_timer(
         hidden=elapsed_seconds is None,
         **{timer_marker: "true"},
     )
+
+
+def _render_composer_status_load_progress(progress: float | None) -> HTML:
+    """Render a subtle, accessible load meter when numerical progress is available."""
+
+    percent: float | None = _progress_percent(progress)
+    percent_text: str | None = f"{percent:.3f}" if percent is not None else None
+    return Span(
+        Span(
+            cls="jouzetsu-composer-status-progress-fill",
+            style=(
+                f"--jouzetsu-composer-status-load-progress: {percent_text}%"
+                if percent_text is not None
+                else None
+            ),
+            data_composer_status_progress_fill="true",
+        ),
+        cls="jouzetsu-composer-status-progress",
+        hidden=percent is None,
+        role="progressbar",
+        aria_live="off",
+        aria_label="Model loading progress",
+        aria_valuemin="0",
+        aria_valuemax="100",
+        aria_valuenow=percent_text,
+        aria_valuetext=(
+            f"{round(percent):d}% loaded" if percent is not None else None
+        ),
+        data_composer_status_progress="true",
+        data_composer_status_load_progress=percent_text,
+    )
+
+
+def _progress_percent(progress: float | None) -> float | None:
+    """Convert the runtime's fractional progress value into a percentage."""
+
+    return progress * 100.0 if progress is not None else None
 
 
 def _composer_status_elapsed_attribute(elapsed_seconds: float | None) -> str | None:
@@ -1064,6 +1108,10 @@ def render_composer(
             data_chat_navigation="true",
         )
 
+    footer_actions: list[HTML] = [*suggestion_buttons]
+    if cancel_control is not None:
+        footer_actions.append(cancel_control)
+
     status_classes: str = "jouzetsu-composer-status"
     if generating:
         status_classes += " jouzetsu-generation-status"
@@ -1098,14 +1146,17 @@ def render_composer(
                 hidden=True,
                 data_composer_validation="true",
             )
+        footer_classes: str = "jouzetsu-composer-footer"
+        if len(footer_actions) > 1:
+            footer_classes += " jouzetsu-composer-footer-has-multiple-actions"
         footer = Div(
             Div(
                 status_display,
                 edit_validation,
                 cls="jouzetsu-composer-status-stack",
             ),
-            Div(*suggestion_buttons, cancel_control, cls="jouzetsu-composer-actions"),
-            cls="jouzetsu-composer-footer",
+            Div(*footer_actions, cls="jouzetsu-composer-actions"),
+            cls=footer_classes,
         )
 
     return Footer(
@@ -1171,15 +1222,23 @@ def _format_runtime_status(status: RuntimeStatus) -> _ComposerStatus:
     )
     stage_elapsed_seconds: float | None = _elapsed_seconds(stage_started_at)
     overall_elapsed_seconds: float | None = _elapsed_seconds(status.started_at)
+    progress_percent: float | None = _progress_percent(status.progress)
     progress: str = (
-        f"{round(status.progress * 100):d}%"
-        if status.progress is not None
-        else "in progress"
+        f"{round(progress_percent):d}%" if progress_percent is not None else ""
     )
 
-    def timed_status(state: _ComposerStatusState, detail: str = "") -> _ComposerStatus:
+    def timed_status(
+        state: _ComposerStatusState,
+        detail: str = "",
+        *,
+        load_progress: float | None = None,
+    ) -> _ComposerStatus:
         return _ComposerStatus(
-            state, detail, stage_elapsed_seconds, overall_elapsed_seconds
+            state=state,
+            detail=detail,
+            stage_elapsed_seconds=stage_elapsed_seconds,
+            overall_elapsed_seconds=overall_elapsed_seconds,
+            load_progress=load_progress,
         )
 
     if status.phase is RuntimePhase.CHECKING:
@@ -1194,17 +1253,18 @@ def _format_runtime_status(status: RuntimeStatus) -> _ComposerStatus:
         )
     if status.phase is RuntimePhase.STARTING:
         return timed_status(
-            _ComposerStatusState.GENERATING,
-            _status_detail(f"Preparing {model_name}", status.detail),
+            _ComposerStatusState.PREPARING,
+            _status_detail(model_name, status.detail),
         )
     if status.phase is RuntimePhase.LOADING_MODEL:
         return timed_status(
-            _ComposerStatusState.LOADING, _status_detail(model_name, progress)
+            _ComposerStatusState.LOADING,
+            _status_detail(model_name, progress),
+            load_progress=status.progress,
         )
     if status.phase is RuntimePhase.PROCESSING_PROMPT:
         return timed_status(
-            _ComposerStatusState.GENERATING,
-            _status_detail("Processing prompt", progress),
+            _ComposerStatusState.PROCESSING, _status_detail("Prompt", progress)
         )
     if status.phase is RuntimePhase.REASONING:
         token_detail: str = (
@@ -1215,23 +1275,23 @@ def _format_runtime_status(status: RuntimeStatus) -> _ComposerStatus:
         token_detail = f"{status.output_tokens} tokens" if status.output_tokens else ""
         return timed_status(_ComposerStatusState.GENERATING, token_detail)
     if status.phase is RuntimePhase.REVIEWING:
-        return timed_status(
-            _ComposerStatusState.GENERATING, "Reviewing response continuity"
-        )
+        return timed_status(_ComposerStatusState.REVIEWING, "Response continuity")
     if status.phase is RuntimePhase.STOPPING:
-        return timed_status(_ComposerStatusState.GENERATING, "Stopping")
+        return timed_status(_ComposerStatusState.STOPPING)
     if status.phase is RuntimePhase.ERROR:
         detail: str = " ".join(status.detail.split())
         return _ComposerStatus(_ComposerStatusState.ERROR, detail[:72])
-    return _ComposerStatus(
-        _ComposerStatusState.READY, _ready_status_detail(model_name, status.metrics)
-    )
+    if status.phase is RuntimePhase.READY:
+        return _ComposerStatus(
+            _ComposerStatusState.READY, _ready_status_detail(status.metrics)
+        )
+    raise ValueError(f"unsupported runtime phase: {status.phase!r}")
 
 
-def _ready_status_detail(model_name: str, metrics: GenerationMetrics | None) -> str:
-    """Return the informative middle-column content for a ready model."""
+def _ready_status_detail(metrics: GenerationMetrics | None) -> str:
+    """Return completion metrics for the ready-status middle column."""
 
-    details: list[str] = [model_name]
+    details: list[str] = []
     if metrics is not None:
         if metrics.tokens_per_second is not None:
             details.append(f"{metrics.tokens_per_second:.1f} tok/s")

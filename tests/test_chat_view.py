@@ -6,10 +6,13 @@ import time
 from dataclasses import dataclass, field
 from typing import cast
 
+import pytest
+
 from jouzetsu.access import AccessDecision
 from jouzetsu.config import AppConfig, MessageActionIconStyle, StarterPrompt
 from jouzetsu.models import CharacterChatBinding, Chat, ChatPromptMode, Message
 from jouzetsu.runtime import (
+    GenerationMetrics,
     ModelDescriptor,
     ModelInstanceDescriptor,
     RuntimePhase,
@@ -609,10 +612,20 @@ def test_composer_status_distinguishes_model_loading_from_prompt_processing() ->
         in markup
     )
     assert (
-        'data-composer-status-detail="true" class="jouzetsu-composer-status-detail">Cold Model · in progress'
+        'data-composer-status-detail="true" class="jouzetsu-composer-status-detail">Cold Model'
         in markup
     )
+    assert "in progress" not in markup
     assert "Processing prompt" not in markup
+    assert 'data-composer-status-progress="true"' in markup
+    assert "data-composer-status-load-progress" not in markup
+    progress_marker_index: int = markup.index('data-composer-status-progress="true"')
+    progress_tag: str = markup[
+        markup.rfind("<", 0, progress_marker_index) : markup.index(
+            ">", progress_marker_index
+        )
+    ]
+    assert "hidden" in progress_tag
     assert 'data-composer-status-timers="true"' in markup
     assert 'data-composer-status-stage-elapsed="true"' in markup
     assert 'data-composer-status-overall-elapsed="true"' in markup
@@ -627,6 +640,26 @@ def test_composer_status_distinguishes_model_loading_from_prompt_processing() ->
         runtime_status=RuntimeStatus(
             RuntimePhase.PROCESSING_PROMPT,
             model_name="Cold Model",
+            started_at=overall_started_at,
+            phase_started_at=time.monotonic() - 1.0,
+        ),
+    )
+
+    markup = str(render_composer(view, edit_message_id="", editing_message=None))
+
+    assert ">Processing<" in markup
+    assert "Prompt" in markup
+    assert "in progress" not in markup
+    assert "Cold Model" not in markup
+    assert ">Loading<" not in markup
+    assert "data-composer-status-load-progress" not in markup
+
+    view = _chat_view(
+        Chat(id="chat-processing-progress"),
+        generating=True,
+        runtime_status=RuntimeStatus(
+            RuntimePhase.PROCESSING_PROMPT,
+            model_name="Cold Model",
             progress=0.5,
             started_at=overall_started_at,
             phase_started_at=time.monotonic() - 1.0,
@@ -635,10 +668,91 @@ def test_composer_status_distinguishes_model_loading_from_prompt_processing() ->
 
     markup = str(render_composer(view, edit_message_id="", editing_message=None))
 
-    assert ">Generating<" in markup
-    assert "Processing prompt · 50%" in markup
-    assert "Cold Model" not in markup
-    assert ">Loading<" not in markup
+    assert ">Processing<" in markup
+    assert "Prompt · 50%" in markup
+    assert "data-composer-status-load-progress" not in markup
+
+
+def test_loading_composer_status_renders_numeric_progress_bar() -> None:
+    view: ChatView = _chat_view(
+        Chat(id="chat-loading-progress"),
+        generating=True,
+        runtime_status=RuntimeStatus(
+            RuntimePhase.LOADING_MODEL,
+            model_name="Cold Model",
+            progress=0.5,
+        ),
+    )
+
+    markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
+
+    assert "Cold Model · 50%" in markup
+    assert 'data-composer-status-load-progress="50.000"' in markup
+    assert 'aria-label="Model loading progress"' in markup
+    assert 'aria-valuenow="50.000"' in markup
+    progress_marker_index = markup.index('data-composer-status-progress="true"')
+    progress_tag = markup[
+        markup.rfind("<", 0, progress_marker_index) : markup.index(
+            ">", progress_marker_index
+        )
+    ]
+    assert "hidden" not in progress_tag
+    assert markup.count('aria-live="off"') == 2
+    assert "--jouzetsu-composer-status-load-progress: 50.000%" in markup
+
+    live_markup: str = repr(render_chat_live_fragment(view))
+
+    assert 'data-live-composer-status="true"' in live_markup
+    assert 'data-composer-status-load-progress="50.000"' in live_markup
+    assert 'aria-valuenow="50.000"' in live_markup
+
+
+def test_composer_moves_multiple_shortcuts_to_an_action_tray() -> None:
+    view: ChatView = _chat_view(
+        Chat(id="chat-shortcuts"),
+        starter_prompts=(
+            StarterPrompt(label="Explain", content="Explain this"),
+            StarterPrompt(label="Continue", content="Continue this"),
+        ),
+    )
+
+    markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
+
+    assert "jouzetsu-composer-footer-has-multiple-actions" in markup
+    assert 'data-testid="composer-suggestion-0"' in markup
+    assert 'data-testid="composer-suggestion-1"' in markup
+
+
+def test_ready_composer_status_omits_model_name_but_keeps_completion_metrics() -> None:
+    view: ChatView = _chat_view(
+        Chat(id="chat-ready"),
+        runtime_status=RuntimeStatus(
+            RuntimePhase.READY,
+            model_name="Ready Model",
+            metrics=GenerationMetrics(
+                output_tokens=42,
+                tokens_per_second=12.3,
+                time_to_first_token_seconds=0.45,
+            ),
+        ),
+    )
+
+    markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
+
+    assert ">Ready<" in markup
+    assert "Ready Model" not in markup
+    assert "12.3 tok/s · 42 tokens · TTFT 0.45s" in markup
+
+
+def test_composer_rejects_an_unknown_runtime_phase() -> None:
+    unknown_phase: RuntimePhase = cast(RuntimePhase, object())
+    view: ChatView = _chat_view(
+        Chat(id="chat-unknown-phase"),
+        runtime_status=RuntimeStatus(unknown_phase),
+    )
+
+    with pytest.raises(ValueError, match="unsupported runtime phase"):
+        _ = render_composer(view, edit_message_id="", editing_message=None)
 
 
 def test_unloaded_model_status_omits_redundant_not_loaded_detail() -> None:
@@ -704,8 +818,31 @@ def test_reviewing_composer_status_labels_the_review_stage() -> None:
 
     markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
 
-    assert ">Generating<" in markup
-    assert "Reviewing response continuity" in markup
+    assert ">Reviewing<" in markup
+    assert "Response continuity" in markup
+
+
+def test_composer_status_labels_preparing_and_stopping_stages() -> None:
+    for phase, expected_state, expected_detail in (
+        (RuntimePhase.STARTING, "Preparing", "Demo Model"),
+        (RuntimePhase.STOPPING, "Stopping", ""),
+    ):
+        view: ChatView = _chat_view(
+            Chat(id=f"chat-{phase.value}"),
+            generating=True,
+            runtime_status=RuntimeStatus(phase, model_name="Demo Model"),
+        )
+
+        markup: str = str(
+            render_composer(view, edit_message_id="", editing_message=None)
+        )
+
+        assert (
+            f'data-composer-status-state="true" class="jouzetsu-composer-status-state">{expected_state}'
+            in markup
+        )
+        if expected_detail:
+            assert expected_detail in markup
 
 
 def test_pending_access_page_exposes_the_request_csrf_token() -> None:
