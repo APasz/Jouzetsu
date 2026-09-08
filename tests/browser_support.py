@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import socket
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 from typing import Final
 
 import uvicorn
@@ -39,8 +40,13 @@ _SERVER_START_TIMEOUT_SECONDS: Final[float] = 5.0
 _SERVER_STOP_TIMEOUT_SECONDS: Final[float] = 5.0
 
 
+@dataclass(slots=True)
 class BrowserTestLMStudioClient:
     """Predictable local runtime that keeps browser tests independent of LM Studio."""
+
+    response_content: str = "Browser test reply"
+    first_token_delay_seconds: float = 0.0
+    completion_gate: Event | None = None
 
     async def list_models(self) -> list[str]:
         return ["browser-test-model"]
@@ -63,8 +69,12 @@ class BrowserTestLMStudioClient:
     ) -> AsyncIterator[ChatStreamEvent]:
         _ = (chat, model, generation)
         yield ModelReady("browser-test-model", "Browser test model", 4096)
+        if self.first_token_delay_seconds:
+            await asyncio.sleep(self.first_token_delay_seconds)
         yield FirstToken()
-        yield PredictionFragment("Browser test reply", 1, False)
+        yield PredictionFragment(self.response_content, 1, False)
+        if self.completion_gate is not None:
+            await asyncio.to_thread(self.completion_gate.wait)
         yield PredictionComplete(
             GenerationMetrics(output_tokens=1, tokens_per_second=20.0)
         )
@@ -83,6 +93,7 @@ class BrowserServer:
 
     base_url: str
     state: AppState
+    client: BrowserTestLMStudioClient
     server: uvicorn.Server
     thread: Thread
     listener: socket.socket
@@ -111,7 +122,8 @@ def create_browser_server(root: Path) -> BrowserServer:
         logging=LoggingSettings(enabled=False, directory=root / "logs"),
         access=AccessSettings(default_private=False),
     )
-    state = AppState(config, ChatStorage(paths.chats_file), BrowserTestLMStudioClient())
+    client = BrowserTestLMStudioClient()
+    state = AppState(config, ChatStorage(paths.chats_file), client)
 
     async def shutdown() -> None:
         if not await state.shutdown():
@@ -153,6 +165,7 @@ def create_browser_server(root: Path) -> BrowserServer:
     return BrowserServer(
         base_url=f"http://{host}:{port}",
         state=state,
+        client=client,
         server=server,
         thread=thread,
         listener=listener,

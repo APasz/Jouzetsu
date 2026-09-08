@@ -487,6 +487,7 @@ def test_chat_client_stops_streaming_scroll_when_the_message_reaches_the_top() -
         "if (nextScrollTop < desiredScrollTop) this.#streamingScrollReachedMessageTop = true;"
         in script
     )
+    assert "captureStreamingMessageAnchor(messages)" in script
 
 
 def test_chat_client_preserves_message_scroll_when_generation_completion_replaces_the_composer() -> (
@@ -500,14 +501,18 @@ def test_chat_client_preserves_message_scroll_when_generation_completion_replace
     composer_replacement: int = script.index(
         "currentComposer.replaceWith(nextComposer);"
     )
-    scroll_restore: int = script.index(
-        "this.#messages.restoreScroll(currentMessages, messageScrollTop);"
-    )
+    scroll_restore: int = script.index("this.#messages.restoreScroll(")
 
+    assert "const streamingMessageAnchor = sameChat" in script
+    assert "captureStreamingMessageAnchor(currentMessages)" in script
+    assert "streamingMessageAnchor," in script
+    assert "#restoreScrollPosition(messages, scrollTop, messageAnchor)" in script
+    assert "&& !streamingMessageAnchor" in script
     assert (
-        "const stickToBottom = sameChat && this.#messages.isNearBottom(currentMessages);"
+        "#recordScrollContainerPosition(messages, suppressBottomPinning = false)"
         in script
     )
+    assert "!suppressBottomPinning" in script
     assert scroll_capture < composer_replacement < scroll_restore
 
 
@@ -817,6 +822,28 @@ def test_mobile_ui_hides_scrollbars_on_every_scrollable_surface() -> None:
         "@media (max-width: 640px) {\n    * {\n        scrollbar-width: none;" in styles
     )
     assert "*::-webkit-scrollbar {\n        display: none;" in styles
+
+
+def test_mobile_message_actions_fill_the_footer_before_wrapping() -> None:
+    responsive_styles: str = (_THEME_DIRECTORY / "responsive.css").read_text(
+        encoding="utf-8"
+    )
+
+    footer_styles = responsive_styles.partition(".jouzetsu-message-footer {")[2].partition(
+        "}"
+    )[0]
+    action_styles = responsive_styles.partition(".jouzetsu-message-actions {")[2].partition(
+        "}"
+    )[0]
+    updated_at_styles = responsive_styles.partition(
+        ".jouzetsu-message-updated-at {"
+    )[2].partition("}")[0]
+
+    assert "grid-template-columns: minmax(0, 1fr);" in footer_styles
+    assert '"actions"\n            "updated-at";' in footer_styles
+    assert "grid-area: actions;" in action_styles
+    assert "width: 100%;" in action_styles
+    assert "grid-area: updated-at;" in updated_at_styles
 
 
 def test_root_renders_the_workspace_launch_page() -> None:

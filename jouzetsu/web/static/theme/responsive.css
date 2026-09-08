@@ -36,11 +36,31 @@
 
     .jouzetsu-message {
         width: 100%;
+        min-width: 0;
+    }
+
+    .jouzetsu-message-footer {
+        display: grid;
+        min-width: 0;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+            "actions"
+            "updated-at";
+        gap: 2px;
     }
 
     .jouzetsu-message-actions {
-        gap: 4px;
-        padding: 0 5px 5px;
+        grid-area: actions;
+        width: 100%;
+        min-width: 0;
+        min-height: 44px;
+        gap: 3px;
+        padding: 0;
+    }
+
+    .jouzetsu-message-updated-at {
+        grid-area: updated-at;
+        justify-self: start;
     }
 
     .jouzetsu-message-action {

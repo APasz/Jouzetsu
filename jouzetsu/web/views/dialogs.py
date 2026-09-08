@@ -66,7 +66,7 @@ def render_message_delete_dialog() -> HTML:
                 ),
                 Form(
                     Button(
-                        "Delete this and all following",
+                        "Delete and following",
                         type="submit",
                         cls="jouzetsu-button jouzetsu-button-danger",
                     ),
