@@ -21,11 +21,11 @@ export class MessageController {
     #lastSwipeAt = 0;
     #continueArmTimer = 0;
     #armedContinueControl = null;
-    #streamingScrollId = '';
-    #streamingScrollReachedMessageTop = false;
+    #streamingBottomSnapId = '';
     #scrollContainer = null;
     #scrollContainerPinned = false;
     #scrollContainerObserver = null;
+    #bottomSnapFrame = 0;
     #scrollRestoreFrame = 0;
     #detailsRequest = 0;
 
@@ -60,15 +60,6 @@ export class MessageController {
             && messages.scrollHeight - messages.clientHeight - messages.scrollTop <= threshold;
     }
 
-    captureStreamingMessageAnchor(messages) {
-        const message = this.#streamingMessage(messages);
-        if (!message) return null;
-        return {
-            messageId: message.dataset.messageId,
-            relativeTop: this.#relativeMessageTop(messages, message),
-        };
-    }
-
     scrollListToBottom(messages) {
         this.#cancelScrollRestore();
         if (!(messages instanceof HTMLElement)) return;
@@ -76,18 +67,29 @@ export class MessageController {
         this.#recordScrollContainerPosition(messages);
     }
 
-    restoreScroll(messages, scrollTop, messageAnchor = null) {
+    snapListToBottom(messages) {
+        this.#cancelBottomSnap();
+        this.scrollListToBottom(messages);
+        if (!(messages instanceof HTMLElement)) return;
+        this.#bottomSnapFrame = window.requestAnimationFrame(() => {
+            this.#bottomSnapFrame = 0;
+            if (!messages.isConnected) return;
+            this.scrollListToBottom(messages);
+        });
+    }
+
+    restoreScroll(messages, scrollTop) {
+        this.#cancelBottomSnap();
         this.#cancelScrollRestore();
         if (!(messages instanceof HTMLElement) || scrollTop === null) return;
-        const suppressBottomPinning = messageAnchor !== null;
-        const restored = this.#restoreScrollPosition(messages, scrollTop, messageAnchor);
-        this.#recordScrollContainerPosition(messages, suppressBottomPinning);
-        if (!restored && !messageAnchor) return;
+        const restored = this.#restoreScrollPosition(messages, scrollTop);
+        this.#recordScrollContainerPosition(messages);
+        if (!restored) return;
         this.#scrollRestoreFrame = window.requestAnimationFrame(() => {
             this.#scrollRestoreFrame = 0;
             if (!messages.isConnected) return;
-            this.#restoreScrollPosition(messages, scrollTop, messageAnchor);
-            this.#recordScrollContainerPosition(messages, suppressBottomPinning);
+            this.#restoreScrollPosition(messages, scrollTop);
+            this.#recordScrollContainerPosition(messages);
         });
     }
 
@@ -136,25 +138,13 @@ export class MessageController {
         message.dataset.streamingText = text;
     }
 
-    scrollStreamingMessageUntilTop(messages, message) {
+    snapStreamingMessageToBottom(messages, message) {
         if (!(messages instanceof HTMLElement) || !(message instanceof HTMLElement)) return;
         const messageId = message.dataset.messageId || '';
         if (!messageId) return;
-        if (this.#streamingScrollId !== messageId) {
-            this.#streamingScrollId = messageId;
-            this.#streamingScrollReachedMessageTop = false;
-        }
-        if (this.#streamingScrollReachedMessageTop) return;
-        const desiredScrollTop = messages.scrollHeight - messages.clientHeight;
-        if (desiredScrollTop <= messages.scrollTop) return;
-        const messageTop = message.getBoundingClientRect().top;
-        const messageListTop = messages.getBoundingClientRect().top;
-        const scrollRoomBeforeMessageTop = Math.max(0, messageTop - messageListTop);
-        const nextScrollTop = Math.min(desiredScrollTop, messages.scrollTop + scrollRoomBeforeMessageTop);
-        this.#cancelScrollRestore();
-        messages.scrollTop = nextScrollTop;
-        if (nextScrollTop < desiredScrollTop) this.#streamingScrollReachedMessageTop = true;
-        this.#recordScrollContainerPosition(messages);
+        if (this.#streamingBottomSnapId === messageId) return;
+        this.#streamingBottomSnapId = messageId;
+        this.snapListToBottom(messages);
     }
 
     closeContextMenu() {
@@ -350,6 +340,7 @@ export class MessageController {
     }
 
     #scrollMessageTo(message, block) {
+        this.#cancelBottomSnap();
         this.#cancelScrollRestore();
         if (this.#scrollContainer?.contains(message)) this.#scrollContainerPinned = false;
         const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -496,60 +487,21 @@ export class MessageController {
         this.#scrollRestoreFrame = 0;
     }
 
-    #recordScrollContainerPosition(messages, suppressBottomPinning = false) {
+    #cancelBottomSnap() {
+        if (this.#bottomSnapFrame) window.cancelAnimationFrame(this.#bottomSnapFrame);
+        this.#bottomSnapFrame = 0;
+    }
+
+    #recordScrollContainerPosition(messages) {
         if (messages === this.#scrollContainer) {
-            this.#scrollContainerPinned = (
-                !suppressBottomPinning
-                && !this.#isStreamingMessageTopLocked(messages)
-                && this.isNearBottom(messages)
-            );
+            this.#scrollContainerPinned = this.isNearBottom(messages);
         }
     }
 
-    #isStreamingMessageTopLocked(messages) {
-        return this.#streamingMessage(messages) !== null;
-    }
-
-    #streamingMessage(messages) {
-        if (
-            !this.#streamingScrollReachedMessageTop
-            || !(messages instanceof HTMLElement)
-        ) return null;
-        const streamingMessage = messages.querySelector(
-            ':scope > .is-streaming[data-message-id]',
-        );
-        if (
-            !(streamingMessage instanceof HTMLElement)
-            || streamingMessage.dataset.messageId !== this.#streamingScrollId
-        ) return null;
-        return streamingMessage;
-    }
-
-    #restoreScrollPosition(messages, scrollTop, messageAnchor) {
-        if (messageAnchor) {
-            const message = this.#messageWithId(messages, messageAnchor.messageId);
-            if (message) {
-                const relativeTop = this.#relativeMessageTop(messages, message);
-                const anchoredScrollTop = messages.scrollTop + relativeTop - messageAnchor.relativeTop;
-                if (Math.abs(messages.scrollTop - anchoredScrollTop) < 1) return false;
-                messages.scrollTop = anchoredScrollTop;
-                return true;
-            }
-        }
+    #restoreScrollPosition(messages, scrollTop) {
         if (Math.abs(messages.scrollTop - scrollTop) < 1) return false;
         messages.scrollTop = scrollTop;
         return true;
-    }
-
-    #messageWithId(messages, messageId) {
-        for (const child of messages.children) {
-            if (child instanceof HTMLElement && child.dataset.messageId === messageId) return child;
-        }
-        return null;
-    }
-
-    #relativeMessageTop(messages, message) {
-        return message.getBoundingClientRect().top - messages.getBoundingClientRect().top;
     }
 
     #queueTopScroll(message) {

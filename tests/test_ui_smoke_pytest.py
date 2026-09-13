@@ -409,17 +409,17 @@ def test_chat_client_anchors_new_and_live_chats_to_bottom() -> None:
 
     assert "isNearBottom(messages, threshold = BOTTOM_THRESHOLD_PX)" in script
     assert "scrollListToBottom(messages)" in script
+    assert "snapListToBottom(messages)" in script
     assert (
-        "if (followLatest || !sameChat || stickToBottom) this.#messages.scrollListToBottom(currentMessages);"
+        "if (followLatest) this.#messages.snapListToBottom(currentMessages);"
         in script
     )
-    assert "scrollStreamingMessageUntilTop(messages, message)" in script
-    assert "const scrollRoomBeforeMessageTop" in script
+    assert "snapStreamingMessageToBottom(messages, message)" in script
     assert (
         "const currentMessage = currentContent.closest('[data-message-id]');" in script
     )
     assert (
-        "if (stickToBottom) this.#messages.scrollStreamingMessageUntilTop(messageList, currentMessage);"
+        "if (stickToBottom) this.#messages.snapStreamingMessageToBottom(messageList, currentMessage);"
         in script
     )
     assert (
@@ -439,7 +439,7 @@ def test_chat_client_follows_explicit_generation_actions_without_disrupting_pass
         in script
     )
     assert "this.replaceFragment({ followLatest })" in script
-    assert "if (followLatest || !sameChat || stickToBottom)" in script
+    assert "if (followLatest) this.#messages.snapListToBottom(currentMessages);" in script
 
 
 def test_chat_client_ignores_stale_full_and_live_fragment_responses() -> None:
@@ -477,17 +477,15 @@ def test_delete_dialog_hides_the_tail_delete_choice_for_the_last_message() -> No
     assert "following.hidden = !hasFollowing;" in script
 
 
-def test_chat_client_stops_streaming_scroll_when_the_message_reaches_the_top() -> None:
+def test_chat_client_uses_one_shot_bottom_snaps_for_streaming_messages() -> None:
     script: str = _chat_client_source()
 
     assert "const messageId = message.dataset.messageId || '';" in script
-    assert "if (this.#streamingScrollReachedMessageTop) return;" in script
-    assert "messages.scrollTop = nextScrollTop;" in script
-    assert (
-        "if (nextScrollTop < desiredScrollTop) this.#streamingScrollReachedMessageTop = true;"
-        in script
-    )
-    assert "captureStreamingMessageAnchor(messages)" in script
+    assert "if (this.#streamingBottomSnapId === messageId) return;" in script
+    assert "this.#streamingBottomSnapId = messageId;" in script
+    assert "this.snapListToBottom(messages);" in script
+    assert "#bottomSnapFrame = 0;" in script
+    assert "if (!messages.isConnected) return;" in script
 
 
 def test_chat_client_preserves_message_scroll_when_generation_completion_replaces_the_composer() -> (
@@ -503,16 +501,8 @@ def test_chat_client_preserves_message_scroll_when_generation_completion_replace
     )
     scroll_restore: int = script.index("this.#messages.restoreScroll(")
 
-    assert "const streamingMessageAnchor = sameChat" in script
-    assert "captureStreamingMessageAnchor(currentMessages)" in script
-    assert "streamingMessageAnchor," in script
-    assert "#restoreScrollPosition(messages, scrollTop, messageAnchor)" in script
-    assert "&& !streamingMessageAnchor" in script
-    assert (
-        "#recordScrollContainerPosition(messages, suppressBottomPinning = false)"
-        in script
-    )
-    assert "!suppressBottomPinning" in script
+    assert "#restoreScrollPosition(messages, scrollTop)" in script
+    assert "#recordScrollContainerPosition(messages)" in script
     assert scroll_capture < composer_replacement < scroll_restore
 
 

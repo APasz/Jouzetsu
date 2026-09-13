@@ -14,7 +14,6 @@ from playwright.sync_api import Browser, Error, Page, Route, expect, sync_playwr
 _MESSAGE_LIST_SELECTOR: Final[str] = '[data-testid="message-list"]'
 _MESSAGE_SELECTOR: Final[str] = "article[data-message-id]"
 _SCROLL_RESTORE_TOLERANCE_PX: Final[float] = 2.0
-_MANUAL_SCROLL_OFFSET_PX: Final[float] = 17.0
 _BROWSER_ACTION_TIMEOUT_MS: Final[float] = 5_000
 _LONG_MESSAGE: Final[str] = " ".join(
     "This deliberately long browser-test message keeps the transcript scrollable."
@@ -29,14 +28,6 @@ pytestmark = pytest.mark.browser
 class ScrollMetrics(TypedDict):
     top: float
     maximum: float
-
-
-class MessagePositionMetrics(TypedDict):
-    """Scroll and viewport position of one transcript message."""
-
-    gap: float
-    message_top: float
-    top: float
 
 
 class MessageActionLayoutMetrics(TypedDict):
@@ -203,113 +194,46 @@ def test_last_message_hides_the_delete_following_choice(
     expect(dialog.locator('[data-delete-choice-form="following"]')).to_be_hidden()
 
 
-@pytest.mark.parametrize(
-    "manual_scroll_to_bottom",
-    [False, True],
-    ids=("automatic", "manual"),
-)
-def test_stream_completion_preserves_a_top_locked_response_position(
-    browser_page: Page,
-    browser_server: BrowserServer,
-    manual_scroll_to_bottom: bool,
+def test_new_messages_snap_to_bottom_before_resuming_manual_scroll_on_narrow_viewport(
+    browser_page: Page, browser_server: BrowserServer
 ) -> None:
-    """Completing a top-locked response must not reinterpret it as bottom-pinned."""
+    """A user turn and its first assistant content settle at the mobile transcript tail."""
 
+    browser_page.set_viewport_size({"width": 390, "height": 720})
+    _seed_transcript(browser_server, 6, _LONG_MESSAGE)
     completion_gate = _configure_paused_streaming_response(browser_server)
     try:
         _open_chat_page(browser_page)
-        browser_page.evaluate("() => document.fonts.ready")
-        browser_page.get_by_test_id("message-input").fill(
-            "Generate a nearly long reply"
-        )
-        browser_page.get_by_test_id("send-message-button").click()
-        browser_page.wait_for_function(
-            "() => document.querySelector('article.is-streaming[data-message-id]')"
-            "?.innerText.includes('deliberately long')",
-        )
-        expected = _message_position_metrics(
-            browser_page, "article.is-streaming[data-message-id]"
-        )
-        assert abs(expected["message_top"]) <= _SCROLL_RESTORE_TOLERANCE_PX
-        assert 0 < expected["gap"] <= 24
-
-        if manual_scroll_to_bottom:
-            _set_message_scroll_top(browser_page, expected["top"] + expected["gap"])
-            expected = _message_position_metrics(
-                browser_page, "article.is-streaming[data-message-id]"
-            )
-            assert expected["gap"] <= _SCROLL_RESTORE_TOLERANCE_PX
-
-        completion_gate.set()
-        browser_page.wait_for_function(
-            "() => !document.querySelector('article.is-streaming[data-message-id]')"
-        )
-        _wait_for_animation_frames(browser_page)
-        completed = _message_position_metrics(
-            browser_page, "article.is-assistant[data-message-id]:last-child"
-        )
-
-        assert abs(completed["top"] - expected["top"]) <= _SCROLL_RESTORE_TOLERANCE_PX
-        assert (
-            abs(completed["message_top"] - expected["message_top"])
-            <= _SCROLL_RESTORE_TOLERANCE_PX
-        )
-    finally:
-        completion_gate.set()
-
-
-@pytest.mark.parametrize(
-    "manual_scroll",
-    [False, True],
-    ids=("automatic", "manual"),
-)
-def test_stream_completion_preserves_a_top_locked_response_anchor_with_history(
-    browser_page: Page,
-    browser_server: BrowserServer,
-    manual_scroll: bool,
-) -> None:
-    """Earlier messages expanding at completion cannot move a top-locked response."""
-
-    browser_page.set_viewport_size({"width": 640, "height": 720})
-    _seed_transcript(browser_server, 6, "Earlier transcript message")
-    completion_gate = _configure_paused_streaming_response(browser_server)
-    try:
-        _open_chat_page(browser_page)
-        _constrain_message_list_width(browser_page, 320)
-        browser_page.get_by_test_id("message-input").fill("Generate a nearly long reply")
+        browser_page.get_by_test_id("message-input").fill("Generate a long reply")
         browser_page.get_by_test_id("send-message-button").click()
         browser_page.wait_for_selector("article.is-streaming[data-message-id]")
-        _set_message_scroll_top(browser_page, _scroll_metrics(browser_page)["maximum"])
+        _wait_for_animation_frames(browser_page)
+        user_turn = _scroll_metrics(browser_page)
+        assert user_turn["maximum"] - user_turn["top"] <= _SCROLL_RESTORE_TOLERANCE_PX
+
         browser_page.wait_for_function(
             "() => document.querySelector('article.is-streaming[data-message-id]')"
             "?.innerText.includes('deliberately long')",
         )
-        expected = _message_position_metrics(
-            browser_page, "article.is-streaming[data-message-id]"
+        _wait_for_animation_frames(browser_page)
+        assistant_turn = _scroll_metrics(browser_page)
+        assert assistant_turn["maximum"] > 300
+        assert (
+            assistant_turn["maximum"] - assistant_turn["top"]
+            <= _SCROLL_RESTORE_TOLERANCE_PX
         )
-        assert abs(expected["message_top"]) <= _SCROLL_RESTORE_TOLERANCE_PX
 
-        if manual_scroll:
-            _set_message_scroll_top(
-                browser_page, expected["top"] + _MANUAL_SCROLL_OFFSET_PX
-            )
-            expected = _message_position_metrics(
-                browser_page, "article.is-streaming[data-message-id]"
-            )
-
+        manual_scroll_top = assistant_turn["maximum"] * 0.35
+        _set_message_scroll_top(browser_page, manual_scroll_top)
         completion_gate.set()
         browser_page.wait_for_function(
             "() => !document.querySelector('article.is-streaming[data-message-id]')"
         )
         _wait_for_animation_frames(browser_page)
-        completed = _message_position_metrics(
-            browser_page, "article.is-assistant[data-message-id]:last-child"
-        )
+        completed = _scroll_metrics(browser_page)
 
-        assert (
-            abs(completed["message_top"] - expected["message_top"])
-            <= _SCROLL_RESTORE_TOLERANCE_PX
-        )
+        assert abs(completed["top"] - manual_scroll_top) <= _SCROLL_RESTORE_TOLERANCE_PX
+        assert completed["maximum"] - completed["top"] > 100
     finally:
         completion_gate.set()
 
@@ -637,36 +561,6 @@ def _scroll_metrics(page: Page) -> ScrollMetrics:
     ):
         raise TypeError("message list returned invalid scroll metrics")
     return {"top": float(top), "maximum": float(maximum)}
-
-
-def _message_position_metrics(page: Page, selector: str) -> MessagePositionMetrics:
-    """Read one message's location relative to the transcript viewport."""
-
-    result: object = page.locator(selector).evaluate(
-        """(message) => {
-            const messages = document.getElementById('message-list');
-            if (!(messages instanceof HTMLElement)) return null;
-            return {
-                gap: messages.scrollHeight - messages.clientHeight - messages.scrollTop,
-                message_top: message.getBoundingClientRect().top - messages.getBoundingClientRect().top,
-                top: messages.scrollTop,
-            };
-        }"""
-    )
-    if not isinstance(result, dict):
-        raise TypeError("message position metrics were unavailable")
-    values: dict[object, object] = cast(dict[object, object], result)
-    parsed: dict[str, float] = {}
-    for key in ("gap", "message_top", "top"):
-        value = values.get(key)
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            raise TypeError(f"message position metric {key} was invalid")
-        parsed[key] = float(value)
-    return {
-        "gap": parsed["gap"],
-        "message_top": parsed["message_top"],
-        "top": parsed["top"],
-    }
 
 
 def _message_action_layout_metrics(
