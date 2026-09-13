@@ -271,7 +271,14 @@ export class ChatController {
             && nextForm.dataset.composerGenerating === 'true'
         );
         const messageScrollTop = sameChat ? currentMessages.scrollTop : null;
-        const stickToBottom = sameChat && this.#messages.isNearBottom(currentMessages);
+        const streamingMessageAnchor = sameChat
+            ? this.#messages.captureStreamingMessageAnchor(currentMessages)
+            : null;
+        const stickToBottom = (
+            sameChat
+            && !streamingMessageAnchor
+            && this.#messages.isNearBottom(currentMessages)
+        );
         const preserveComposerDraft = sameChat && sameComposerMode && !generationStarted;
         const liveDraft = preserveComposerDraft ? currentComposerDraft() : null;
         const selection = preserveComposerDraft ? this.#composer.focusedSelection() : null;
@@ -300,12 +307,12 @@ export class ChatController {
         this.#composer.reconcileViewport();
         this.#composer.restoreHeight();
         this.#composer.autoSizeInput(renderedInput);
-        if (followLatest) this.#messages.snapListToBottom(currentMessages);
-        else if (!sameChat || stickToBottom) this.#messages.scrollListToBottom(currentMessages);
+        if (followLatest || !sameChat || stickToBottom) this.#messages.snapListToBottom(currentMessages);
         else {
             this.#messages.restoreScroll(
                 currentMessages,
                 messageScrollTop,
+                streamingMessageAnchor,
             );
         }
         this.#composer.syncPrimary();
@@ -409,7 +416,7 @@ export class ChatController {
             const messageList = byId('message-list');
             const stickToBottom = this.#messages.isNearBottom(messageList);
             this.#messages.syncStreamingContent(currentContent, nextMessage);
-            if (stickToBottom) this.#messages.snapStreamingMessageToBottom(messageList, currentMessage);
+            if (stickToBottom) this.#messages.scrollStreamingMessageUntilTop(messageList, currentMessage);
         } catch {
             // A full refresh on the next event safely heals transient failures.
         }
