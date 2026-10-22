@@ -42,6 +42,7 @@ from jouzetsu.runtime import (
     FirstToken,
     GenerationMetrics,
     ModelDescriptor,
+    ModelInstanceDescriptor,
     ModelReady,
     PredictionComplete,
     PredictionFragment,
@@ -2241,7 +2242,10 @@ def test_settings_reset_routes_restore_their_scoped_defaults() -> None:
                 assert state.config.server.base_url == "http://example.test:1234/v1"
                 assert state.config.server.api_key == "custom-key"
                 assert state.config.server.default_model == ""
-                assert state.config.server.model_aliases == {"other-model": "Other"}
+                assert state.config.server.model_aliases == {
+                    "demo-model": "Demo",
+                    "other-model": "Other",
+                }
                 assert state.config.server.auto_unload_minutes is None
 
                 models_page: httpx.Response = await client.get(
@@ -2808,6 +2812,264 @@ def test_pending_device_can_self_approve_only_with_the_configured_phrase() -> No
         asyncio.run(scenario(Path(temporary_directory)))
 
 
+def test_model_alias_edits_are_independent_of_global_defaults() -> None:
+    async def scenario(root: Path) -> None:
+        state = _build_state(root, private=False)
+        state.config.server.model_aliases = {"demo-model": "Daily demo"}
+        await state.set_active_chat_model("demo-instance")
+        inventory = (
+            ModelDescriptor(
+                key="demo-model",
+                display_name="Demo model",
+                loaded_instance_ids=("demo-instance",),
+            ),
+            ModelDescriptor(key="other-model", display_name="Other model"),
+        )
+        with patch.object(state.client, "list_model_inventory", return_value=inventory):
+            await state.refresh_runtime_status()
+        web = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
+        try:
+            async with httpx.AsyncClient(
+                transport=_transport(web, client_ip="127.0.0.1"),
+                base_url="http://testserver",
+            ) as client:
+                _set_device_cookie(client, _LOCAL_DEVICE_ID)
+                page = await client.get("/chats?dialog=models&tab=aliases")
+                headers = _csrf_headers(page)
+                assert 'aria-selected="true"' in page.text
+                assert 'data-testid="model-alias-form"' in page.text
+                assert 'name="model_alias"' not in page.text
+                assert 'data-model-key="demo-instance"' not in page.text
+                assert page.text.count('data-model-key="demo-model"') == 1
+                assert page.text.count('<option value="demo-instance"') == 1
+                assert page.text.count('<option value="demo-model"') == 1
+                defaults = await client.post(
+                    "/settings/global/model-defaults",
+                    data={
+                        "default_model": "other-model",
+                        "auto_unload_minutes": "15",
+                        "model_alias": "Ignored legacy field",
+                    },
+                    headers=headers,
+                )
+                assert defaults.status_code == 303
+                assert state.config.server.model_aliases == {"demo-model": "Daily demo"}
+
+                saved = await client.post(
+                    "/models/alias",
+                    data={"model_key": "other-model", "alias": "  Second model  "},
+                    headers=headers,
+                )
+                assert (
+                    saved.headers["location"]
+                    == "/chats?dialog=models&tab=aliases&notice=Alias+saved"
+                )
+                assert state.config.server.model_aliases == {
+                    "demo-model": "Daily demo",
+                    "other-model": "Second model",
+                }
+                assert state.config.server.default_model == "other-model"
+                assert state.active_chat.model == "demo-instance"
+                assert state.config.server.auto_unload_minutes == 15
+
+                cleared = await client.post(
+                    "/models/alias",
+                    data={"model_key": "demo-model", "alias": " "},
+                    headers=headers,
+                )
+                assert cleared.status_code == 303
+                assert state.config.server.model_aliases == {
+                    "other-model": "Second model"
+                }
+                assert state.runtime_status.model_name == "Demo model"
+                unknown = await client.post(
+                    "/models/alias",
+                    data={"model_key": "unknown-model", "alias": "No"},
+                    headers=headers,
+                )
+                assert "error=Unknown+model" in unknown.headers["location"]
+                untrusted = await client.post(
+                    "/models/alias", data={"model_key": "other-model", "alias": "No"}
+                )
+                assert untrusted.status_code == 403
+                assert state.config.server.model_aliases == {
+                    "other-model": "Second model"
+                }
+        finally:
+            await _close_web_application(web, state)
+
+    with tempfile.TemporaryDirectory() as directory:
+        asyncio.run(scenario(Path(directory)))
+
+
+def test_model_lists_hide_missing_models_except_defaults_and_chat_selections() -> None:
+    def assert_model_lists(page: httpx.Response, expected_keys: set[str]) -> None:
+        assert page.status_code == 200
+        for marker in ("active-chat-model", "model-default-model"):
+            selector = re.search(
+                rf'<select\b[^>]*data-testid="{marker}"[^>]*>(.*?)</select>',
+                page.text,
+                re.DOTALL,
+            )
+            assert selector is not None
+            assert (
+                set(re.findall(r'<option\b[^>]*value="([^"]+)"', selector.group(1)))
+                == expected_keys
+            )
+        assert set(re.findall(r'data-model-key="([^"]+)"', page.text)) == expected_keys
+
+    async def scenario(root: Path) -> None:
+        state = _build_state(root, private=False)
+        aliases = {
+            "missing-model": "Old model",
+            "missing-default": "Missing default",
+            "missing-chat": "Missing chat selection",
+        }
+        state.config.server.model_aliases = dict(aliases)
+        state.config.server.default_model = "missing-default"
+        await state.set_active_chat_model("missing-chat")
+        inventory = (
+            ModelDescriptor(
+                key="demo-model",
+                display_name="Demo model",
+                loaded_instance_ids=("demo-instance",),
+            ),
+            ModelDescriptor(key="other-model", display_name="Other model"),
+        )
+        with patch.object(state.client, "list_model_inventory", return_value=inventory):
+            await state.refresh_runtime_status()
+        web = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
+        try:
+            async with httpx.AsyncClient(
+                transport=_transport(web, client_ip="127.0.0.1"),
+                base_url="http://testserver",
+            ) as client:
+                _set_device_cookie(client, _LOCAL_DEVICE_ID)
+                page = await client.get("/chats?dialog=models&tab=aliases")
+                expected_keys = {
+                    "demo-model",
+                    "other-model",
+                    "missing-default",
+                    "missing-chat",
+                }
+                assert_model_lists(page, expected_keys)
+                assert "Missing default · Unavailable" in page.text
+                assert "Missing chat selection · Unavailable" in page.text
+                assert "Other model · Unloaded" in page.text
+
+                with (
+                    patch.object(
+                        state.client,
+                        "list_model_inventory",
+                        side_effect=RuntimeError("Disconnected"),
+                    ),
+                    patch("jouzetsu.controllers._INVENTORY_RETRY_DELAYS_SECONDS", ()),
+                ):
+                    await state.refresh_runtime_status()
+                assert_model_lists(
+                    await client.get("/chats?dialog=models&tab=aliases"), expected_keys
+                )
+
+                restored_inventory = (
+                    *inventory,
+                    ModelDescriptor(key="missing-model", display_name="Restored model"),
+                )
+                with patch.object(
+                    state.client,
+                    "list_model_inventory",
+                    return_value=restored_inventory,
+                ):
+                    await state.refresh_runtime_status()
+                restored = await client.get("/chats?dialog=models&tab=aliases")
+                assert_model_lists(restored, expected_keys | {"missing-model"})
+                assert "Old model · Unloaded" in restored.text
+
+                await state.set_active_chat_model("")
+                state.config.server.default_model = "demo-model"
+                assert_model_lists(
+                    await client.get("/chats?dialog=models&tab=aliases"),
+                    {"demo-model", "other-model", "missing-model"},
+                )
+                assert state.config.server.model_aliases == aliases
+        finally:
+            await _close_web_application(web, state)
+
+    with tempfile.TemporaryDirectory() as directory:
+        asyncio.run(scenario(Path(directory)))
+
+
+def test_model_refresh_reports_failure_cache_and_recovery() -> None:
+    async def scenario(root: Path) -> None:
+        state = _build_state(root, private=False)
+        inventory = (
+            ModelDescriptor(
+                key="demo-model",
+                display_name="Demo model",
+                loaded_instance_ids=("demo-instance",),
+                loaded_instances=(ModelInstanceDescriptor(id="demo-instance"),),
+            ),
+        )
+        web = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
+        try:
+            async with httpx.AsyncClient(
+                transport=_transport(web, client_ip="127.0.0.1"),
+                base_url="http://testserver",
+            ) as client:
+                _set_device_cookie(client, _LOCAL_DEVICE_ID)
+                headers = _csrf_headers(await client.get("/chats?dialog=models"))
+                with (
+                    patch.object(
+                        state.client,
+                        "list_model_inventory",
+                        side_effect=RuntimeError("Disconnected"),
+                    ),
+                    patch("jouzetsu.controllers._INVENTORY_RETRY_DELAYS_SECONDS", ()),
+                ):
+                    initial_failure = await client.post(
+                        "/models/refresh", headers=headers, follow_redirects=True
+                    )
+                assert "Could not refresh models" in initial_failure.text
+                assert "No cached models" in initial_failure.text
+                assert "Model inventory refreshed" not in initial_failure.text
+
+                with patch.object(
+                    state.client, "list_model_inventory", return_value=inventory
+                ):
+                    recovered = await client.post(
+                        "/models/refresh", headers=headers, follow_redirects=True
+                    )
+                assert "LM Studio connected" in recovered.text
+                assert "Model inventory refreshed" in recovered.text
+                assert 'data-testid="loaded-model-card"' in recovered.text
+
+                with (
+                    patch.object(
+                        state.client,
+                        "list_model_inventory",
+                        side_effect=RuntimeError("Disconnected"),
+                    ),
+                    patch("jouzetsu.controllers._INVENTORY_RETRY_DELAYS_SECONDS", ()),
+                ):
+                    cached = await client.post(
+                        "/models/refresh", headers=headers, follow_redirects=True
+                    )
+                assert "LM Studio offline · Cached models" in cached.text
+                assert "Could not refresh models" in cached.text
+                assert 'role="alert"' in cached.text
+                assert "Model inventory refreshed" not in cached.text
+                assert ">Retry</button>" in cached.text
+                assert state.model_inventory == inventory
+                assert re.search(
+                    r'<button\b(?=[^>]*data-testid="unload-model-demo-instance")(?=[^>]*\bdisabled)[^>]*>',
+                    cached.text,
+                )
+        finally:
+            await _close_web_application(web, state)
+
+    with tempfile.TemporaryDirectory() as directory:
+        asyncio.run(scenario(Path(directory)))
+
+
 def test_approved_non_global_device_cannot_view_or_use_model_and_host_controls() -> (
     None
 ):
@@ -2840,10 +3102,17 @@ def test_approved_non_global_device_cannot_view_or_use_model_and_host_controls()
                 model_refresh: httpx.Response = await client.post(
                     "/models/refresh", headers=csrf_headers
                 )
+                model_alias: httpx.Response = await client.post(
+                    "/models/alias",
+                    data={"model_key": "demo-model", "alias": "Not allowed"},
+                    headers=csrf_headers,
+                )
                 host_refresh: httpx.Response = await client.post(
                     "/host-stats/refresh", headers=csrf_headers
                 )
                 assert model_refresh.status_code == 403
+                assert model_alias.status_code == 403
+                assert not state.config.server.model_aliases
                 assert host_refresh.status_code == 403
         finally:
             await _close_web_application(web, state)

@@ -220,24 +220,16 @@ def updated_server_settings(
     state: AppState,
     *,
     default_model: str,
-    alias: str,
     auto_unload_minutes: str,
 ) -> ServerSettings:
     """Construct complete server settings from global-form deltas."""
 
     current: ServerSettings = state.config.server
-    aliases: dict[str, str] = dict(current.model_aliases)
-    model_key: str = state.current_model_key()
-    clean_alias: str = alias.strip()
-    if model_key and clean_alias:
-        aliases[model_key] = clean_alias
-    elif model_key:
-        _ = aliases.pop(model_key, None)
     settings: ServerSettings = ServerSettings(
         base_url=current.base_url,
         api_key=current.api_key,
         default_model=default_model.strip(),
-        model_aliases=aliases,
+        model_aliases=dict(current.model_aliases),
         auto_unload_minutes=optional_integer(
             auto_unload_minutes, field_name="auto_unload_minutes"
         ),

@@ -47,6 +47,7 @@ from .controls import (
     reset_form_button as _reset_form_button,
 )
 from .icons import render_icon as _icon
+from .model_controls import ModelChoice, render_model_options
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,14 +61,6 @@ class ChatView:
     empty_state_message: str
     starter_prompts: tuple[StarterPrompt, ...]
     message_action_style: MessageActionStyle
-
-
-@dataclass(frozen=True, slots=True)
-class ModelChoice:
-    """One selectable model rendered in a chat-scoped model selector."""
-
-    key: str
-    label: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,10 +431,7 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
     model_options: list[HTML] = [
         Option("Use global default", value="", selected=not current_model)
     ]
-    model_options.extend(
-        Option(choice.label, value=choice.key, selected=choice.key == current_model)
-        for choice in view.model_choices
-    )
+    model_options.extend(render_model_options(view.model_choices, current_model))
 
     return Aside(
         Div(

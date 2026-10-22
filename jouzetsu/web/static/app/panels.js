@@ -64,6 +64,9 @@ export class PanelController {
             const panel = byId(candidate.dataset.tabTarget || '');
             if (panel instanceof HTMLElement) panel.hidden = !selected;
         });
+        tabList.closest('dialog')?.querySelectorAll('[data-dialog-active-tab]').forEach((input) => {
+            if (input instanceof HTMLInputElement) input.value = tab.dataset.tabName || '';
+        });
         if (focus) tab.focus();
     }
 

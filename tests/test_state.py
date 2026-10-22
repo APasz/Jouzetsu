@@ -40,6 +40,7 @@ from jouzetsu.models import (
 )
 from jouzetsu.runtime import (
     ChatStreamEvent,
+    ConnectionState,
     FirstToken,
     GenerationMetrics,
     ModelDescriptor,
@@ -996,6 +997,207 @@ class AppStateTests(unittest.TestCase):
 
         self.assertEqual(self.state.runtime_status.model_name, "Local Demo")
 
+    def test_model_names_resolve_alias_then_server_name_then_key(self) -> None:
+        async def scenario() -> None:
+            await self.state.refresh_runtime_status()
+            self.assertEqual(self.state.model_display_name("demo-model"), "Demo Model")
+            self.assertEqual(
+                self.state.model_display_name("missing-model"), "missing-model"
+            )
+            await self.state.set_model_alias("demo-model", "Local Demo")
+            self.assertEqual(self.state.model_display_name("demo-model"), "Local Demo")
+            await self.state.set_model_alias("demo-model", " ")
+            self.assertEqual(self.state.model_display_name("demo-model"), "Demo Model")
+            self.assertEqual(self.state.runtime_status.model_name, "Demo Model")
+
+        asyncio.run(scenario())
+
+    def test_model_alias_targets_its_key_and_preserves_defaults_and_metrics(
+        self,
+    ) -> None:
+        async def scenario() -> None:
+            await self.state.refresh_runtime_status()
+            _ = await self.state.send_user_message("Hello")
+            await self._wait_for_generation()
+            metrics: GenerationMetrics | None = self.state.runtime_status.metrics
+            self.state.config.server.default_model = "another-model"
+            await self.state.set_model_alias("demo-model", "  Local Demo  ")
+            self.assertEqual(self.state.config.server.default_model, "another-model")
+            self.assertEqual(self.state.runtime_status.model_name, "Local Demo")
+            self.assertEqual(self.state.runtime_status.metrics, metrics)
+            saved = ConfigStore.for_paths(self.state.config.paths).load()
+            self.assertEqual(saved.server.model_aliases, {"demo-model": "Local Demo"})
+            with self.assertRaisesRegex(ValueError, "Unknown model"):
+                await self.state.set_model_alias("unknown-model", "No")
+
+        asyncio.run(scenario())
+
+    def test_runtime_connection_retains_cached_inventory_after_failure(self) -> None:
+        async def unavailable_inventory() -> tuple[ModelDescriptor, ...]:
+            raise LMStudioError("Server unavailable")
+
+        async def scenario() -> None:
+            await self.state.refresh_runtime_status()
+            inventory = self.state.model_inventory
+            self.client.list_model_inventory = unavailable_inventory
+            with patch("jouzetsu.controllers._INVENTORY_RETRY_DELAYS_SECONDS", ()):
+                await self.state.refresh_runtime_status()
+            self.assertIs(self.state.model_connection, ConnectionState.OFFLINE)
+            self.assertEqual(self.state.model_inventory, inventory)
+            self.assertIs(self.state.runtime_status.phase, RuntimePhase.OFFLINE)
+
+        asyncio.run(scenario())
+
+    def test_model_aliases_share_one_identity_across_loaded_instances(self) -> None:
+        async def inventory() -> tuple[ModelDescriptor, ...]:
+            return (
+                ModelDescriptor(
+                    key="demo-model",
+                    display_name="Demo Model",
+                    loaded_instance_ids=("demo-instance",),
+                ),
+            )
+
+        async def scenario() -> None:
+            self.client.list_model_inventory = inventory
+            await self.state.refresh_runtime_status()
+            self.state.config.server.model_aliases = {"demo-instance": "Old alias"}
+            self.assertEqual(self.state.model_display_name("demo-model"), "Old alias")
+            await self.state.set_model_alias("demo-instance", "New alias")
+            self.assertEqual(
+                self.state.config.server.model_aliases, {"demo-model": "New alias"}
+            )
+            self.assertEqual(
+                self.state.model_display_name("demo-instance"), "New alias"
+            )
+            await self.state.set_model_alias("demo-instance", "")
+            self.assertEqual(self.state.config.server.model_aliases, {})
+            self.assertEqual(self.state.model_display_name("demo-model"), "Demo Model")
+            await self.state.set_model_alias("demo-instance", "Known instance")
+            self.assertEqual(self.state.runtime_status.model_name, "Known instance")
+
+        asyncio.run(scenario())
+
+    def test_overlapping_refreshes_do_not_restore_an_older_inventory(self) -> None:
+        async def scenario() -> None:
+            first_started = asyncio.Event()
+            release_first = asyncio.Event()
+            call_count = 0
+
+            async def inventory() -> tuple[ModelDescriptor, ...]:
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    first_started.set()
+                    await release_first.wait()
+                    return (ModelDescriptor(key="old-model", display_name="Old model"),)
+                return (ModelDescriptor(key="new-model", display_name="New model"),)
+
+            self.client.list_model_inventory = inventory
+            first = asyncio.create_task(self.state.refresh_runtime_status())
+            await first_started.wait()
+            second = asyncio.create_task(self.state.refresh_runtime_status())
+            await asyncio.sleep(0)
+            release_first.set()
+            _ = await asyncio.gather(first, second)
+            self.assertEqual(
+                [model.key for model in self.state.model_inventory], ["new-model"]
+            )
+            self.assertIsNone(self.state.model_descriptor("old-model"))
+            self.assertIsNotNone(self.state.model_descriptor("new-model"))
+
+        asyncio.run(scenario())
+
+    def test_inventory_changes_notify_even_when_the_current_model_is_unchanged(
+        self,
+    ) -> None:
+        async def scenario() -> None:
+            await self.state.refresh_runtime_status()
+            original_inventory = self.state.model_inventory
+            changes: list[StateChangeKind] = []
+
+            async def inventory() -> tuple[ModelDescriptor, ...]:
+                return (
+                    *original_inventory,
+                    ModelDescriptor(key="new-model", display_name="New model"),
+                )
+
+            async def listener(kind: StateChangeKind) -> None:
+                changes.append(kind)
+
+            self.client.list_model_inventory = inventory
+            _ = self.state.add_listener(listener)
+            await self.state.refresh_runtime_status()
+            self.assertEqual(changes, [StateChangeKind.FULL])
+
+        asyncio.run(scenario())
+
+    def test_refresh_reports_its_own_result_when_notifications_overlap(self) -> None:
+        async def scenario() -> None:
+            notification_started = asyncio.Event()
+            release_notification = asyncio.Event()
+
+            async def listener(_kind: StateChangeKind) -> None:
+                if self.state.model_connection is ConnectionState.ONLINE:
+                    notification_started.set()
+                    await release_notification.wait()
+
+            async def unavailable_inventory() -> tuple[ModelDescriptor, ...]:
+                raise LMStudioError("Disconnected")
+
+            _ = self.state.add_listener(listener)
+            first = asyncio.create_task(self.state.refresh_runtime_status())
+            await notification_started.wait()
+            self.client.list_model_inventory = unavailable_inventory
+            with patch("jouzetsu.controllers._INVENTORY_RETRY_DELAYS_SECONDS", ()):
+                second_result = await self.state.refresh_runtime_status()
+            release_notification.set()
+            first_result = await first
+            self.assertIs(first_result, True)
+            self.assertIs(second_result, False)
+            self.assertIs(self.state.model_connection, ConnectionState.OFFLINE)
+
+        asyncio.run(asyncio.wait_for(scenario(), timeout=2.0))
+
+    def test_failed_alias_save_retains_the_persisted_alias_and_runtime_name(
+        self,
+    ) -> None:
+        async def scenario() -> None:
+            await self.state.refresh_runtime_status()
+            await self.state.set_model_alias("demo-model", "Saved alias")
+            previous_status = self.state.runtime_status
+            with (
+                patch.object(ConfigStore, "save", side_effect=OSError("Disk full")),
+                self.assertRaisesRegex(OSError, "Disk full"),
+            ):
+                await self.state.set_model_alias("demo-model", "Unsaved alias")
+            self.assertEqual(
+                self.state.config.server.model_aliases, {"demo-model": "Saved alias"}
+            )
+            self.assertEqual(self.state.runtime_status, previous_status)
+            persisted = ConfigStore.for_paths(self.state.config.paths).load()
+            self.assertEqual(
+                persisted.server.model_aliases, self.state.config.server.model_aliases
+            )
+
+        asyncio.run(scenario())
+
+    def test_unchanged_model_alias_does_not_write_or_notify(self) -> None:
+        async def scenario() -> None:
+            await self.state.set_model_alias("demo-model", "Saved alias")
+            changes: list[StateChangeKind] = []
+
+            async def listener(kind: StateChangeKind) -> None:
+                changes.append(kind)
+
+            _ = self.state.add_listener(listener)
+            with patch.object(ConfigStore, "save") as save:
+                await self.state.set_model_alias("demo-model", "  Saved alias  ")
+                save.assert_not_called()
+            self.assertEqual(changes, [])
+
+        asyncio.run(scenario())
+
     def test_runtime_monitor_detects_when_selected_model_is_unloaded(self) -> None:
         model_is_loaded = True
 
@@ -1631,7 +1833,7 @@ class AppStateTests(unittest.TestCase):
             defaults.system_prompt,
         )
 
-    def test_reset_model_defaults_preserves_connection_and_other_model_aliases(
+    def test_reset_model_defaults_preserves_connection_and_all_model_aliases(
         self,
     ) -> None:
         server: ServerSettings = self.state.config.server
@@ -1646,7 +1848,9 @@ class AppStateTests(unittest.TestCase):
         self.assertEqual(server.base_url, "http://example.test:1234/v1")
         self.assertEqual(server.api_key, "custom-key")
         self.assertEqual(server.default_model, "")
-        self.assertEqual(server.model_aliases, {"other-model": "Other"})
+        self.assertEqual(
+            server.model_aliases, {"demo-model": "Demo", "other-model": "Other"}
+        )
         self.assertIsNone(server.auto_unload_minutes)
 
     def test_reset_access_defaults_preserves_known_devices_and_phrase(self) -> None:

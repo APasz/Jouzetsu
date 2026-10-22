@@ -12,6 +12,7 @@ from jouzetsu.access import AccessDecision
 from jouzetsu.config import AppConfig, MessageActionStyle, StarterPrompt
 from jouzetsu.models import CharacterChatBinding, Chat, ChatPromptMode, Message
 from jouzetsu.runtime import (
+    ConnectionState,
     GenerationMetrics,
     ModelDescriptor,
     ModelInstanceDescriptor,
@@ -23,7 +24,6 @@ from jouzetsu.web.views.access import render_locked_access_page
 from jouzetsu.web.views.chat import (
     ChatSettingsView,
     ChatView,
-    ModelChoice,
     render_chat_fragment,
     render_chat_live_fragment,
     render_composer,
@@ -33,6 +33,7 @@ from jouzetsu.web.views.chat import (
 from jouzetsu.web.views.context import PageContext
 from jouzetsu.web.views.dialogs import render_loaded_model_card
 from jouzetsu.web.views.feedback import render_notice_area
+from jouzetsu.web.views.model_controls import ModelChoice, render_model_options
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +45,7 @@ class _SettingsViewState:
     config: AppConfig = field(default_factory=AppConfig)
     model_inventory: tuple[ModelDescriptor, ...] = ()
     generating_model_keys: frozenset[str] = frozenset()
+    model_connection: ConnectionState = ConnectionState.ONLINE
 
     def is_generating(self, chat_id: str | None = None) -> bool:
         _ = chat_id
@@ -51,6 +53,11 @@ class _SettingsViewState:
 
     def model_display_name(self, model_key: str, fallback: str = "") -> str:
         return self.config.server.model_aliases.get(model_key, fallback or model_key)
+
+    def model_descriptor(self, model_key: str) -> ModelDescriptor | None:
+        return next(
+            (model for model in self.model_inventory if model.key == model_key), None
+        )
 
     def is_model_generating(self, model_key: str) -> bool:
         return model_key in self.generating_model_keys
@@ -600,6 +607,52 @@ def test_generating_model_cannot_be_unloaded_from_the_models_dialog() -> None:
 
     assert "disabled" in opening_tag
     assert "Cannot unload a model while it is generating a response" in markup
+
+
+def test_model_options_mark_stale_entries_and_retain_the_current_selection() -> None:
+    choice = ModelChoice("missing-model", "Old model", "Unavailable", selectable=False)
+    unavailable: str = repr(render_model_options((choice,), "")[0])
+    selected: str = repr(render_model_options((choice,), "missing-model")[0])
+
+    assert "Old model · Unavailable" in unavailable
+    assert "disabled" in unavailable
+    assert "selected" in selected
+    assert "disabled" not in selected
+
+
+def test_loaded_model_summary_exposes_alias_key_quantisation_and_context() -> None:
+    model = ModelDescriptor(
+        key="local/demo-q4",
+        display_name="Demo Model",
+        loaded_instance_ids=("demo-instance",),
+        quantization_name="Q4_K_M",
+    )
+    config = AppConfig()
+    config.server.model_aliases[model.key] = "Daily assistant"
+    state = cast(
+        AppState,
+        cast(
+            object,
+            _SettingsViewState(
+                active_chat=Chat(id="summary-test"),
+                generating=False,
+                config=config,
+                model_inventory=(model,),
+            ),
+        ),
+    )
+    markup = repr(
+        render_loaded_model_card(
+            state,
+            model,
+            ModelInstanceDescriptor(id="demo-instance", context_length=32768),
+        )
+    )
+    summary = markup.partition("<summary")[2].partition("</summary>")[0]
+
+    assert "Daily assistant" in summary
+    assert model.key in summary
+    assert "Q4_K_M · 32,768 tokens · Loaded" in summary
 
 
 def test_composer_status_distinguishes_model_loading_from_prompt_processing() -> None:

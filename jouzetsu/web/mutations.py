@@ -23,7 +23,9 @@ _NOTICE_MAXIMUM_LENGTH: Final[int] = 240
 _UNDO_MAX_AGE_SECONDS: Final[float] = 12.0
 
 type DialogName = Literal["", "global", "access", "models", "host"]
-type DialogTabName = Literal["", "behaviour", "appearance", "loaded", "defaults"]
+type DialogTabName = Literal[
+    "", "behaviour", "appearance", "loaded", "aliases", "defaults"
+]
 
 
 @dataclass(frozen=True, slots=True)

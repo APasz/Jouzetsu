@@ -8,8 +8,14 @@ from threading import Event
 from typing import Final, TypedDict, cast
 
 import pytest
-from browser_support import BrowserServer, create_browser_server
+from browser_support import (
+    BrowserServer,
+    BrowserTestLMStudioClient,
+    create_browser_server,
+)
 from playwright.sync_api import Browser, Error, Page, Route, expect, sync_playwright
+
+from jouzetsu.runtime import ModelDescriptor, ModelInstanceDescriptor
 
 _MESSAGE_LIST_SELECTOR: Final[str] = '[data-testid="message-list"]'
 _MESSAGE_SELECTOR: Final[str] = "article[data-message-id]"
@@ -94,6 +100,170 @@ def browser_page(
         yield page
     finally:
         context.close()
+
+
+@pytest.fixture()
+def model_browser_server(
+    browser_server: BrowserServer, monkeypatch: pytest.MonkeyPatch
+) -> BrowserServer:
+    """Provide both a loaded model and an unloaded model for management flows."""
+
+    async def inventory(
+        _client: BrowserTestLMStudioClient,
+    ) -> tuple[ModelDescriptor, ...]:
+        return (
+            ModelDescriptor(
+                key="browser-test-model",
+                display_name="Browser test model",
+                loaded_instance_ids=("browser-instance",),
+                loaded_instances=(
+                    ModelInstanceDescriptor(
+                        id="browser-instance", context_length=32768
+                    ),
+                ),
+                context_length=32768,
+                quantization_name="Q4_K_M",
+            ),
+            ModelDescriptor(key="second-model", display_name="Second model"),
+        )
+
+    monkeypatch.setattr(BrowserTestLMStudioClient, "list_model_inventory", inventory)
+    browser_server.state.config.server.model_aliases = {
+        "browser-test-model": "Daily assistant",
+        "missing-model": "Old model",
+    }
+    return browser_server
+
+
+def test_model_alias_editor_preserves_defaults_and_uses_consistent_names(
+    browser_page: Page, model_browser_server: BrowserServer
+) -> None:
+    browser_page.goto("/chats?dialog=models")
+    browser_page.get_by_test_id("refresh-models-button").click()
+    summary = browser_page.get_by_test_id("loaded-model-card").locator("summary")
+    expect(summary).to_contain_text("Daily assistant")
+    expect(summary).to_contain_text("browser-test-model")
+    expect(summary).to_contain_text("Q4_K_M · 32,768 tokens · Loaded")
+
+    browser_page.get_by_test_id("models-dialog-defaults-tab").click()
+    selector = browser_page.get_by_test_id("model-default-model")
+    expect(selector.locator('option[value="second-model"]')).to_have_text(
+        "Second model · Unloaded"
+    )
+    expect(selector.locator('option[value="missing-model"]')).to_have_count(0)
+    selector.select_option("second-model")
+    browser_page.get_by_test_id("save-model-defaults-button").click()
+    expect(browser_page.get_by_test_id("models-dialog-defaults-tab")).to_have_attribute(
+        "aria-selected", "true"
+    )
+    assert (
+        model_browser_server.state.config.server.model_aliases["browser-test-model"]
+        == "Daily assistant"
+    )
+
+    browser_page.get_by_test_id("models-dialog-aliases-tab").click()
+    expect(
+        browser_page.locator(
+            '[data-testid="model-alias-card"][data-model-key="missing-model"]'
+        )
+    ).to_have_count(0)
+    card = browser_page.locator(
+        '[data-testid="model-alias-card"][data-model-key="browser-test-model"]'
+    )
+    card.locator("summary").click()
+    card.get_by_test_id("model-alias-input").fill("Primary model")
+    card.get_by_test_id("save-model-alias-button").click()
+    expect(browser_page.get_by_test_id("models-dialog-aliases-tab")).to_have_attribute(
+        "aria-selected", "true"
+    )
+    expect(card.locator("summary")).to_contain_text("Primary model")
+    assert model_browser_server.state.config.server.default_model == "second-model"
+
+    card.locator("summary").click()
+    card.get_by_test_id("model-alias-input").fill("")
+    card.get_by_test_id("save-model-alias-button").click()
+    expect(card.locator("summary")).to_contain_text("Browser test model")
+    assert (
+        "browser-test-model"
+        not in model_browser_server.state.config.server.model_aliases
+    )
+
+
+def test_model_refresh_shows_cached_state_and_retry_on_mobile(
+    browser_page: Page,
+    model_browser_server: BrowserServer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    browser_page.set_viewport_size({"width": 390, "height": 844})
+    browser_page.goto("/chats?dialog=models")
+    browser_page.get_by_test_id("refresh-models-button").click()
+    expect(browser_page.get_by_test_id("model-connection-status")).to_have_text(
+        "LM Studio connected"
+    )
+    original_inventory = BrowserTestLMStudioClient.list_model_inventory
+
+    async def disconnected(
+        _client: BrowserTestLMStudioClient,
+    ) -> tuple[ModelDescriptor, ...]:
+        raise RuntimeError("Disconnected")
+
+    monkeypatch.setattr(BrowserTestLMStudioClient, "list_model_inventory", disconnected)
+    monkeypatch.setattr("jouzetsu.controllers._INVENTORY_RETRY_DELAYS_SECONDS", ())
+    browser_page.get_by_test_id("refresh-models-button").click()
+    dialog = browser_page.locator("#models-dialog")
+    expect(dialog.get_by_role("alert")).to_have_text("Could not refresh models")
+    expect(browser_page.get_by_test_id("model-connection-status")).to_have_text(
+        "LM Studio offline · Cached models"
+    )
+    expect(browser_page.get_by_test_id("refresh-models-button")).to_have_text("Retry")
+    card = browser_page.get_by_test_id("loaded-model-card")
+    expect(card.locator("summary")).to_contain_text("Cached")
+    card.locator("summary").click()
+    expect(
+        browser_page.get_by_test_id("unload-model-browser-instance")
+    ).to_be_disabled()
+    assert (
+        browser_page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        is True
+    )
+
+    monkeypatch.setattr(
+        BrowserTestLMStudioClient, "list_model_inventory", original_inventory
+    )
+    browser_page.get_by_test_id("refresh-models-button").click()
+    expect(browser_page.get_by_test_id("model-connection-status")).to_have_text(
+        "LM Studio connected"
+    )
+    expect(dialog.get_by_role("alert")).to_have_count(0)
+    assert model_browser_server.state.model_inventory
+
+
+@pytest.mark.parametrize("tab", ("aliases", "defaults"))
+def test_model_refresh_preserves_the_active_tab_on_success_and_failure(
+    browser_page: Page,
+    model_browser_server: BrowserServer,
+    monkeypatch: pytest.MonkeyPatch,
+    tab: str,
+) -> None:
+    browser_page.goto("/chats?dialog=models")
+    browser_page.get_by_test_id(f"models-dialog-{tab}-tab").click()
+    browser_page.get_by_test_id("refresh-models-button").click()
+    active_tab = browser_page.get_by_test_id(f"models-dialog-{tab}-tab")
+    expect(active_tab).to_have_attribute("aria-selected", "true")
+
+    async def disconnected(
+        _client: BrowserTestLMStudioClient,
+    ) -> tuple[ModelDescriptor, ...]:
+        raise RuntimeError("Disconnected")
+
+    monkeypatch.setattr(BrowserTestLMStudioClient, "list_model_inventory", disconnected)
+    monkeypatch.setattr("jouzetsu.controllers._INVENTORY_RETRY_DELAYS_SECONDS", ())
+    browser_page.get_by_test_id("refresh-models-button").click()
+    expect(active_tab).to_have_attribute("aria-selected", "true")
+    expect(browser_page.locator("#models-dialog").get_by_role("alert")).to_have_text(
+        "Could not refresh models"
+    )
+    assert model_browser_server.state.model_inventory
 
 
 def test_character_onboarding_randomizes_each_name_part(

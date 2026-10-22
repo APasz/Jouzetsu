@@ -36,6 +36,7 @@ def render_dialog_tab_list(
                 tabindex=0 if tab.name == active_tab else -1,
                 cls="jouzetsu-tab",
                 data_tab_target=_panel_id(dialog_id, tab),
+                data_tab_name=tab.name,
                 data_testid=f"{dialog_id}-{tab.name}-tab",
             )
             for tab in tabs

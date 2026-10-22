@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from ..state import AppState
 from .icon import app_icon_url
-from .views.chat import ChatSettingsView, ChatView, ModelChoice, NavigationView
+from .views.chat import ChatSettingsView, ChatView, NavigationView
 from .views.context import PageContext
+from .views.model_controls import model_choices
 
 
 def chat_view(state: AppState) -> ChatView:
@@ -26,20 +27,11 @@ def chat_settings_view(state: AppState) -> ChatSettingsView:
     """Capture the active chat's independently refreshable settings data."""
 
     chat = state.active_chat
-    option_keys: tuple[str, ...] = (
-        *state.config.server.model_aliases,
-        *(model.key for model in state.model_inventory),
-        chat.model,
-    )
-    model_choices: tuple[ModelChoice, ...] = tuple(
-        ModelChoice(key=model_key, label=state.model_display_name(model_key))
-        for model_key in dict.fromkeys(key for key in option_keys if key)
-    )
     return ChatSettingsView(
         chat=chat,
         generating=state.is_generating(),
         generation_defaults=state.config.generation,
-        model_choices=model_choices,
+        model_choices=model_choices(state, chat.model),
     )
 
 

@@ -48,7 +48,7 @@ from .models import (
     character_cast_chat_title,
     compiled_character_chat_system_prompt,
 )
-from .runtime import ModelDescriptor, RuntimeStatus
+from .runtime import ConnectionState, ModelDescriptor, RuntimeStatus
 from .state_events import ChangeListener, StateNotifier
 from .state_generation import GenerationController, chat_with_continuation_prompt
 from .state_registry import ChatRegistry
@@ -196,28 +196,71 @@ class AppState:
     def model_inventory(self) -> tuple[ModelDescriptor, ...]:
         return self._runtime.inventory
 
+    @property
+    def model_connection(self) -> ConnectionState:
+        return self._runtime.connection
+
+    @property
+    def model_keys(self) -> tuple[str, ...]:
+        """Include downloaded models and retained selections or aliases."""
+
+        keys: tuple[str, ...] = (
+            *self.config.server.model_aliases,
+            *(model.key for model in self.model_inventory),
+            self.active_chat.model,
+            self.config.server.default_model,
+        )
+        return tuple(dict.fromkeys(self.resolve_model_key(key) for key in keys if key))
+
+    def model_descriptor(self, model_key: str) -> ModelDescriptor | None:
+        return self._runtime.model_descriptor(model_key)
+
+    def resolve_model_key(self, model_key: str) -> str:
+        """Resolve a loaded instance to its model key, retaining unknown selections."""
+
+        descriptor: ModelDescriptor | None = self.model_descriptor(model_key)
+        return descriptor.key if descriptor is not None else model_key
+
+    def _model_identifiers(self, model_key: str) -> tuple[str, ...]:
+        descriptor: ModelDescriptor | None = self.model_descriptor(model_key)
+        return (
+            (descriptor.key, *descriptor.loaded_instance_ids)
+            if descriptor is not None
+            else (model_key,)
+        )
+
+    def model_alias(self, model_key: str) -> str:
+        """Prefer the model alias, retaining aliases saved under a loaded instance ID."""
+
+        aliases: dict[str, str] = self.config.server.model_aliases
+        return next(
+            (
+                aliases[key]
+                for key in self._model_identifiers(model_key)
+                if key in aliases
+            ),
+            "",
+        )
+
     def model_display_name(self, model_key: str, fallback: str = "") -> str:
-        """Resolve the configured alias for a model, then its server name."""
-        return self.config.server.model_aliases.get(model_key, fallback or model_key)
+        """Resolve an alias, server display name, or model key, in that order."""
+
+        descriptor: ModelDescriptor | None = self.model_descriptor(model_key)
+        key: str = descriptor.key if descriptor is not None else model_key
+        server_name: str = descriptor.display_name if descriptor is not None else ""
+        return self.model_alias(model_key) or server_name or fallback or key
 
     def current_model_key(self) -> str:
         """Return the active resolved model key when one is known."""
         if self.runtime_status.model_key:
-            return self.runtime_status.model_key
+            return self.resolve_model_key(self.runtime_status.model_key)
         selected_model: str = self.active_chat.model or self.config.server.default_model
         if selected_model:
-            descriptor: ModelDescriptor | None = self._runtime.model_descriptor(
-                selected_model
-            )
-            return descriptor.key if descriptor is not None else selected_model
+            return self.resolve_model_key(selected_model)
         loaded: ModelDescriptor | None = next(
             (model for model in self.model_inventory if model.is_loaded), None
         )
         return loaded.key if loaded is not None else ""
-
-    def current_model_alias(self) -> str:
-        model_key = self.current_model_key()
-        return self.config.server.model_aliases.get(model_key, "") if model_key else ""
 
     def current_model_auto_unload_minutes(self) -> int | None:
         model_key: str = self.current_model_key()
@@ -246,10 +289,7 @@ class AppState:
             or session.chat.model
             or self.config.server.default_model
         )
-        descriptor: ModelDescriptor | None = self._runtime.model_descriptor(
-            requested_model
-        )
-        return descriptor.key if descriptor is not None else requested_model
+        return self.resolve_model_key(requested_model)
 
     def host_stats_snapshot(self) -> HostStatsSnapshot:
         """Return the latest monitor sample, bootstrapping only before monitoring starts."""
@@ -324,9 +364,9 @@ class AppState:
         if self._register_host_stats_devices(self._host_stats.latest_snapshot()):
             await self._commit(config=True, notify=False)
 
-    async def refresh_runtime_status(self) -> None:
-        """Refresh reachability, downloaded models, and loaded instances."""
-        await self._runtime.refresh()
+    async def refresh_runtime_status(self) -> bool:
+        """Refresh model availability and return whether the server responded."""
+        return await self._runtime.refresh()
 
     def _idle_runtime_status(self, chat: Chat) -> RuntimeStatus:
         return self._runtime.idle_status(chat)
@@ -956,24 +996,54 @@ class AppState:
             server.base_url,
         )
 
+    async def set_model_alias(self, model_key: str, alias: str) -> None:
+        """Save or clear an alias for an explicit, known model."""
+
+        model_key = require_non_empty_text(model_key, field_name="model key")
+        if (
+            self.model_descriptor(model_key) is None
+            and model_key not in self.model_keys
+        ):
+            raise ValueError("Unknown model")
+        identifiers: tuple[str, ...] = self._model_identifiers(model_key)
+        key: str = identifiers[0]
+        previous_aliases: dict[str, str] = self.config.server.model_aliases
+        aliases: dict[str, str] = dict(previous_aliases)
+        for identifier in identifiers:
+            _ = aliases.pop(identifier, None)
+        clean_alias: str = alias.strip()
+        if clean_alias:
+            aliases[key] = clean_alias
+        if aliases == previous_aliases:
+            return
+        self.config.server.apply(replace(self.config.server, model_aliases=aliases))
+        try:
+            await self._commit(config=True, notify=False)
+        except Exception:
+            self.config.server.model_aliases = previous_aliases
+            raise
+        for session in self._chat_registry.sessions:
+            if self.resolve_model_key(session.runtime_status.model_key) == key:
+                session.runtime_status = replace(
+                    session.runtime_status, model_name=self.model_display_name(key)
+                )
+        await self._notify()
+        log.info("model alias updated model_key=%s", key)
+
     async def reset_model_defaults(self) -> None:
-        """Restore model defaults while retaining connection settings and other aliases."""
+        """Restore global model defaults, retaining connection settings and aliases."""
 
         current: ServerSettings = self.config.server
-        aliases: dict[str, str] = dict(current.model_aliases)
-        model_key: str = self.current_model_key()
-        if model_key:
-            _ = aliases.pop(model_key, None)
         defaults: ServerSettings = default_config(self.config.paths).server
         settings: ServerSettings = ServerSettings(
             base_url=current.base_url,
             api_key=current.api_key,
             default_model=defaults.default_model,
-            model_aliases=aliases,
+            model_aliases=dict(current.model_aliases),
             auto_unload_minutes=defaults.auto_unload_minutes,
         )
         await self.set_global_settings(self.config.generation, settings)
-        log.info("model defaults reset current_model=%s", model_key)
+        log.info("model defaults reset")
 
     async def set_appearance_settings(
         self,

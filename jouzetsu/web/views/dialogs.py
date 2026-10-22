@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Final, Literal
 
 from ...models import Message
-from ...runtime import ModelDescriptor, ModelInstanceDescriptor
+from ...runtime import ConnectionState, ModelDescriptor, ModelInstanceDescriptor
 from ...state import AppState
 from ..html import (
     H2,
@@ -24,20 +24,22 @@ from ..html import (
     Select,
     Small,
     Span,
-    Summary,
     Textarea,
 )
 from .controls import close_dialog_button, field, form_submit_actions, post_button
 from .feedback import dialog_feedback
 from .host_stats import render_content as _render_host_stats_content
+from .model_controls import model_choices, render_model_options, render_model_summary
 from .tabs import DialogTab, render_dialog_tab_list, render_dialog_tab_panel
 
-type ModelsTab = Literal["loaded", "defaults"]
+type ModelsTab = Literal["loaded", "aliases", "defaults"]
 
 _LOADED_MODELS_TAB: Final[DialogTab] = DialogTab("loaded", "Loaded")
+_MODEL_ALIASES_TAB: Final[DialogTab] = DialogTab("aliases", "Aliases")
 _MODEL_DEFAULTS_TAB: Final[DialogTab] = DialogTab("defaults", "Defaults")
 _MODELS_TABS: Final[tuple[DialogTab, ...]] = (
     _LOADED_MODELS_TAB,
+    _MODEL_ALIASES_TAB,
     _MODEL_DEFAULTS_TAB,
 )
 
@@ -296,17 +298,18 @@ def render_models_dialog(
     notice: str = "",
     error: str = "",
 ) -> HTML:
-    """Render loaded LM Studio instances and app-wide model defaults."""
+    """Render loaded instances, per-model aliases, and global model defaults."""
 
     return Dialog(
         Div(
             H2("Models", id="models-dialog-title", cls="jouzetsu-modal-title"),
             P(
-                "Manage loaded LM Studio instances and the defaults used when a chat has no model override.",
+                "Manage LM Studio models.",
                 id="models-dialog-description",
                 cls="jouzetsu-dialog-description",
             ),
             dialog_feedback(notice=notice, error=error),
+            _model_connection_controls(state, active_tab),
             render_dialog_tab_list(
                 "models-dialog",
                 _MODELS_TABS,
@@ -314,6 +317,7 @@ def render_models_dialog(
                 label="Model settings sections",
             ),
             _loaded_models_panel(state, active_tab),
+            _model_aliases_panel(state, active_tab),
             render_dialog_tab_panel(
                 "models-dialog",
                 _MODEL_DEFAULTS_TAB,
@@ -338,7 +342,40 @@ def render_models_dialog(
 def models_tab_from_text(value: str) -> ModelsTab:
     """Return a supported Models tab, defaulting to loaded instances."""
 
-    return "defaults" if value == "defaults" else "loaded"
+    return value if value in ("aliases", "defaults") else "loaded"
+
+
+def _model_connection_controls(state: AppState, active_tab: ModelsTab) -> HTML:
+    connection: ConnectionState = state.model_connection
+    if connection is ConnectionState.ONLINE:
+        status: str = "LM Studio connected"
+    elif connection is ConnectionState.OFFLINE:
+        status = "LM Studio offline · " + (
+            "Cached models" if state.model_inventory else "No cached models"
+        )
+    else:
+        status = "Connection not checked"
+    return Div(
+        P(status, role="status", data_testid="model-connection-status"),
+        Form(
+            Input(
+                type="hidden",
+                name="tab",
+                value=active_tab,
+                data_dialog_active_tab="true",
+            ),
+            Button(
+                "Retry" if connection is ConnectionState.OFFLINE else "Refresh",
+                type="submit",
+                cls="jouzetsu-button",
+                data_testid="refresh-models-button",
+            ),
+            action="/models/refresh",
+            method="post",
+            cls="jouzetsu-inline-form",
+        ),
+        cls="jouzetsu-model-connection",
+    )
 
 
 def _loaded_models_panel(state: AppState, active_tab: ModelsTab) -> HTML:
@@ -354,17 +391,6 @@ def _loaded_models_panel(state: AppState, active_tab: ModelsTab) -> HTML:
         "models-dialog",
         _LOADED_MODELS_TAB,
         active_tab,
-        Form(
-            Button(
-                "Refresh",
-                type="submit",
-                cls="jouzetsu-button",
-                data_testid="refresh-models-button",
-            ),
-            action="/models/refresh",
-            method="post",
-            cls="jouzetsu-inline-form",
-        ),
         H3("Loaded models", data_testid="models-tab"),
         Div(
             *model_content,
@@ -374,9 +400,51 @@ def _loaded_models_panel(state: AppState, active_tab: ModelsTab) -> HTML:
     )
 
 
+def _model_aliases_panel(state: AppState, active_tab: ModelsTab) -> HTML:
+    cards: tuple[HTML, ...] = tuple(
+        Details(
+            render_model_summary(state, choice.key),
+            Form(
+                Input(type="hidden", name="model_key", value=choice.key),
+                field(
+                    "Alias",
+                    Input(
+                        name="alias",
+                        value=state.model_alias(choice.key),
+                        data_testid="model-alias-input",
+                    ),
+                ),
+                Button(
+                    "Save alias",
+                    type="submit",
+                    cls="jouzetsu-button",
+                    data_testid="save-model-alias-button",
+                ),
+                action="/models/alias",
+                method="post",
+                cls="jouzetsu-model-details",
+                data_testid="model-alias-form",
+            ),
+            cls="jouzetsu-model-card",
+            data_model_key=choice.key,
+            data_testid="model-alias-card",
+        )
+        for choice in model_choices(state)
+    )
+    return render_dialog_tab_panel(
+        "models-dialog",
+        _MODEL_ALIASES_TAB,
+        active_tab,
+        Small("Blank restores the model name.", cls="jouzetsu-form-help"),
+        Div(
+            *(cards or (P("No known models.", cls="jouzetsu-empty-state"),)),
+            cls="jouzetsu-model-list",
+        ),
+    )
+
+
 def _model_defaults_form(state: AppState) -> HTML:
     configured_default: str = state.config.server.default_model
-    current_model_key: str = state.current_model_key()
     return Form(
         Section(
             H3("Model defaults", cls="jouzetsu-section-title"),
@@ -389,26 +457,11 @@ def _model_defaults_form(state: AppState) -> HTML:
                             value="",
                             selected=not configured_default,
                         ),
-                        *(
-                            Option(
-                                state.model_display_name(model_key),
-                                value=model_key,
-                                selected=model_key == configured_default,
-                            )
-                            for model_key in _default_model_keys(state)
+                        *render_model_options(
+                            model_choices(state, configured_default), configured_default
                         ),
                         name="default_model",
                         data_testid="model-default-model",
-                    ),
-                ),
-                field(
-                    "Current model alias",
-                    Input(
-                        value=state.current_model_alias(),
-                        name="model_alias",
-                        disabled=not current_model_key,
-                        placeholder="No active model",
-                        data_testid="model-current-model-alias",
                     ),
                 ),
                 field(
@@ -426,7 +479,7 @@ def _model_defaults_form(state: AppState) -> HTML:
                 cls="jouzetsu-form-grid is-two-columns",
             ),
             Small(
-                "Aliases and auto-unload apply to the active model. Leave auto-unload blank to use LM Studio's value.",
+                "Blank timeout uses LM Studio's setting.",
                 cls="jouzetsu-form-help",
             ),
             cls="jouzetsu-dialog-section",
@@ -442,15 +495,6 @@ def _model_defaults_form(state: AppState) -> HTML:
         method="post",
         cls="jouzetsu-global-settings-form",
     )
-
-
-def _default_model_keys(state: AppState) -> tuple[str, ...]:
-    candidates: tuple[str, ...] = (
-        *state.config.server.model_aliases,
-        *(model.key for model in state.model_inventory),
-        state.config.server.default_model,
-    )
-    return tuple(dict.fromkeys(key for key in candidates if key))
 
 
 def _auto_unload_editor_value(state: AppState) -> str:
@@ -482,19 +526,12 @@ def render_loaded_model_card(
         if enabled
     )
     is_generating: bool = state.is_model_generating(model.key)
+    is_offline: bool = state.model_connection is not ConnectionState.ONLINE
     return Details(
-        Summary(
-            model.display_name or state.model_display_name(model.key),
-            cls="jouzetsu-model-summary",
-        ),
+        render_model_summary(state, model.key, context_length=instance.context_length),
         Div(
-            P(f"Model key: {model.key}", cls="jouzetsu-mono"),
             P(f"Instance ID: {instance.id}", cls="jouzetsu-mono"),
-            P(
-                f"Context: {_optional_int(instance.context_length or model.context_length)}"
-            ),
             P(f"Format: {model.format or 'Unknown'}"),
-            P(f"Quantization: {model.quantization_name or 'Unknown'}"),
             P(
                 f"Capabilities: {', '.join(capabilities) if capabilities else 'None advertised'}"
             ),
@@ -504,9 +541,11 @@ def render_loaded_model_card(
                 marker=f"unload-model-{instance.id}",
                 classes="jouzetsu-button jouzetsu-button-danger",
                 confirm="Unload this model instance?",
-                disabled=is_generating,
+                disabled=is_generating or is_offline,
                 title="Cannot unload a model while it is generating a response"
                 if is_generating
+                else "Connect to LM Studio to unload"
+                if is_offline
                 else "",
             ),
             cls="jouzetsu-model-details",
@@ -515,10 +554,6 @@ def render_loaded_model_card(
         cls="jouzetsu-model-card",
         data_testid="loaded-model-card",
     )
-
-
-def _optional_int(value: int | None) -> str:
-    return str(value) if value is not None else "Unknown"
 
 
 def render_host_stats_dialog(

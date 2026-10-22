@@ -53,9 +53,10 @@ Built-in British-spelling replacements and the theme palette are packaged
 separately. `generation.british_spelling_replacements` and `theme` are written
 only when you customise them.
 
-Global Settings separates chat-wide Behaviour from Appearance. Model selection,
-aliases, and auto-unload live in the Models dialog's Defaults tab. The
-Appearance editor has four independent colourways: App for neutral surfaces,
+Global Settings separates chat-wide Behaviour from Appearance. The Models dialog
+has Loaded instances, per-model Aliases, and global Defaults for model selection
+and auto-unload. The Appearance editor has four independent colourways:
+App for neutral surfaces,
 text, controls, and key interface visuals; User for your messages and composer;
 Assistant for replies and generation highlights; and System for messages and
 notifications. The built-in palette uses black-and-white App surfaces with a

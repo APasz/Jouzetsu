@@ -243,7 +243,10 @@ class RuntimeController:
         self._display_name: Callable[[str, str], str] = display_name
         self._notify: Callable[[StateChangeKind], Awaitable[None]] = notify
         self._connection: ConnectionState = ConnectionState.CHECKING
+        self._connection_error: str = ""
         self._inventory: tuple[ModelDescriptor, ...] = ()
+        self._models_by_identifier: dict[str, ModelDescriptor] = {}
+        self._refresh_lock: asyncio.Lock = asyncio.Lock()
         self._monitor_task: asyncio.Task[None] | None = None
         self._next_poll_interval_seconds: float = _POLL_INTERVAL_SECONDS
 
@@ -251,22 +254,18 @@ class RuntimeController:
     def inventory(self) -> tuple[ModelDescriptor, ...]:
         return self._inventory
 
+    @property
+    def connection(self) -> ConnectionState:
+        return self._connection
+
     def model_descriptor(self, key_or_instance_id: str) -> ModelDescriptor | None:
-        return next(
-            (
-                model
-                for model in self._inventory
-                if model.key == key_or_instance_id
-                or key_or_instance_id in model.loaded_instance_ids
-            ),
-            None,
-        )
+        return self._models_by_identifier.get(key_or_instance_id)
 
     def idle_status(self, chat: Chat) -> RuntimeStatus:
         if self._connection is ConnectionState.CHECKING:
             return RuntimeStatus(RuntimePhase.CHECKING)
         if self._connection is ConnectionState.OFFLINE:
-            return RuntimeStatus(RuntimePhase.OFFLINE)
+            return RuntimeStatus(RuntimePhase.OFFLINE, detail=self._connection_error)
 
         selected_model: str = chat.model or self._config.server.default_model
         if not selected_model:
@@ -309,10 +308,30 @@ class RuntimeController:
             _POLL_INTERVAL_SECONDS,
         )
 
-    async def refresh(self) -> None:
+    async def refresh(self) -> bool:
+        """Serialise inventory requests and report this refresh's outcome."""
+
+        async with self._refresh_lock:
+            previous_inventory: tuple[ModelDescriptor, ...] = self._inventory
+            previous_connection: ConnectionState = self._connection
+            refreshed: bool = await self._refresh_inventory()
+            models_changed: bool = (
+                previous_inventory != self._inventory
+                or previous_connection is not self._connection
+            )
+            statuses_changed: bool = self._refresh_targets(self.idle_status)
+        if models_changed or statuses_changed:
+            await self._notify(
+                StateChangeKind.FULL if models_changed else StateChangeKind.STATUS
+            )
+        return refreshed
+
+    async def _refresh_inventory(self) -> bool:
         previous_connection: ConnectionState = self._connection
         try:
-            self._inventory = await self._load_inventory_with_retries()
+            inventory: tuple[
+                ModelDescriptor, ...
+            ] = await self._load_inventory_with_retries()
         except Exception as exc:  # noqa: BLE001
             self._connection = ConnectionState.OFFLINE
             if previous_connection is ConnectionState.OFFLINE:
@@ -324,13 +343,17 @@ class RuntimeController:
                 self._next_poll_interval_seconds = _OFFLINE_POLL_INITIAL_SECONDS
             if previous_connection is not ConnectionState.OFFLINE:
                 log.warning("LM Studio became unavailable error=%s", exc)
-            error_detail: str = str(exc)
-            await self._refresh_targets(
-                lambda _chat: RuntimeStatus(RuntimePhase.OFFLINE, detail=error_detail)
-            )
-            return
+            self._connection_error = str(exc)
+            return False
 
+        models_by_identifier: dict[str, ModelDescriptor] = {}
+        for model in inventory:
+            for identifier in (model.key, *model.loaded_instance_ids):
+                _ = models_by_identifier.setdefault(identifier, model)
+        self._inventory = inventory
+        self._models_by_identifier = models_by_identifier
         self._connection = ConnectionState.ONLINE
+        self._connection_error = ""
         self._next_poll_interval_seconds = _POLL_INTERVAL_SECONDS
         if previous_connection is not ConnectionState.ONLINE:
             loaded_instance_count: int = sum(
@@ -341,7 +364,7 @@ class RuntimeController:
                 len(self._inventory),
                 loaded_instance_count,
             )
-        await self._refresh_targets(self.idle_status)
+        return True
 
     async def unload_model(self, model_key: str) -> ModelDescriptor:
         descriptor: ModelDescriptor | None = self.model_descriptor(model_key)
@@ -406,9 +429,7 @@ class RuntimeController:
                 await asyncio.sleep(delay_seconds)
         raise RuntimeError("unreachable inventory retry state")
 
-    async def _refresh_targets(
-        self, status_for: Callable[[Chat], RuntimeStatus]
-    ) -> None:
+    def _refresh_targets(self, status_for: Callable[[Chat], RuntimeStatus]) -> bool:
         changed: bool = False
         for target in self._targets():
             if target.runtime_status.phase in _ACTIVE_PHASES:
@@ -417,8 +438,7 @@ class RuntimeController:
             if self._status_should_change(target.runtime_status, status):
                 target.runtime_status = status
                 changed = True
-        if changed:
-            await self._notify(StateChangeKind.STATUS)
+        return changed
 
     @staticmethod
     def _status_should_change(

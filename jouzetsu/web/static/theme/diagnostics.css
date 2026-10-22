@@ -34,6 +34,32 @@
     color: var(--jouzetsu-app-foreground);
 }
 
+.jouzetsu-model-name {
+    overflow-wrap: anywhere;
+}
+
+.jouzetsu-model-key,
+.jouzetsu-model-meta {
+    display: block;
+    margin-top: 4px;
+    color: var(--jouzetsu-app-text-muted);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.jouzetsu-model-connection {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.jouzetsu-model-connection p {
+    margin: 0;
+    color: var(--jouzetsu-app-text-muted);
+    font-size: 12px;
+}
+
 .jouzetsu-model-details {
     display: flex;
     flex-direction: column;
@@ -46,6 +72,10 @@
     margin: 0;
     color: var(--jouzetsu-app-text-muted);
     font-size: 12px;
+}
+
+.jouzetsu-model-details > button {
+    align-self: flex-start;
 }
 
 .jouzetsu-log-output {

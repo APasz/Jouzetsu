@@ -85,7 +85,7 @@ from .views.chat import (
     render_settings_panel,
 )
 from .views.context import PageContext
-from .views.dialogs import render_message_details_content
+from .views.dialogs import models_tab_from_text, render_message_details_content
 from .views.host_stats import render_content as render_host_stats_content
 from .views.pages import (
     render_launch_page,
@@ -808,7 +808,6 @@ def _register_settings_routes(context: RouteContext) -> None:
                 default_model=form.text(
                     "default_model", default=context.state.config.server.default_model
                 ),
-                alias=form.text("model_alias"),
                 auto_unload_minutes=form.text("auto_unload_minutes"),
             )
             icon_colors: IconColorSettings = _updated_icon_color_settings(
@@ -864,7 +863,6 @@ def _register_settings_routes(context: RouteContext) -> None:
                 default_model=form.text(
                     "default_model", default=context.state.config.server.default_model
                 ),
-                alias=form.text("model_alias"),
                 auto_unload_minutes=form.text("auto_unload_minutes"),
             )
             await context.state.set_global_settings(
@@ -1155,13 +1153,33 @@ def _register_access_routes(context: RouteContext) -> None:
 
     @context.route("POST", "/models/refresh", "refresh_models")
     async def refresh_models(request: Request) -> Response:
+        form: _FormValues = await _form_values(request)
+
+        async def operation() -> None:
+            if not await context.state.refresh_runtime_status():
+                raise ValueError("Could not refresh models")
+
         return await context.mutations.perform(
             request,
-            context.state.refresh_runtime_status,
+            operation,
             notice="Model inventory refreshed",
             require_global_settings=True,
             dialog="models",
-            dialog_tab="loaded",
+            dialog_tab=models_tab_from_text(form.text("tab")),
+        )
+
+    @context.route("POST", "/models/alias", "save_model_alias")
+    async def save_model_alias(request: Request) -> Response:
+        form: _FormValues = await _form_values(request)
+        return await context.mutations.perform(
+            request,
+            lambda: context.state.set_model_alias(
+                form.text("model_key"), form.text("alias")
+            ),
+            notice="Alias saved",
+            require_global_settings=True,
+            dialog="models",
+            dialog_tab="aliases",
         )
 
     @context.route(
