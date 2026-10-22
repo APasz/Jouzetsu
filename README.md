@@ -36,6 +36,8 @@ jouzetsu --home /path/to/Jouzetsu
   forked, merged, or undone.
 - Downloaded-model discovery and loading through LM Studio, including an
   optional idle unload time-to-live.
+- Vision chats with multiple JPEG, PNG, or WebP images: upload, paste, or drop
+  images into the composer, preview them, and send them with or without text.
 - Character profiles and JSON preset packs; start immutable single-character or
   multi-character chats in Roleplay, Assistant, Story, or Custom prompt modes.
 - Optional post-reply continuity review, proposed rewrites requiring user
@@ -52,6 +54,23 @@ unknown, or invalid settings prevent startup rather than being silently changed.
 Built-in British-spelling replacements and the theme palette are packaged
 separately. `generation.british_spelling_replacements` and `theme` are written
 only when you customise them.
+
+Vision models are marked in model selectors. Images stay with their original
+user message in later requests, regeneration, continuations, and continuity
+reviews. A conversation containing images requires a vision-capable model;
+switching to a text-only model blocks generation until a compatible model is
+selected. Editing a caption preserves its images.
+
+Original image files and small previews live in `data/images/`; the original
+resolution is preserved. Draft attachments survive reloads, and forks and undo
+retain their references. Image files are kept when references are removed so
+other chats and recoverable trash remain intact. Initial limits allow 32 images
+per message, 64 MiB per image, 512 MiB per upload, and 100 million pixels per
+image. The upload policy is centralised in `ImageLimits` for future settings.
+Chat documents use schema version 2; historical chats load without attachments
+and upgrade when saved.
+WebP originals are sent to LM Studio as lossless PNG images to work around the
+0.4.26 compatibility endpoint rejecting WebP data URLs.
 
 Global Settings separates chat-wide Behaviour from Appearance. The Models dialog
 has Loaded instances, per-model Aliases, and global Defaults for model selection

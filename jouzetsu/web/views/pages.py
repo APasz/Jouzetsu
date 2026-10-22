@@ -186,20 +186,16 @@ def render_launch_page(
         Main(
             Section(
                 H1("Choose a workspace", cls="jouzetsu-launch-title"),
-                P(
-                    "Continue an existing conversation or build a reusable character profile.",
-                    cls="jouzetsu-character-intro",
-                ),
                 Div(
                     _workspace_link(
                         "Chats",
-                        "Conversations, models, prompts, and generation controls.",
+                        "Conversations with your local models.",
                         "/chats",
                         "launch-chats-link",
                     ),
                     _workspace_link(
                         "Characters",
-                        "Field-configured reusable profiles that can start a new chat.",
+                        "Reusable profiles for character chats.",
                         "/characters",
                         "launch-characters-link",
                     ),

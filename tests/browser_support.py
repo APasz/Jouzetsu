@@ -6,7 +6,7 @@ import asyncio
 import socket
 import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Event, Thread
 from typing import Final
@@ -47,6 +47,7 @@ class BrowserTestLMStudioClient:
     response_content: str = "Browser test reply"
     first_token_delay_seconds: float = 0.0
     completion_gate: Event | None = None
+    requests: list[Chat] = field(default_factory=list)
 
     async def list_models(self) -> list[str]:
         return ["browser-test-model"]
@@ -68,6 +69,7 @@ class BrowserTestLMStudioClient:
         generation: GenerationSettings,
     ) -> AsyncIterator[ChatStreamEvent]:
         _ = (chat, model, generation)
+        self.requests.append(chat)
         yield ModelReady("browser-test-model", "Browser test model", 4096)
         if self.first_token_delay_seconds:
             await asyncio.sleep(self.first_token_delay_seconds)

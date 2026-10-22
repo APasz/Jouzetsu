@@ -12,7 +12,13 @@ log: Logger = logging.getLogger(__name__)
 
 
 def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
-    """Replace ``path`` with fully written text without exposing a partial file.
+    """Encode and durably replace one text document."""
+
+    atomic_write_bytes(path, text.encode(encoding))
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Replace ``path`` with fully written bytes without exposing a partial file.
 
     The temporary file is created beside the destination so ``os.replace`` is
     atomic on the target filesystem. Best-effort fsync calls reduce the chance
@@ -25,8 +31,8 @@ def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None
         dir=path.parent,
     )
     try:
-        with os.fdopen(descriptor, "w", encoding=encoding) as file:
-            _ = file.write(text)
+        with os.fdopen(descriptor, "wb") as file:
+            _ = file.write(data)
             file.flush()
             _sync_file(file.fileno())
         os.replace(temporary_path, path)

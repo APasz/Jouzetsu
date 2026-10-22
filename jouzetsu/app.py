@@ -28,6 +28,7 @@ from .config import (
     EnvironmentOverrides,
     resolve_app_home,
 )
+from .image_storage import ImageStorage
 from .lmstudio import LMStudioClient
 from .logging_config import configure_bootstrap_logging, configure_logging
 from .process_lock import LinuxDataDirectoryLock
@@ -110,8 +111,9 @@ def create_state(config: AppConfig, config_store: ConfigStore) -> AppState:
 
     storage: ChatStorage = ChatStorage(config.chats_file)
     character_storage: CharacterStorage = CharacterStorage(config.characters_directory)
-    client: LMStudioClient = LMStudioClient(config.server)
-    return AppState(config, storage, client, character_storage, config_store)
+    images = ImageStorage(config.paths.images_directory)
+    client: LMStudioClient = LMStudioClient(config.server, image_storage=images)
+    return AppState(config, storage, client, character_storage, config_store, images)
 
 
 async def _open_browser_after_start(config: AppConfig) -> None:

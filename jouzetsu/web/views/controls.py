@@ -8,6 +8,12 @@ from ..html import HTML, Button, Div, Form, Input, Label, Span
 from .context import PageContext
 
 
+def count_label(count: int, noun: str) -> str:
+    """Format counts for regular nouns used in interface labels."""
+
+    return f"{count} {noun if count == 1 else noun + 's'}"
+
+
 def post_button(
     label: str | HTML,
     *,

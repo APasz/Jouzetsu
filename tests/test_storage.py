@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from jouzetsu.models import Chat, Message
+from jouzetsu.models import CHAT_SCHEMA_VERSION, Chat, Message
 from jouzetsu.storage import ChatStorage
 
 
@@ -39,7 +39,7 @@ class ChatStorageTests(unittest.TestCase):
                 dict[str, object],
                 json.loads(storage.path_for(first.id).read_text(encoding="utf-8")),
             )
-            self.assertEqual(saved["schema_version"], 1)
+            self.assertEqual(saved["schema_version"], CHAT_SCHEMA_VERSION)
             log_output: str = "\n".join(logs.output)
             self.assertIn(
                 f"saved chat records directory={storage.directory} changed_count=2",
@@ -239,7 +239,7 @@ class ChatStorageTests(unittest.TestCase):
             self.assertFalse(damaged.exists())
             self.assertEqual(len(list(storage.directory.glob("bad.json.corrupt-*"))), 1)
 
-    def test_unversioned_split_document_round_trips_as_v1(self) -> None:
+    def test_unversioned_split_document_round_trips_as_current_schema(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = ChatStorage(Path(tmp_dir) / "chats.json")
             chat = Chat(title="Legacy")
@@ -255,14 +255,14 @@ class ChatStorageTests(unittest.TestCase):
                 json.loads(storage.path_for(chat.id).read_text(encoding="utf-8")),
             )
             self.assertEqual(loaded, [chat])
-            self.assertEqual(saved["schema_version"], 1)
+            self.assertEqual(saved["schema_version"], CHAT_SCHEMA_VERSION)
 
     def test_future_schema_document_is_left_intact_during_snapshot_saves(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             storage = ChatStorage(Path(tmp_dir) / "chats.json")
             chat = Chat()
             document: dict[str, object] = dict(chat.to_dict())
-            document["schema_version"] = 2
+            document["schema_version"] = CHAT_SCHEMA_VERSION + 1
             path = storage.path_for(chat.id)
             _ = path.write_text(json.dumps(document), encoding="utf-8")
 
@@ -275,16 +275,14 @@ class ChatStorageTests(unittest.TestCase):
                 document,
             )
             self.assertFalse((storage.trash_directory / path.name).exists())
-            self.assertEqual(
-                list(storage.directory.glob(f"{path.name}.corrupt-*")), []
-            )
+            self.assertEqual(list(storage.directory.glob(f"{path.name}.corrupt-*")), [])
 
     def test_future_schema_legacy_store_is_left_intact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path: Path = Path(tmp_dir) / "chats.json"
             chat = Chat()
             document: dict[str, object] = dict(chat.to_dict())
-            document["schema_version"] = 2
+            document["schema_version"] = CHAT_SCHEMA_VERSION + 1
             future_content: str = json.dumps({"chats": [document]})
             _ = path.write_text(future_content, encoding="utf-8")
 
@@ -302,7 +300,7 @@ class ChatStorageTests(unittest.TestCase):
             future_document: dict[str, object] = dict(
                 Chat(id=legacy_chat.id, title="Future").to_dict()
             )
-            future_document["schema_version"] = 2
+            future_document["schema_version"] = CHAT_SCHEMA_VERSION + 1
             legacy_content: str = json.dumps(
                 {"chats": [_legacy_chat_document(legacy_chat)]}
             )

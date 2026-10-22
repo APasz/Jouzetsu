@@ -386,7 +386,12 @@ export class CharacterEditorController {
     validateForm(form, submitter) {
         if (!this.#validateCustomInstruction(form, submitter)) return false;
         const editor = form.querySelector('[data-spelling-editor]');
-        if (editor instanceof HTMLElement && !this.syncSpellingEditor(editor)) return false;
+        if (editor instanceof HTMLElement && !this.syncSpellingEditor(editor)) {
+            const details = editor.closest('details');
+            if (details instanceof HTMLDetailsElement) details.open = true;
+            editor.querySelector('input.is-invalid')?.focus();
+            return false;
+        }
         return true;
     }
 

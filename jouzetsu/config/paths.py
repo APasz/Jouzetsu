@@ -49,6 +49,12 @@ class AppPaths:
     character_name_suggestions_file: Path
     log_directory: Path
 
+    @property
+    def images_directory(self) -> Path:
+        """Original image files and derived previews shared by chat references."""
+
+        return self.data_dir / "images"
+
     @classmethod
     def for_home(cls, app_home: Path) -> AppPaths:
         """Build the complete path set for an application home."""

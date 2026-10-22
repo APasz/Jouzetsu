@@ -58,10 +58,10 @@ _GLOBAL_SETTINGS_TABS: Final[tuple[DialogTab, ...]] = (
     _APPEARANCE_TAB,
 )
 _COLOURWAY_DESCRIPTIONS: Final[dict[ThemeColorway, str]] = {
-    ThemeColorway.APP: "Neutral surfaces and text, plus the shared accent for controls and key interface visuals.",
-    ThemeColorway.USER: "Your messages, composer accents, and send button.",
-    ThemeColorway.ASSISTANT: "Assistant replies, reasoning, and generation highlights.",
-    ThemeColorway.SYSTEM: "System messages, notifications, and inline feedback.",
+    ThemeColorway.APP: "Interface surfaces, text and controls.",
+    ThemeColorway.USER: "Your messages and composer.",
+    ThemeColorway.ASSISTANT: "Replies, reasoning and generation.",
+    ThemeColorway.SYSTEM: "System messages and notices.",
 }
 _APP_EDITOR_EXCLUDED_FIELDS: Final[frozenset[str]] = frozenset(
     {"accent", "key_visual", *(action.color_field for action in MessageAction)}
@@ -86,7 +86,7 @@ def render_global_settings_dialog(
                 cls="jouzetsu-modal-title",
             ),
             P(
-                "Set chat-wide behaviour and the application's appearance.",
+                "Chat defaults and appearance.",
                 id="global-settings-dialog-description",
                 cls="jouzetsu-dialog-description",
             ),
@@ -116,11 +116,11 @@ def render_global_settings_dialog(
             ),
             (
                 post_button(
-                    "Exit",
+                    "Stop server",
                     action="/app/exit",
                     marker="exit-process-button",
                     classes="jouzetsu-button jouzetsu-button-danger",
-                    confirm="Stop Jouzetsu?",
+                    confirm="Stop Jouzetsu for all connected browsers?",
                 )
                 if context.decision.can_manage_access
                 else None
@@ -177,7 +177,7 @@ def _appearance_form(state: AppState) -> HTML:
     return Div(
         Form(
             Small(
-                "Choose a main colour for each part of the interface. Automatic shades preserve readable text and keep App surfaces neutral.",
+                "Main colours set the automatic shades. Advanced options override individual colours.",
                 cls="jouzetsu-form-help",
             ),
             *(
@@ -228,9 +228,7 @@ def _colourway_editor(
                 ),
             ),
             (
-                _key_visual_field(
-                    settings, preview=effective_colours["key_visual"]
-                )
+                _key_visual_field(settings, preview=effective_colours["key_visual"])
                 if is_app
                 else None
             ),
@@ -238,8 +236,7 @@ def _colourway_editor(
         ),
         (
             Small(
-                "Key visuals cover navigation, active tabs, and message actions. "
-                "Use Auto to keep them following Main colour.",
+                "Navigation, tabs and message actions. Auto follows Main colour.",
                 cls="jouzetsu-form-help",
             )
             if is_app
@@ -258,9 +255,7 @@ def _colourway_editor(
         Details(
             Summary("Advanced", cls="jouzetsu-appearance-advanced-title"),
             Small(
-                "Pick an override colour, or use Auto to restore the generated colour. "
-                "Uniform message actions follow the main App colour unless you "
-                "override them.",
+                "Auto follows the main colour. Pick a colour to override it.",
                 cls="jouzetsu-form-help",
             ),
             Div(
@@ -458,8 +453,7 @@ def _message_action_style_control(style: MessageActionStyle) -> HTML:
             ),
         ),
         Small(
-            "Uniform uses the App message action colour. Semantic uses the action "
-            "colours below; other message controls remain App-coloured.",
+            "Uniform uses one colour; Semantic uses the action colours below.",
             cls="jouzetsu-form-help",
         ),
         cls="jouzetsu-dialog-section",
@@ -532,11 +526,11 @@ def _generation_defaults_form(state: AppState) -> HTML:
                 checkbox(
                     "continuity_review",
                     checked=settings.continuity_review,
-                    label="Check reply continuity before sending",
+                    label="Check replies for continuity",
                     marker="global-continuity-review",
                 ),
                 Small(
-                    "Uses one extra model pass to correct concrete contradictions or missed constraints.",
+                    "Adds a model pass to suggest fixes for contradictions or missed instructions.",
                     cls="jouzetsu-form-help",
                 ),
                 cls="jouzetsu-dialog-section",
@@ -558,10 +552,17 @@ def _generation_defaults_form(state: AppState) -> HTML:
 
 
 def _spelling_replacements_editor(replacements: list[SpellingReplacement]) -> HTML:
+    return Details(
+        Summary("British spelling replacements"),
+        _spelling_replacements_fields(replacements),
+        data_testid="spelling-replacements-details",
+    )
+
+
+def _spelling_replacements_fields(replacements: list[SpellingReplacement]) -> HTML:
     return Div(
-        Span("British spelling replacements", cls="jouzetsu-field-label"),
         Small(
-            "One single-word source and replacement per row. Applied only in chats with post-processing enabled.",
+            "One word per value. Used when British spelling post-processing is enabled.",
             cls="jouzetsu-form-help",
         ),
         Div(

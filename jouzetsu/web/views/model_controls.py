@@ -40,6 +40,7 @@ def model_summary(
             model.quantization_name,
             f"{context:,} tokens" if context is not None else "",
             status,
+            "Vision" if model.capabilities.vision else "",
         )
         if part
     )

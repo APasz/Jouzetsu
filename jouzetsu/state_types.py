@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
-from .models import Message, Role
+from .models import ImageAttachment, Message, Role
 from .runtime import RuntimePhase, RuntimeStatus
 
 if TYPE_CHECKING:
@@ -38,6 +38,7 @@ class MessageSnapshot:
     model: str
     continuity_rewrite: str
     reasoning: str
+    images: tuple[ImageAttachment, ...]
     created_at: float
     updated_at: float
 
@@ -62,6 +63,7 @@ def snapshot_messages(messages: list[Message]) -> tuple[MessageSnapshot, ...]:
             model=message.model,
             continuity_rewrite=message.continuity_rewrite,
             reasoning=message.reasoning,
+            images=message.images,
             created_at=message.created_at,
             updated_at=message.updated_at,
         )
@@ -80,6 +82,7 @@ def restore_messages(snapshot: tuple[MessageSnapshot, ...]) -> list[Message]:
             model=message.model,
             continuity_rewrite=message.continuity_rewrite,
             reasoning=message.reasoning,
+            images=message.images,
             created_at=message.created_at,
             updated_at=message.updated_at,
         )

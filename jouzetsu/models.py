@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 import time
 import uuid
 from collections.abc import Mapping, Sequence
@@ -53,7 +54,7 @@ CHARACTER_STORY_PROMPT_CLOSING: str = (
     "unless they ask you to."
 )
 CHARACTER_CUSTOM_PROMPT_PREVIEW_EMPTY: str = "Enter a custom instruction."
-CHAT_SCHEMA_VERSION: Final[int] = 1
+CHAT_SCHEMA_VERSION: Final[int] = 2
 CHARACTER_SCHEMA_VERSION: Final[int] = 1
 CHARACTER_DRAFT_DISPLAY_NAME: Final[str] = "Untitled character"
 
@@ -101,6 +102,23 @@ class ChatPromptMode(str, Enum):
         return "Custom"
 
 
+class ImageMediaType(str, Enum):
+    """Supported encodings for uploaded originals."""
+
+    JPEG = "image/jpeg"
+    PNG = "image/png"
+    WEBP = "image/webp"
+
+
+class ImageAttachmentJSON(TypedDict):
+    id: str
+    name: str
+    media_type: str
+    width: int
+    height: int
+    size_bytes: int
+
+
 class MessageJSON(TypedDict):
     id: str
     role: Role
@@ -108,6 +126,7 @@ class MessageJSON(TypedDict):
     model: str
     continuity_rewrite: str
     reasoning: str
+    images: list[ImageAttachmentJSON]
     created_at: float
     updated_at: float
 
@@ -142,6 +161,7 @@ class ChatJSON(TypedDict):
     postprocess_british_spellings: bool
     save_reasoning: bool
     draft: str
+    draft_images: list[ImageAttachmentJSON]
     character_cast: list[CharacterChatBindingJSON]
     messages: list[MessageJSON]
 
@@ -392,7 +412,12 @@ def _title_source_from_json(raw: object) -> ChatTitleSource:
 def _is_legacy_new_chat_placeholder(messages: list[Message]) -> bool:
     """Identify the empty user turn created by versions before pristine chats."""
 
-    return len(messages) == 1 and messages[0].role == "user" and not messages[0].content
+    return (
+        len(messages) == 1
+        and messages[0].role == "user"
+        and not messages[0].content
+        and not messages[0].images
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1025,6 +1050,79 @@ def _validated_character_cast(characters: Sequence[Character]) -> tuple[Characte
     return character_cast
 
 
+@dataclass(frozen=True, slots=True)
+class ImageAttachment:
+    """An immutable reference to one original image stored outside the transcript."""
+
+    id: str
+    name: str
+    media_type: ImageMediaType
+    width: int
+    height: int
+    size_bytes: int
+
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"[0-9a-f]{64}", self.id):
+            raise ValueError("image id must be a SHA-256 digest")
+        if not self.name.strip():
+            raise ValueError("image name cannot be empty")
+        if not isinstance(cast(object, self.media_type), ImageMediaType):
+            raise TypeError("image media type must be an ImageMediaType")
+        for name, value in (
+            ("width", self.width),
+            ("height", self.height),
+            ("size_bytes", self.size_bytes),
+        ):
+            _ = _integer_from_json(value, field_name=f"image.{name}", minimum=1)
+
+    def to_dict(self) -> ImageAttachmentJSON:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "media_type": self.media_type.value,
+            "width": self.width,
+            "height": self.height,
+            "size_bytes": self.size_bytes,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, object]) -> ImageAttachment:
+        return cls(
+            id=_required_string(raw.get("id"), field_name="image.id"),
+            name=_required_string(raw.get("name"), field_name="image.name"),
+            media_type=ImageMediaType(
+                _required_string(raw.get("media_type"), field_name="image.media_type")
+            ),
+            width=_integer_from_json(
+                raw.get("width"), field_name="image.width", minimum=1
+            ),
+            height=_integer_from_json(
+                raw.get("height"), field_name="image.height", minimum=1
+            ),
+            size_bytes=_integer_from_json(
+                raw.get("size_bytes"), field_name="image.size_bytes", minimum=1
+            ),
+        )
+
+
+def image_attachments_from_json(raw: object) -> tuple[ImageAttachment, ...]:
+    """Read image references while treating historical missing fields as empty."""
+
+    if not isinstance(raw, list):
+        raise TypeError("images must be a list")
+    return tuple(
+        ImageAttachment.from_dict(_string_mapping(item, field_name="image"))
+        for item in cast(list[object], raw)
+    )
+
+
+def _validate_image_references(raw: object) -> None:
+    if not isinstance(raw, tuple) or not all(
+        isinstance(image, ImageAttachment) for image in cast(tuple[object, ...], raw)
+    ):
+        raise TypeError("images must be an immutable tuple of image references")
+
+
 @dataclass
 class Message:
     """A single message in a chat.
@@ -1040,10 +1138,14 @@ class Message:
     model: str = ""
     continuity_rewrite: str = ""
     reasoning: str = ""
+    images: tuple[ImageAttachment, ...] = ()
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
     def __post_init__(self) -> None:
+        _validate_image_references(self.images)
+        if self.images and self.role != "user":
+            raise ValueError("only user messages can have images")
         if self.model and self.role != "assistant":
             raise ValueError("only assistant messages can have models")
         if self.continuity_rewrite and self.role != "assistant":
@@ -1113,6 +1215,7 @@ class Message:
             "model": self.model,
             "continuity_rewrite": self.continuity_rewrite,
             "reasoning": self.reasoning,
+            "images": [image.to_dict() for image in self.images],
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -1144,6 +1247,7 @@ class Message:
             model=model,
             continuity_rewrite=continuity_rewrite,
             reasoning=reasoning,
+            images=image_attachments_from_json(raw.get("images", [])),
             created_at=created_at,
             updated_at=_float_from_json(raw.get("updated_at"), default=created_at),
         )
@@ -1172,10 +1276,12 @@ class Chat:
     postprocess_british_spellings: bool = True
     save_reasoning: bool = True
     draft: str = ""
+    draft_images: tuple[ImageAttachment, ...] = ()
     character_cast: tuple[CharacterChatBinding, ...] = ()
     messages: list[Message] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        _validate_image_references(self.draft_images)
         if not self.id:
             raise ValueError("chat id cannot be empty")
         if not self.title.strip():
@@ -1210,6 +1316,12 @@ class Chat:
 
     def touch(self) -> None:
         self.updated_at = time.time()
+
+    @property
+    def has_images(self) -> bool:
+        """Whether the conversation history requires a vision model."""
+
+        return any(message.images for message in self.messages)
 
     def add_message(self, role: Role, content: str = "") -> Message:
         msg: Message = Message(role=role, content=content)
@@ -1283,6 +1395,7 @@ class Chat:
         previous_message.update_content(
             _merge_message_content(previous_message.content, target_message.content)
         )
+        previous_message.images += target_message.images
         if previous_message.role == "assistant" and not models_match:
             previous_message.clear_model()
         del self.messages[target_index]
@@ -1309,6 +1422,7 @@ class Chat:
                 model=message.model,
                 continuity_rewrite=message.continuity_rewrite,
                 reasoning=message.reasoning,
+                images=message.images,
                 created_at=message.created_at,
                 updated_at=message.updated_at,
             )
@@ -1367,6 +1481,7 @@ class Chat:
             "postprocess_british_spellings": self.postprocess_british_spellings,
             "save_reasoning": self.save_reasoning,
             "draft": self.draft,
+            "draft_images": [image.to_dict() for image in self.draft_images],
             "character_cast": [binding.to_dict() for binding in self.character_cast],
             "messages": [m.to_dict() for m in self.messages],
         }
@@ -1428,6 +1543,7 @@ class Chat:
             ),
             save_reasoning=_bool_from_json(raw.get("save_reasoning"), default=True),
             draft=str(raw.get("draft", "")),
+            draft_images=image_attachments_from_json(raw.get("draft_images", [])),
             character_cast=character_cast,
             messages=messages,
         )

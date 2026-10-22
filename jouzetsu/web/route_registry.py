@@ -17,6 +17,7 @@ from fastcore.xml import FT  # pyright: ignore[reportMissingTypeStubs]
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import (
+    FileResponse,
     PlainTextResponse,
     RedirectResponse,
     Response,
@@ -24,6 +25,7 @@ from starlette.responses import (
 )
 
 from ..access import is_device_access_approval_phrase
+from ..async_workers import run_in_worker
 from ..character_presets import CharacterNameSuggestionsCatalog, CharacterPresetCatalog
 from ..config import (
     AppConfig,
@@ -39,6 +41,7 @@ from ..models import (
     CharacterField,
     ChatPromptMode,
     ChatSamplingOverrides,
+    ImageAttachment,
     Message,
     chat_prompt_mode_from_text,
 )
@@ -147,6 +150,27 @@ def register_routes(context: RouteContext) -> None:
 
 
 def _register_page_routes(context: RouteContext) -> None:
+    @context.route("GET", "/images/{image_id}", "image_attachment")
+    async def image_attachment(request: Request) -> Response:
+        _ = await context.access.require(request)
+        try:
+            image: ImageAttachment = context.state.image_attachment(
+                _path_text(request, "image_id")
+            )
+            thumbnail: bool = _query_text(request, "thumbnail") == "1"
+            path: Path = context.state.images.path_for(image, thumbnail=thumbnail)
+            if not path.is_file():
+                raise ValueError("image file is missing")
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return FileResponse(
+            path,
+            media_type="image/jpeg" if thumbnail else image.media_type.value,
+            filename=image.name,
+            content_disposition_type="inline",
+            headers={"Cache-Control": "private, no-store"},
+        )
+
     @context.route("GET", "/icon.svg", "app_icon")
     async def app_icon(_request: Request) -> Response:
         """Serve the canonical icon artwork with the active palette."""
@@ -522,9 +546,58 @@ def _register_chat_routes(context: RouteContext) -> None:
     @context.route("POST", "/chat/send", "send_message")
     async def send_message(request: Request) -> Response:
         form: _FormValues = await _form_values(request)
+
+        async def operation() -> None:
+            if (
+                form.text("chat_id", default=context.state.active_chat.id)
+                != context.state.active_chat.id
+            ):
+                raise ValueError("the active chat changed; retry in the intended chat")
+            _ = await context.state.send_user_message(form.text("content"))
+
+        return await context.mutations.perform(request, operation, notice="")
+
+    @context.route("POST", "/chats/{chat_id}/images", "upload_chat_images")
+    async def upload_chat_images(request: Request) -> Response:
+        async def operation() -> None:
+            limits = context.state.images.limits
+            form = _FormValues(
+                await request.form(
+                    max_files=limits.max_images_per_message,
+                    max_part_size=limits.max_image_bytes,
+                )
+            )
+            uploads = form.uploads("images")
+            if not uploads:
+                raise ValueError("select at least one image")
+            images: list[ImageAttachment] = []
+            total_bytes: int = 0
+            for upload in uploads:
+                data: bytes = await upload.read(limits.max_image_bytes + 1)
+                total_bytes += len(data)
+                if total_bytes > limits.max_batch_bytes:
+                    raise ValueError("the combined images exceed the upload limit")
+                images.append(
+                    await run_in_worker(
+                        context.state.images.store, data, upload.filename or "image"
+                    )
+                )
+            await context.state.add_chat_images(_path_text(request, "chat_id"), images)
+
+        try:
+            return await context.mutations.perform(request, operation, notice="")
+        finally:
+            await request.close()
+
+    @context.route(
+        "POST", "/chats/{chat_id}/images/{image_id}/remove", "remove_chat_image"
+    )
+    async def remove_chat_image(request: Request) -> Response:
         return await context.mutations.perform(
             request,
-            lambda: context.state.send_user_message(form.text("content")),
+            lambda: context.state.remove_chat_image(
+                _path_text(request, "chat_id"), _path_text(request, "image_id")
+            ),
             notice="",
         )
 
@@ -1162,7 +1235,7 @@ def _register_access_routes(context: RouteContext) -> None:
         return await context.mutations.perform(
             request,
             operation,
-            notice="Model inventory refreshed",
+            notice="Models refreshed",
             require_global_settings=True,
             dialog="models",
             dialog_tab=models_tab_from_text(form.text("tab")),
@@ -1218,7 +1291,7 @@ def _register_access_routes(context: RouteContext) -> None:
         )
         if not context.request_exit():
             return context.mutations.redirect(
-                error="The server cannot accept an Exit request in this context"
+                error="This server cannot be stopped from the interface."
             )
         return context.mutations.redirect(notice="Jouzetsu is stopping")
 

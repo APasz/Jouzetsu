@@ -6,6 +6,7 @@ import { DraftController } from './drafts.js';
 import { byId, localizeMessageUpdatedTimes } from './dom.js';
 import { addCsrfToken } from './forms.js';
 import { HostStatsController } from './host-stats.js';
+import { ImageController } from './images.js';
 import { MessageController } from './messages.js';
 import { NoticeController, RETRY_DRAFT_NOTICE_ACTION } from './notices.js';
 import { PanelController } from './panels.js';
@@ -110,14 +111,18 @@ const activateColourOverride = (picker) => {
 
 export const startApplication = () => {
     const notices = new NoticeController();
-    const composer = new ComposerController();
+    const composer = new ComposerController({ isUploadingImages: () => images.isUploading });
     const characters = new CharacterEditorController();
     const messages = new MessageController();
     const drafts = new DraftController(currentComposerDraft, notices.announce.bind(notices));
     const deviceActivity = new DeviceActivityController();
     const panels = new PanelController();
     const hostStats = new HostStatsController();
-    const chat = new ChatController({ composer, messages, drafts, notices, panels });
+    const images = new ImageController({
+        announce: notices.announce.bind(notices), syncPrimary: composer.syncPrimary.bind(composer),
+    });
+    const chat = new ChatController({ composer, messages, drafts, notices, panels, images });
+    images.setRefresh(chat.replaceFragment.bind(chat));
     panels.setRefreshPanel(chat.replacePanelFragment.bind(chat));
     messages.watchScrollContainer();
 
@@ -223,6 +228,10 @@ export const startApplication = () => {
         if (!(form instanceof HTMLFormElement)) return;
         if (form.dataset.draftFlushed === 'true') return;
         const submitter = event.submitter;
+        if (images.handleSubmit(form, submitter)) {
+            event.preventDefault();
+            return;
+        }
         if (!characters.validateForm(form, submitter)) {
             event.preventDefault();
             return;
@@ -289,6 +298,7 @@ export const startApplication = () => {
     document.addEventListener('change', (event) => {
         const control = event.target;
         if (!(control instanceof Element)) return;
+        images.handleChange(control);
         characters.handleChange(control);
         if (control instanceof HTMLInputElement) {
             if (control.matches('[data-colour-override-picker]')) {

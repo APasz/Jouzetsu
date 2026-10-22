@@ -1,17 +1,31 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import tempfile
 import unittest
 from collections.abc import AsyncIterator
+from itertools import product
+from pathlib import Path
 from types import TracebackType
 from typing import Self, cast, override
 
 import aiohttp
 
-from jouzetsu.config import GenerationSettings, ServerSettings
+from jouzetsu.config import (
+    CONTINUE_PROMPT_CONTENT,
+    AppConfig,
+    AppPaths,
+    GenerationSettings,
+    LoggingSettings,
+    ServerSettings,
+)
+from jouzetsu.image_storage import ImageStorage
 from jouzetsu.lmstudio import BRITISH_ENGLISH_INSTRUCTION, LMStudioClient
-from jouzetsu.models import Chat
+from jouzetsu.models import Chat, ChatSamplingOverrides, Message
 from jouzetsu.runtime import PredictionComplete, PredictionFragment
+from jouzetsu.state import AppState
+from jouzetsu.storage import ChatStorage
 
 
 class RecordingResponse:
@@ -88,8 +102,10 @@ class RecordingSession:
 
 
 class RecordingLMStudioClient(LMStudioClient):
-    def __init__(self, server: ServerSettings) -> None:
-        super().__init__(server)
+    def __init__(
+        self, server: ServerSettings, *, image_storage: ImageStorage | None = None
+    ) -> None:
+        super().__init__(server, image_storage=image_storage)
         self.recording_session: RecordingSession = RecordingSession()
 
     @override
@@ -101,6 +117,128 @@ class RecordingLMStudioClient(LMStudioClient):
 
 
 class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_regeneration_sends_current_context_without_the_replaced_reply(
+        self,
+    ) -> None:
+        for use_chat_overrides, continuation in product((False, True), repeat=2):
+            with (
+                self.subTest(overrides=use_chat_overrides, continuation=continuation),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                paths: AppPaths = AppPaths.for_home(Path(directory))
+                config = AppConfig(
+                    paths=paths,
+                    server=ServerSettings(default_model="global-model"),
+                    generation=GenerationSettings(
+                        system_prompt="Global instructions",
+                        temperature=0.8,
+                        top_p=0.9,
+                        max_tokens=512,
+                        british_english=True,
+                        continuity_review=False,
+                    ),
+                    logging=LoggingSettings(enabled=False),
+                )
+                client = RecordingLMStudioClient(config.server)
+                client.recording_session.get_body = json.dumps(
+                    {
+                        "models": [
+                            {
+                                "type": "llm",
+                                "key": key,
+                                "display_name": key,
+                                "loaded_instances": [{"id": f"{key}-instance"}],
+                            }
+                            for key in ("global-model", "chat-model")
+                        ]
+                    }
+                )
+                client.recording_session.stream_data = (
+                    b'data: {"choices":[{"delta":{"content":"Fresh answer"}}]}\n\n'
+                    b"data: [DONE]\n\n"
+                )
+                storage = ChatStorage(paths.chats_file)
+                state = AppState(config, storage, client)
+                try:
+                    chat: Chat = state.active_chat
+                    if use_chat_overrides:
+                        chat.model = "chat-model"
+                        chat.system_prompt = "Chat character instructions"
+                        chat.sampling_overrides = ChatSamplingOverrides(
+                            temperature=0.2, top_p=0.6, max_tokens=128
+                        )
+                    chat.draft = "Unsent draft must stay out of the request"
+                    first_user: Message = chat.add_message("user", "Original question")
+                    earlier_reply: Message = chat.add_message(
+                        "assistant", "Earlier answer"
+                    )
+                    earlier_reply.set_reasoning("Private earlier reasoning")
+                    earlier_reply.set_continuity_rewrite("Unapproved earlier rewrite")
+                    _ = chat.add_message("user", "Latest question")
+                    if continuation:
+                        _ = chat.add_message("assistant", "Keep this response")
+                    history: list[Message] = list(chat.messages)
+                    replaced: Message = chat.add_message(
+                        "assistant", "Discard this reply"
+                    )
+                    replaced.set_model("previous-model")
+                    replaced.set_reasoning("Discarded reasoning")
+                    replaced.set_continuity_rewrite("Discarded proposed rewrite")
+                    await state.edit_message(first_user.id, "Edited first question")
+
+                    await state.regenerate_last()
+                    async with asyncio.timeout(2):
+                        while state.is_generating():
+                            await asyncio.sleep(0)
+
+                    expected_model: str = (
+                        "chat-model" if use_chat_overrides else "global-model"
+                    )
+                    expected_prompt: str = (
+                        "Chat character instructions"
+                        if use_chat_overrides
+                        else "Global instructions"
+                    )
+                    expected_messages: list[dict[str, str]] = [
+                        {
+                            "role": "system",
+                            "content": f"{expected_prompt}\n\n{BRITISH_ENGLISH_INSTRUCTION}",
+                        },
+                        {"role": "user", "content": "Edited first question"},
+                        {"role": "assistant", "content": "Earlier answer"},
+                        {"role": "user", "content": "Latest question"},
+                    ]
+                    if continuation:
+                        expected_messages.extend(
+                            (
+                                {"role": "assistant", "content": "Keep this response"},
+                                {"role": "user", "content": CONTINUE_PROMPT_CONTENT},
+                            )
+                        )
+                    self.assertEqual(len(client.recording_session.posts), 1)
+                    payload: dict[str, object] = client.recording_session.posts[0]
+                    self.assertEqual(payload["messages"], expected_messages)
+                    self.assertEqual(payload["model"], expected_model)
+                    self.assertEqual(
+                        payload["temperature"], 0.2 if use_chat_overrides else 0.8
+                    )
+                    self.assertEqual(
+                        payload["top_p"], 0.6 if use_chat_overrides else 0.9
+                    )
+                    self.assertEqual(
+                        payload["max_tokens"], 128 if use_chat_overrides else 512
+                    )
+                    self.assertEqual(chat.messages[:-1], history)
+                    self.assertNotEqual(chat.messages[-1].id, replaced.id)
+                    self.assertEqual(chat.messages[-1].content, "Fresh answer")
+                    self.assertEqual(chat.messages[-1].model, expected_model)
+                    self.assertEqual(
+                        chat.draft, "Unsent draft must stay out of the request"
+                    )
+                    self.assertEqual(storage.load_all()[0].to_dict(), chat.to_dict())
+                finally:
+                    self.assertTrue(await state.shutdown())
+
     async def test_load_model_omits_ttl_even_when_auto_unload_is_configured(
         self,
     ) -> None:

@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass, replace
 from typing import Final, cast
 
-from starlette.datastructures import FormData
+from starlette.datastructures import FormData, UploadFile
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 
@@ -76,6 +76,19 @@ class FormValues:
         if value in {"1", "true", "on"}:
             return True
         raise ValueError(f"{name} must be a checkbox value")
+
+    def uploads(self, name: str) -> tuple[UploadFile, ...]:
+        """Read repeated file parts without trusting browser-declared media types."""
+
+        files: list[UploadFile] = []
+        for value in self.values.getlist(name):
+            if isinstance(value, str) and not value:
+                continue
+            if not isinstance(value, UploadFile):
+                raise TypeError(f"{name} must contain uploaded files")
+            if value.filename:
+                files.append(value)
+        return tuple(files)
 
 
 async def form_values(request: Request) -> FormValues:

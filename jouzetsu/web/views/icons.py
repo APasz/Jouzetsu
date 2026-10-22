@@ -16,6 +16,7 @@ type IconName = Literal[
     "review",
     "close",
     "fork",
+    "image",
     "menu",
     "merge",
     "more",
@@ -46,6 +47,11 @@ _PATHS: Final[dict[IconName, tuple[str, ...]]] = {
         "M6 3v12",
         "M18 6a3 3 0 0 0-3 3v1a3 3 0 0 1-3 3H6",
         "M18 18a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
+    ),
+    "image": (
+        "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z",
+        "M8.5 7a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3",
+        "m21 15-5-5L5 21",
     ),
     "menu": ("M4 6h16", "M4 12h16", "M4 18h16"),
     "merge": (

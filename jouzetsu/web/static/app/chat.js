@@ -40,6 +40,7 @@ export class ChatController {
     #drafts;
     #notices;
     #panels;
+    #images;
     #refreshTimer = 0;
     #refreshInFlight = false;
     #scheduledRefreshKind = '';
@@ -47,12 +48,13 @@ export class ChatController {
     #latestFullRefreshRequest = 0;
     #panelRefreshesInFlight = new Set();
 
-    constructor({ composer, messages, drafts, notices, panels }) {
+    constructor({ composer, messages, drafts, notices, panels, images }) {
         this.#composer = composer;
         this.#messages = messages;
         this.#drafts = drafts;
         this.#notices = notices;
         this.#panels = panels;
+        this.#images = images;
     }
 
     async replaceFragment({ followLatest = false } = {}) {
@@ -79,6 +81,7 @@ export class ChatController {
                 next.setAttribute('aria-hidden', 'true');
             }
             this.#reconcileFragment(current, next, followLatest);
+            this.#images.synchronize();
             this.#messages.watchScrollContainer();
             localizeMessageUpdatedTimes();
             this.#messages.refreshOpenDetails();
@@ -120,6 +123,7 @@ export class ChatController {
         form.dataset.chatMutationSaving = 'true';
         form.setAttribute('aria-busy', 'true');
         try {
+            if (action !== '/chat/stop' && this.#images.isUploading && !await this.#images.flush()) return;
             if (action !== '/chat/stop' && this.#drafts.isDirty) await this.#drafts.flush();
             addCsrfToken(form);
             const response = await window.fetch(form.action, {
@@ -196,6 +200,7 @@ export class ChatController {
     async navigate(href) {
         const url = new URL(href, window.location.origin);
         if (url.origin !== window.location.origin || !['/', '/chats'].includes(url.pathname)) return;
+        if (this.#images.isUploading && !await this.#images.flush()) return;
         if (!await this.#drafts.preserve()) return;
         const currentUrl = new URL(window.location.href);
         this.#setHistoryUrl(url, currentUrl.searchParams.has('edit') && !url.searchParams.has('edit'));

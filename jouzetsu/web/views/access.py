@@ -170,7 +170,7 @@ def render_access_dialog(
         Div(
             H2("Access & Logs", id="access-dialog-title", cls="jouzetsu-modal-title"),
             P(
-                "Control browser approval, network access policy, and Jouzetsu logs.",
+                "Manage browser access and view logs.",
                 id="access-dialog-description",
                 cls="jouzetsu-dialog-description",
             ),
@@ -198,7 +198,7 @@ def _access_denied_page_button() -> HTML:
     """Link localhost administrators to the unapproved-browser page preview."""
 
     return A(
-        "Open access denied page",
+        "Preview approval page",
         href="/access/denied",
         target="_blank",
         rel="noopener",
@@ -226,7 +226,7 @@ def _access_panel(state: AppState, context: PageContext) -> HTML:
             checkbox(
                 "default_private",
                 checked=access.default_private,
-                label="Default private",
+                label="Require browser approval",
                 marker="access-default-private",
             ),
             checkbox(
@@ -244,7 +244,7 @@ def _access_panel(state: AppState, context: PageContext) -> HTML:
             checkbox(
                 "allow_network_device_reassociation",
                 checked=access.allow_network_device_reassociation,
-                label="Allow network device reassociation",
+                label="Recognise returning devices by hostname and IP",
                 marker="access-network-reassociation",
             ),
             form_submit_actions(

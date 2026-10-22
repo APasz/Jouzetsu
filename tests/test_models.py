@@ -9,6 +9,7 @@ import pytest
 from jouzetsu.character_presets import BASE_CHARACTER_PRESETS, EXTRA_CHARACTER_PRESETS
 from jouzetsu.config import GenerationSettings
 from jouzetsu.models import (
+    CHAT_SCHEMA_VERSION,
     Character,
     CharacterChatBinding,
     CharacterField,
@@ -107,16 +108,21 @@ def test_chat_document_schema_version_round_trips_and_loads_legacy_documents() -
     legacy_document: dict[str, object] = dict(document)
     _ = legacy_document.pop("schema_version")
 
-    assert document["schema_version"] == 1
+    assert document["schema_version"] == CHAT_SCHEMA_VERSION
     assert Chat.from_dict(document) == chat
-    assert Chat.from_dict(legacy_document).to_dict()["schema_version"] == 1
+    assert (
+        Chat.from_dict(legacy_document).to_dict()["schema_version"]
+        == CHAT_SCHEMA_VERSION
+    )
 
 
 def test_chat_rejects_a_future_document_schema_version() -> None:
     document: dict[str, object] = dict(Chat().to_dict())
-    document["schema_version"] = 2
+    document["schema_version"] = CHAT_SCHEMA_VERSION + 1
 
-    with pytest.raises(ValueError, match="newer than supported version 1"):
+    with pytest.raises(
+        ValueError, match=f"newer than supported version {CHAT_SCHEMA_VERSION}"
+    ):
         _ = Chat.from_dict(document)
 
 

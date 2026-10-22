@@ -60,7 +60,7 @@ from ..html import (
 from ..icon import app_icon_url
 from ..security import CSRF_FORM_FIELD
 from .context import PageContext
-from .controls import csrf_context, field
+from .controls import count_label, csrf_context, field
 from .feedback import render_notice_area
 from .icons import render_icon
 
@@ -191,7 +191,10 @@ def _character_library(characters: list[Character], selected_character_id: str) 
             cls="jouzetsu-character-library-list",
             data_testid="character-library",
         ),
-        Span(f"{len(characters)} character(s)", cls="jouzetsu-sheet-footnote"),
+        Span(
+            count_label(len(characters), "character"),
+            cls="jouzetsu-sheet-footnote",
+        ),
         cls="jouzetsu-character-library",
         data_character_library="true",
     )
@@ -201,7 +204,7 @@ def _character_empty_state() -> HTML:
     return Section(
         H1("Character library", cls="jouzetsu-character-title"),
         P(
-            "Create a character, then add only the profile fields that matter for it.",
+            "Create a profile to start a character chat.",
             cls="jouzetsu-character-intro",
         ),
         cls="jouzetsu-character-empty-state",
@@ -230,12 +233,10 @@ def _render_character_editor(
                 ),
                 P(
                     (
-                        "Start with a name, choose the details that shape the conversation, "
-                        "then make them your own."
+                        "Name your character, then add their defining details."
                         if is_onboarding
                         else (
-                            f"Revision {character.revision} · chats keep the revision they "
-                            "started with."
+                            f"Revision {character.revision} · existing chats keep their original profile."
                         )
                     ),
                     cls="jouzetsu-character-intro",
@@ -256,8 +257,7 @@ def _render_character_editor(
                 Div(
                     H2("Profile fields", cls="jouzetsu-section-title"),
                     P(
-                        "Add the details that affect the chat. Blank values are not included "
-                        "in the prompt.",
+                        "Blank values are omitted from the chat prompt.",
                         cls="jouzetsu-character-field-help",
                     ),
                     cls="jouzetsu-character-fields-heading",
@@ -306,7 +306,7 @@ def _render_character_editor(
             Summary(
                 Span("Live chat prompt"),
                 Small(
-                    "Updates as you edit and select cast members",
+                    "Updates as you edit",
                     cls="jouzetsu-character-prompt-summary-help",
                 ),
             ),
@@ -384,13 +384,9 @@ def _render_character_cast_controls(
             H2("Chat cast", cls="jouzetsu-section-title"),
             P(
                 (
-                    "This character is always included. Select any additional "
-                    "characters to start an ensemble chat."
+                    "Add other characters to this chat."
                     if other_characters
-                    else (
-                        "This character is included. Create another character to "
-                        "start an ensemble chat."
-                    )
+                    else "Create another character to add to the cast."
                 ),
                 cls="jouzetsu-character-field-help",
             ),
@@ -433,9 +429,8 @@ def _render_character_prompt_mode_controls() -> HTML:
     return Div(
         H2("Prompt mode", cls="jouzetsu-section-title"),
         P(
-            "Roleplay keeps the cast in character. Assistant uses the profiles as a "
-            "helpful persona or team. Story narrates scenes featuring the cast. "
-            "Custom starts with your instruction, then adds the selected profiles.",
+            "Roleplay: act in character. Assistant: help using the profiles. "
+            "Story: narrate the cast. Custom: follow your instruction.",
             cls="jouzetsu-character-field-help",
         ),
         field(
@@ -462,8 +457,7 @@ def _render_character_prompt_mode_controls() -> HTML:
                 ),
             ),
             Small(
-                "Required for Custom mode. It is saved only in the started chat's "
-                "prompt snapshot.",
+                "Required. Applies to the new chat only.",
                 cls="jouzetsu-character-field-help",
             ),
             cls="jouzetsu-character-custom-prompt",
@@ -482,8 +476,7 @@ def _render_character_prompt_mode_controls() -> HTML:
                 ),
             ),
             Small(
-                "Optional. Set the genre, setting, tone, or premise. It is saved only "
-                "in the started chat's prompt snapshot.",
+                "Optional genre, setting, or premise. Applies to the new chat only.",
                 cls="jouzetsu-character-field-help",
             ),
             cls="jouzetsu-character-story-direction",
@@ -507,13 +500,13 @@ def _render_character_name_control(
     family_name: str = "" if name is None else name.family_name
     return Div(
         _render_character_name_field(
-            "Given Name",
+            "Given name",
             "given_name",
             given_name,
             is_onboarding=is_onboarding,
         ),
         _render_character_name_field(
-            "Family Name",
+            "Family name (optional)",
             "family_name",
             family_name,
             is_onboarding=is_onboarding,
@@ -543,6 +536,7 @@ def _render_character_name_field(
     """Render one name part and, during onboarding, its dedicated randomiser."""
 
     marker: str = name_part.replace("_", "-")
+    randomizer_label: str = f"Generate a random {name_part.replace('_', ' ')}"
     return Div(
         field(
             label,
@@ -558,8 +552,8 @@ def _render_character_name_field(
             render_icon("refresh"),
             type="button",
             cls="jouzetsu-button jouzetsu-character-name-randomize",
-            title=f"Generate a random {label.casefold()}",
-            aria_label=f"Generate a random {label.casefold()}",
+            title=randomizer_label,
+            aria_label=randomizer_label,
             data_character_randomize_name_part=name_part,
             data_testid=f"character-{marker}-randomize",
         )
@@ -601,13 +595,9 @@ def _render_character_preset_controls(
     controls_id: str = f"character-{character.id}-preset-controls"
     section_title: str = "Quick start" if is_onboarding else "Profile templates"
     help_text: str = (
-        "1. Name them above. 2. Choose their form. 3. Pick the details that "
-        "will shape the conversations you want to have."
+        "Choose templates to add profile fields."
         if is_onboarding
-        else (
-            "Template choices are remembered. Adding selected fields never "
-            "overwrites the profile you have already made."
-        )
+        else "Adds missing fields and keeps your existing values."
     )
     load_issue_notice: tuple[HTML, ...] = (
         (
@@ -656,9 +646,7 @@ def _render_character_preset_controls(
             ),
             Div(
                 Span(
-                    "What should shape the conversation?"
-                    if is_onboarding
-                    else "Extra templates",
+                    "Details to include" if is_onboarding else "Extra templates",
                     cls="jouzetsu-field-label",
                 ),
                 Div(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Iterator
 from pathlib import Path
 from threading import Event
@@ -13,9 +14,12 @@ from browser_support import (
     BrowserTestLMStudioClient,
     create_browser_server,
 )
+from image_support import image_bytes
 from playwright.sync_api import Browser, Error, Page, Route, expect, sync_playwright
 
-from jouzetsu.runtime import ModelDescriptor, ModelInstanceDescriptor
+from jouzetsu.config import CONTINUE_PROMPT_CONTENT
+from jouzetsu.models import Chat
+from jouzetsu.runtime import ModelCapabilities, ModelDescriptor, ModelInstanceDescriptor
 
 _MESSAGE_LIST_SELECTOR: Final[str] = '[data-testid="message-list"]'
 _MESSAGE_SELECTOR: Final[str] = "article[data-message-id]"
@@ -425,6 +429,331 @@ def test_new_messages_snap_to_bottom_then_stream_to_top_on_narrow_viewport(
         )
     finally:
         completion_gate.set()
+
+
+@pytest.mark.parametrize("continuation", (False, True))
+def test_regenerate_button_replaces_its_reply_using_only_the_previous_history(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    continuation: bool,
+) -> None:
+    state = browser_server.state
+    state.config.generation.continuity_review = False
+    chat: Chat = state.active_chat
+    _ = chat.add_message("user", "First question")
+    earlier_reply = chat.add_message("assistant", "Keep this earlier answer")
+    _ = chat.add_message("user", "Latest question")
+    if continuation:
+        _ = chat.add_message("assistant", "Keep this response before continuing")
+    history: list[tuple[str, str]] = [
+        (message.role, message.content) for message in chat.messages
+    ]
+    previous_ids: list[str] = [message.id for message in chat.messages]
+    target = chat.add_message("assistant", "Replace this reply")
+    browser_server.client.response_content = "Regenerated answer"
+    _open_chat_page(browser_page)
+    expect(
+        browser_page.get_by_test_id(f"regenerate-message-{earlier_reply.id}")
+    ).to_have_count(0)
+    browser_page.get_by_test_id("message-input").fill("Keep this unsent draft")
+    browser_page.get_by_test_id(f"regenerate-message-{target.id}").click()
+
+    expect(browser_page.get_by_text("Regenerated answer", exact=True)).to_be_visible()
+    expect(browser_page.locator(_message_selector(target.id))).to_have_count(0)
+    expect(browser_page.locator(_MESSAGE_SELECTOR)).to_have_count(len(previous_ids) + 1)
+    expect(browser_page.get_by_test_id("message-input")).to_have_value(
+        "Keep this unsent draft"
+    )
+    requests = browser_server.client.requests
+    assert len(requests) == 1
+    expected_history: list[tuple[str, str]] = [
+        *history,
+        *([("user", CONTINUE_PROMPT_CONTENT)] if continuation else []),
+    ]
+    assert [
+        (message.role, message.content) for message in requests[0].messages
+    ] == expected_history
+    assert [message.id for message in chat.messages[:-1]] == previous_ids
+    assert chat.messages[-1].id != target.id
+    assert chat.messages[-1].content == "Regenerated answer"
+    assert chat.draft == "Keep this unsent draft"
+
+
+def _use_vision_inventory(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def inventory(
+        _client: BrowserTestLMStudioClient,
+    ) -> tuple[ModelDescriptor, ...]:
+        return (
+            ModelDescriptor(
+                key="browser-test-model",
+                display_name="Vision model",
+                capabilities=ModelCapabilities(vision=True),
+            ),
+            ModelDescriptor(key="text-model", display_name="Text model"),
+        )
+
+    monkeypatch.setattr(BrowserTestLMStudioClient, "list_model_inventory", inventory)
+
+
+def _open_vision_chat(page: Page) -> None:
+    page.goto("/chats?dialog=models")
+    page.get_by_test_id("refresh-models-button").click()
+    page.get_by_test_id("loaded-models-close-button").click()
+
+
+@pytest.mark.parametrize("viewport_width", (960, 390))
+def test_vision_uploads_persist_and_block_text_only_models(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    monkeypatch: pytest.MonkeyPatch,
+    viewport_width: int,
+) -> None:
+    _use_vision_inventory(monkeypatch)
+    browser_server.state.config.generation.continuity_review = False
+    browser_page.set_viewport_size({"width": viewport_width, "height": 800})
+    _open_vision_chat(browser_page)
+    attach = browser_page.get_by_test_id("add-images-button")
+    attach_bounds = attach.bounding_box()
+    input_bounds = browser_page.get_by_test_id("message-input").bounding_box()
+    send_bounds = browser_page.get_by_test_id("send-message-button").bounding_box()
+    assert (
+        attach_bounds is not None
+        and input_bounds is not None
+        and send_bounds is not None
+    )
+    assert attach_bounds["x"] + attach_bounds["width"] < input_bounds["x"]
+    assert input_bounds["x"] + input_bounds["width"] < send_bounds["x"]
+    assert attach_bounds["y"] == input_bounds["y"] == send_bounds["y"]
+    assert attach_bounds["height"] == send_bounds["height"]
+    assert attach_bounds["width"] == send_bounds["width"]
+    with browser_page.expect_file_chooser() as chooser:
+        attach.click()
+    chooser.value.set_files(
+        [
+            {"name": "red.png", "mimeType": "image/png", "buffer": image_bytes()},
+            {
+                "name": "blue.png",
+                "mimeType": "image/png",
+                "buffer": image_bytes(color="blue"),
+            },
+        ]
+    )
+    expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(2)
+    expect(browser_page.get_by_test_id("send-message-button")).to_be_enabled()
+    browser_page.get_by_test_id("remove-draft-image").nth(1).click()
+    expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1)
+    browser_page.reload()
+    expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1)
+
+    browser_page.get_by_test_id("open-settings-button").click()
+    browser_page.get_by_test_id("active-chat-model").select_option("text-model")
+    browser_page.get_by_role("button", name="Close settings").click()
+    expect(browser_page.get_by_test_id("vision-model-required")).to_contain_text(
+        "vision-capable"
+    )
+    expect(browser_page.get_by_test_id("send-message-button")).to_be_disabled()
+    browser_page.get_by_test_id("open-settings-button").click()
+    browser_page.get_by_test_id("active-chat-model").select_option("browser-test-model")
+    browser_page.get_by_role("button", name="Close settings").click()
+    expect(browser_page.get_by_test_id("send-message-button")).to_be_enabled()
+    browser_page.get_by_test_id("send-message-button").click()
+    expect(browser_page.get_by_text("Browser test reply", exact=True)).to_be_visible()
+    expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(0)
+    expect(
+        browser_page.locator('article.is-user [data-testid="image-gallery"] img')
+    ).to_have_count(1)
+    request = browser_server.client.requests[0]
+    assert request.messages[0].content == "" and len(request.messages[0].images) == 1
+    assert (
+        browser_server.state.active_chat.messages[0].images
+        == request.messages[0].images
+    )
+
+    for event_type in ("paste", "drop"):
+        browser_page.get_by_test_id("message-input").evaluate(
+            """(input, {eventType, data}) => {
+                const transfer = new DataTransfer();
+                const bytes = Uint8Array.from(atob(data), (character) => character.charCodeAt(0));
+                transfer.items.add(new File([bytes], `${eventType}.png`, {type: 'image/png'}));
+                const event = eventType === 'paste'
+                    ? new ClipboardEvent('paste', {clipboardData: transfer, bubbles: true, cancelable: true})
+                    : new DragEvent('drop', {dataTransfer: transfer, bubbles: true, cancelable: true});
+                input.dispatchEvent(event);
+            }""",
+            {
+                "eventType": event_type,
+                "data": base64.b64encode(
+                    image_bytes(
+                        color="blue" if event_type == "paste" else "green",
+                        size=(1200, 800),
+                    )
+                ).decode("ascii"),
+            },
+        )
+        expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(
+            1 if event_type == "paste" else 2
+        )
+    assert (
+        browser_page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        is True
+    )
+    browser_page.reload()
+    expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(2)
+    browser_page.get_by_test_id("message-input").fill(_LONG_MESSAGE * 10)
+    send_bounds = browser_page.get_by_test_id("send-message-button").bounding_box()
+    assert send_bounds is not None
+    assert send_bounds["x"] + send_bounds["width"] <= viewport_width
+    assert send_bounds["y"] + send_bounds["height"] <= 800
+    browser_page.get_by_test_id("message-input").fill("")
+    for remove in browser_page.get_by_test_id("remove-draft-image").all():
+        bounds = remove.bounding_box()
+        assert bounds is not None
+        assert 0 <= bounds["x"] and bounds["x"] + bounds["width"] <= viewport_width
+    browser_page.screenshot(path=f"/tmp/lmchat-vision-{viewport_width}.png")
+
+
+def test_uploads_keep_send_disabled_through_fragment_refreshes(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _use_vision_inventory(monkeypatch)
+    browser_server.state.config.generation.continuity_review = False
+    _open_vision_chat(browser_page)
+    browser_page.get_by_test_id("message-input").fill("Describe the image")
+    browser_page.evaluate(
+        """() => {
+            const fetch = window.fetch.bind(window);
+            window.fetch = async (url, options) => {
+                if (new URL(url, location.href).pathname.endsWith('/images')) {
+                    await new Promise((resolve) => { window.releaseImageUpload = resolve; });
+                }
+                return fetch(url, options);
+            };
+        }"""
+    )
+    browser_page.get_by_test_id("image-upload-input").set_input_files(
+        {"name": "red.png", "mimeType": "image/png", "buffer": image_bytes()}
+    )
+    expect(browser_page.get_by_test_id("send-message-button")).to_be_disabled()
+    expect(browser_page.locator("[data-image-upload-pending]")).to_be_visible()
+    browser_page.get_by_test_id("open-settings-button").click()
+    with browser_page.expect_response("**/fragments/chat*"):
+        browser_page.get_by_test_id("active-chat-model").select_option(
+            "browser-test-model"
+        )
+    browser_page.get_by_role("button", name="Close settings").click()
+    expect(browser_page.get_by_test_id("send-message-button")).to_be_disabled()
+    expect(browser_page.locator("[data-image-upload-pending]")).to_be_visible()
+    browser_page.evaluate("window.releaseImageUpload()")
+    expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1)
+    expect(browser_page.get_by_test_id("send-message-button")).to_be_enabled()
+    expect(browser_page.locator("[data-image-upload-pending]")).to_be_hidden()
+    browser_page.get_by_test_id("send-message-button").click()
+    expect(browser_page.get_by_text("Browser test reply", exact=True)).to_be_visible()
+    request = browser_server.client.requests[0]
+    assert request.messages[0].content == "Describe the image"
+    assert len(request.messages[0].images) == 1
+
+
+@pytest.mark.parametrize("first_upload_succeeds", (True, False))
+def test_image_queue_waits_for_added_uploads_and_retains_batch_failures(
+    browser_page: Page, first_upload_succeeds: bool
+) -> None:
+    _open_chat_page(browser_page)
+    result = browser_page.evaluate(
+        """async (firstUploadSucceeds) => {
+            const { ImageController } = await import('/static/app/images.js');
+            const releases = [];
+            const originalFetch = window.fetch.bind(window);
+            window.fetch = (url, options) => new URL(url, location.href).pathname === '/test-image-upload'
+                ? new Promise((resolve) => releases.push(resolve))
+                : originalFetch(url, options);
+            const images = new ImageController({ announce: () => {}, syncPrimary: () => {} });
+            const form = document.createElement('form');
+            form.dataset.imageUploadForm = 'true';
+            form.action = '/test-image-upload';
+            const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+            images.handleSubmit(form, null);
+            let settled = false;
+            const flushed = images.flush().then((success) => { settled = true; return success; });
+            images.handleSubmit(form, null);
+            await settle();
+            releases.shift()(new Response('', { status: firstUploadSucceeds ? 200 : 400 }));
+            await settle();
+            const waitedForBoth = !settled && images.isUploading;
+            const latestFlush = images.flush();
+            releases.shift()(new Response());
+            const succeeded = await flushed;
+            const batchSucceeded = await latestFlush;
+            await settle();
+            images.handleSubmit(form, null);
+            await settle();
+            releases.shift()(new Response());
+            return { waitedForBoth, succeeded, batchSucceeded, recovered: await images.flush() };
+        }""",
+        first_upload_succeeds,
+    )
+    assert result == {
+        "waitedForBoth": True,
+        "succeeded": first_upload_succeeds,
+        "batchSucceeded": first_upload_succeeds,
+        "recovered": True,
+    }
+
+
+def test_cancel_edit_returns_to_the_chat_and_preserves_the_unsent_draft(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    chat = browser_server.state.active_chat
+    message = chat.add_message("user", "Original message")
+    _ = chat.add_message("assistant", "Original reply")
+    _open_chat_page(browser_page)
+    browser_page.get_by_test_id("message-input").fill("Unsent draft")
+    browser_page.get_by_test_id(f"edit-message-{message.id}").click()
+    expect(
+        browser_page.get_by_role("textbox", name="Edit message", exact=True)
+    ).to_have_value("Original message")
+    browser_page.get_by_test_id("message-input").fill("Discard this edit")
+    browser_page.get_by_test_id("cancel-edit-button").click()
+    expect(browser_page).to_have_url(f"{browser_server.base_url}/chats")
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("Unsent draft")
+    browser_page.reload()
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("Unsent draft")
+    assert message.content == "Original message"
+
+
+@pytest.mark.parametrize("viewport_width", (960, 390))
+def test_spelling_settings_collapse_without_losing_values_or_hiding_errors(
+    browser_page: Page, browser_server: BrowserServer, viewport_width: int
+) -> None:
+    browser_page.set_viewport_size({"width": viewport_width, "height": 844})
+    original_replacements = list(
+        browser_server.state.config.generation.british_spelling_replacements
+    )
+    browser_page.goto("/chats?dialog=global")
+    details = browser_page.get_by_test_id("spelling-replacements-details")
+    expect(details).to_have_js_property("open", False)
+    save = browser_page.get_by_test_id("save-global-generation-button")
+    expect(save).to_be_visible()
+    bounds = save.bounding_box()
+    assert bounds is not None and bounds["y"] + bounds["height"] <= 844
+    browser_page.get_by_test_id("global-temperature").fill("0.65")
+    with browser_page.expect_navigation(wait_until="load"):
+        save.click()
+    assert browser_server.state.config.generation.temperature == 0.65
+    assert (
+        browser_server.state.config.generation.british_spelling_replacements
+        == original_replacements
+    )
+    details.locator("summary").click()
+    source = details.locator("[data-spelling-source]").first
+    source.fill("two words")
+    details.locator("summary").click()
+    save.click()
+    expect(details).to_have_js_property("open", True)
+    expect(source).to_be_focused()
+    expect(details.locator("[data-spelling-validation]")).to_contain_text("single-word")
 
 
 def test_message_context_menu_copies_and_forks_at_the_selected_message(

@@ -20,6 +20,10 @@ def chat_view(state: AppState) -> ChatView:
         empty_state_message=state.active_empty_state_message,
         starter_prompts=tuple(state.config.ui.starter_prompts),
         message_action_style=state.config.ui.message_action_style,
+        generation_block_reason=state.generation_block_reason(state.active_chat),
+        history_generation_block_reason=state.generation_block_reason(
+            state.active_chat, include_draft_images=False
+        ),
     )
 
 

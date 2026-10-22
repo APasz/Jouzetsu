@@ -13,6 +13,12 @@ from typing import Final
 from unittest.mock import patch
 
 import httpx
+from web_support import (
+    close_web_application as _close_web_application,
+    csrf_headers as _csrf_headers,
+    noop as _noop,
+    transport as _transport,
+)
 
 from jouzetsu.access import DEVICE_ID_COOKIE_NAME
 from jouzetsu.config import (
@@ -53,9 +59,6 @@ from jouzetsu.web.application import WebApplication
 from jouzetsu.web.security import CSRF_HEADER_NAME
 from jouzetsu.web.ui_events import UiEventBroker
 
-_CSRF_TOKEN_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r'data-csrf-token="([A-Za-z0-9_-]{32,128})"'
-)
 _LOCAL_DEVICE_ID: Final[str] = "dvc_localhost-device-0001"
 _REMOTE_DEVICE_ID: Final[str] = "dvc_remote-device-0001"
 _CHAT_CLIENT_DIRECTORY: Final[Path] = (
@@ -124,10 +127,6 @@ class FakeLMStudioClient:
         return None
 
 
-async def _noop() -> None:
-    return None
-
-
 def _build_state(
     root: Path,
     *,
@@ -152,14 +151,6 @@ def _build_state(
     return AppState(config, ChatStorage(chats_file), FakeLMStudioClient())
 
 
-def _csrf_headers(page: httpx.Response) -> dict[str, str]:
-    """Extract the token issued for a rendered page for one same-browser POST."""
-
-    match: re.Match[str] | None = _CSRF_TOKEN_PATTERN.search(page.text)
-    assert match is not None, "rendered page did not include a CSRF token"
-    return {CSRF_HEADER_NAME: match.group(1)}
-
-
 def _set_device_cookie(client: httpx.AsyncClient, device_id: str) -> None:
     client.cookies.set(DEVICE_ID_COOKIE_NAME, device_id, path="/")
 
@@ -170,19 +161,6 @@ async def _wait_for_generation(state: AppState) -> None:
             return
         await asyncio.sleep(0)
     raise AssertionError("fake generation did not finish")
-
-
-async def _close_web_application(web: WebApplication, state: AppState) -> None:
-    web._event_broker.close()  # pyright: ignore[reportPrivateUsage]
-    _ = await state.shutdown()
-
-
-def _transport(web: WebApplication, *, client_ip: str) -> httpx.ASGITransport:
-    return httpx.ASGITransport(
-        app=web.app,
-        raise_app_exceptions=True,
-        client=(client_ip, 43123),
-    )
 
 
 def test_ui_event_broker_preserves_a_pending_full_refresh() -> None:
@@ -466,7 +444,7 @@ def test_chat_client_keeps_the_stop_generation_control_enabled() -> None:
     script: str = _chat_client_source()
 
     assert "const isGenerating = form.dataset.composerGenerating === 'true';" in script
-    assert "primary.disabled = !isGenerating && !input.value.trim();" in script
+    assert "primary.disabled = !isGenerating && (" in script
 
 
 def test_delete_dialog_hides_the_tail_delete_choice_for_the_last_message() -> None:
@@ -3030,7 +3008,7 @@ def test_model_refresh_reports_failure_cache_and_recovery() -> None:
                     )
                 assert "Could not refresh models" in initial_failure.text
                 assert "No cached models" in initial_failure.text
-                assert "Model inventory refreshed" not in initial_failure.text
+                assert "Models refreshed" not in initial_failure.text
 
                 with patch.object(
                     state.client, "list_model_inventory", return_value=inventory
@@ -3039,7 +3017,7 @@ def test_model_refresh_reports_failure_cache_and_recovery() -> None:
                         "/models/refresh", headers=headers, follow_redirects=True
                     )
                 assert "LM Studio connected" in recovered.text
-                assert "Model inventory refreshed" in recovered.text
+                assert "Models refreshed" in recovered.text
                 assert 'data-testid="loaded-model-card"' in recovered.text
 
                 with (
@@ -3056,7 +3034,7 @@ def test_model_refresh_reports_failure_cache_and_recovery() -> None:
                 assert "LM Studio offline · Cached models" in cached.text
                 assert "Could not refresh models" in cached.text
                 assert 'role="alert"' in cached.text
-                assert "Model inventory refreshed" not in cached.text
+                assert "Models refreshed" not in cached.text
                 assert ">Retry</button>" in cached.text
                 assert state.model_inventory == inventory
                 assert re.search(
@@ -3153,6 +3131,64 @@ def test_private_routes_lock_unknown_devices_and_reject_mutations() -> None:
 
     with tempfile.TemporaryDirectory() as temporary_directory:
         asyncio.run(scenario(Path(temporary_directory)))
+
+
+def test_regeneration_rejects_stale_targets_and_messages_from_other_chats() -> None:
+    async def scenario(root: Path) -> None:
+        state = _build_state(root, private=False)
+        state.config.generation.continuity_review = False
+        chat: Chat = state.active_chat
+        user: Message = chat.add_message("user", "First question")
+        earlier_reply: Message = chat.add_message("assistant", "Earlier answer")
+        _ = chat.add_message("user", "Latest question")
+        target: Message = chat.add_message("assistant", "Replace this answer")
+        other_chat: Chat = await state.new_chat()
+        other_reply: Message = other_chat.add_message("assistant", "Other chat answer")
+        await state.select_chat(chat.id)
+        web = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
+        try:
+            async with httpx.AsyncClient(
+                transport=_transport(web, client_ip="127.0.0.1"),
+                base_url="http://testserver",
+            ) as client:
+                _set_device_cookie(client, _LOCAL_DEVICE_ID)
+                headers = _csrf_headers(await client.get("/chats"))
+                original_chat = chat.to_dict()
+                for message_id in (
+                    user.id,
+                    earlier_reply.id,
+                    other_reply.id,
+                    "missing",
+                ):
+                    rejected = await client.post(
+                        f"/messages/{message_id}/regenerate", headers=headers
+                    )
+                    assert rejected.status_code == 303
+                    assert "error=" in rejected.headers["location"]
+                    assert chat.to_dict() == original_chat
+                    assert not state.is_generating()
+                    assert other_chat.messages == [other_reply]
+
+                accepted = await client.post(
+                    f"/messages/{target.id}/regenerate", headers=headers
+                )
+                assert accepted.status_code == 303
+                assert accepted.headers["location"] == "/chats"
+                await _wait_for_generation(state)
+                regenerated_chat = chat.to_dict()
+                stale = await client.post(
+                    f"/messages/{target.id}/regenerate", headers=headers
+                )
+                assert stale.status_code == 303
+                assert "error=" in stale.headers["location"]
+                assert chat.to_dict() == regenerated_chat
+                assert not state.is_generating()
+                assert other_chat.messages == [other_reply]
+        finally:
+            await _close_web_application(web, state)
+
+    with tempfile.TemporaryDirectory() as directory:
+        asyncio.run(scenario(Path(directory)))
 
 
 def test_system_message_routes_reject_crafted_mutation_targets() -> None:

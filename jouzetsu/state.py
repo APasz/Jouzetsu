@@ -6,9 +6,11 @@ import asyncio
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from itertools import chain, pairwise
 from logging import Logger
 from typing import cast
 
+from .async_workers import run_in_worker
 from .character_storage import CharacterStorage
 from .config import (
     AppConfig,
@@ -33,6 +35,7 @@ from .host_stats import (
     is_gpu_enabled,
     is_network_interface_enabled,
 )
+from .image_storage import ImageStorage
 from .lmstudio import LMStudioClientProtocol
 from .logging_config import chat_logger
 from .models import (
@@ -44,11 +47,12 @@ from .models import (
     ChatPromptMode,
     ChatSamplingOverrides,
     ChatTitleSource,
+    ImageAttachment,
     Message,
     character_cast_chat_title,
     compiled_character_chat_system_prompt,
 )
-from .runtime import ConnectionState, ModelDescriptor, RuntimeStatus
+from .runtime import ConnectionState, ModelDescriptor, RuntimeStatus, vision_model_error
 from .state_events import ChangeListener, StateNotifier
 from .state_generation import GenerationController, chat_with_continuation_prompt
 from .state_registry import ChatRegistry
@@ -76,6 +80,7 @@ class AppState:
         client: LMStudioClientProtocol,
         character_storage: CharacterStorage | None = None,
         config_store: ConfigStore | None = None,
+        image_storage: ImageStorage | None = None,
     ) -> None:
         self.config: AppConfig = config
         self.storage: ChatStorage = storage
@@ -83,6 +88,9 @@ class AppState:
             character_storage or CharacterStorage(config.characters_directory)
         )
         self.client: LMStudioClientProtocol = client
+        self.images: ImageStorage = image_storage or ImageStorage(
+            config.paths.images_directory
+        )
         self._persistence: PersistenceController = PersistenceController(
             config,
             config_store or ConfigStore.for_paths(config.paths),
@@ -595,6 +603,97 @@ class AppState:
             self._by_id(chat_id).chat, flush_chats=False, notify=False
         )
 
+    async def add_chat_images(
+        self, chat_id: str, images: Sequence[ImageAttachment]
+    ) -> None:
+        """Persist uploaded images with their intended chat's draft."""
+
+        chat: Chat = self._by_id(chat_id).chat
+        images_by_id: dict[str, ImageAttachment] = {
+            image.id: image for image in chat.draft_images
+        }
+        for image in images:
+            _ = images_by_id.setdefault(image.id, image)
+        combined: tuple[ImageAttachment, ...] = tuple(images_by_id.values())
+        self.images.limits.validate_image_count(len(combined))
+        chat.draft_images = combined
+        await self._commit_chat(chat, notify=False)
+
+    async def remove_chat_image(self, chat_id: str, image_id: str) -> None:
+        """Remove one draft reference while preserving shared originals."""
+
+        chat: Chat = self._by_id(chat_id).chat
+        if not any(image.id == image_id for image in chat.draft_images):
+            raise ValueError("image is no longer attached to this draft")
+        chat.draft_images = tuple(
+            image for image in chat.draft_images if image.id != image_id
+        )
+        await self._commit_chat(chat, notify=False)
+
+    def image_attachment(self, image_id: str) -> ImageAttachment:
+        """Resolve an image referenced by an accessible chat or saved draft."""
+
+        for session in self._chat_registry.sessions:
+            for image in chain(
+                session.chat.draft_images,
+                (
+                    image
+                    for message in session.chat.messages
+                    for image in message.images
+                ),
+            ):
+                if image.id == image_id:
+                    return image
+        raise ValueError("unknown image")
+
+    def generation_block_reason(
+        self, chat: Chat, *, include_draft_images: bool = True
+    ) -> str:
+        """Explain why this image-containing conversation needs another model."""
+
+        if not chat.has_images and not (include_draft_images and chat.draft_images):
+            return ""
+        if self.model_connection is ConnectionState.OFFLINE:
+            return "Connect to LM Studio to use images."
+        selected: str = chat.model or self.config.server.default_model
+        model: ModelDescriptor | None = (
+            self.model_descriptor(selected)
+            if selected
+            else next(
+                (model for model in self.model_inventory if model.is_loaded), None
+            )
+        )
+        return vision_model_error(model)
+
+    async def _prepare_image_generation(
+        self, session: ChatSession, *, include_draft_images: bool = False
+    ) -> None:
+        """Validate image context and model support before any destructive mutation."""
+
+        chat: Chat = session.chat
+        images: tuple[ImageAttachment, ...] = (
+            *(image for message in chat.messages for image in message.images),
+            *(chat.draft_images if include_draft_images else ()),
+        )
+        if not images:
+            return
+        history = snapshot_messages(chat.messages)
+        draft_images = chat.draft_images
+        if not await self.refresh_runtime_status():
+            raise ValueError("Connect to LM Studio to use images.")
+        await run_in_worker(self.images.validate_available, images)
+        if self._idle_active_state("generate") is not session:
+            raise ValueError("the active chat changed; retry in the intended chat")
+        if snapshot_messages(chat.messages) != history or (
+            include_draft_images and chat.draft_images != draft_images
+        ):
+            raise ValueError("the conversation changed; retry generation")
+        reason: str = self.generation_block_reason(
+            chat, include_draft_images=include_draft_images
+        )
+        if reason:
+            raise ValueError(reason)
+
     def update_chat_draft(self, chat_id: str, draft: str | None) -> bool:
         """Update a draft in memory and report whether it changed."""
         chat: Chat = self._by_id(chat_id).chat
@@ -645,16 +744,22 @@ class AppState:
 
     async def send_user_message(self, content: str) -> Message:
         """Append a user message and trigger a streaming assistant reply."""
-        content = require_non_empty_text((content or "").strip(), field_name="message")
-
         st: ChatSession = self._idle_active_state("send")
         chat: Chat = st.chat
+        content = (content or "").strip()
+        if not chat.draft_images:
+            _ = require_non_empty_text(content, field_name="message")
+        await self._prepare_image_generation(st, include_draft_images=True)
         is_first_message: bool = not chat.messages
         user_message: Message = chat.add_message("user", content)
+        user_message.images = chat.draft_images
         chat.draft = ""
+        chat.draft_images = ()
 
         if is_first_message:
-            chat.set_auto_title_from_first_message(content)
+            chat.set_auto_title_from_first_message(
+                content or user_message.images[0].name
+            )
 
         await self._start_generation()
         chat_log.info(
@@ -673,6 +778,7 @@ class AppState:
             raise ValueError(
                 "regeneration requires the last message to be an assistant response"
             )
+        await self._prepare_image_generation(st)
         removed_message: Message = chat.messages.pop()
         regenerating_continuation: bool = bool(
             chat.messages and chat.messages[-1].role == "assistant"
@@ -700,7 +806,9 @@ class AppState:
             or message is not st.chat.messages[-1]
         ):
             raise ValueError("message must be the final user message")
-        _ = require_non_empty_text(message.content, field_name="message")
+        if not message.images:
+            _ = require_non_empty_text(message.content, field_name="message")
+        await self._prepare_image_generation(st)
         await self._start_generation()
         chat_log.info(
             "message_resent chat_id=%s source_message_id=%s",
@@ -718,6 +826,7 @@ class AppState:
             or not st.chat.messages[-1].content.strip()
         ):
             raise ValueError("last message must be a completed assistant response")
+        await self._prepare_image_generation(st)
         request_chat: Chat = chat_with_continuation_prompt(st.chat)
         assistant: Message = st.chat.add_message("assistant", "")
         await self._start_generation(
@@ -732,10 +841,11 @@ class AppState:
 
     async def edit_message(self, message_id: str, new_content: str) -> None:
         """Edit a message in place without truncating or regenerating."""
-        new_content = require_non_empty_text(new_content, field_name="message")
-
         st: ChatSession = self._idle_active_state("edit")
         chat: Chat = st.chat
+        existing: Message | None = chat.find_message(message_id)
+        if existing is None or not existing.images:
+            new_content = require_non_empty_text(new_content, field_name="message")
         message: Message | None = chat.update_message(message_id, new_content)
         if message is None:
             return
@@ -833,6 +943,12 @@ class AppState:
         """Merge a message into the preceding message when both roles match."""
         st: ChatSession = self._idle_active_state("merge")
         chat: Chat = st.chat
+        for previous, target in pairwise(chat.messages):
+            if target.id == message_id:
+                self.images.limits.validate_image_count(
+                    len(previous.images) + len(target.images)
+                )
+                break
         merged_message: Message = chat.merge_message_with_previous(message_id)
         await self._commit_chat(chat)
         chat_log.info(

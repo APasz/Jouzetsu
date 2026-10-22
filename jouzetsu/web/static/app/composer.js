@@ -22,6 +22,11 @@ export class ComposerController {
     #elapsedTimer = 0;
     #sessionHeight = null;
     #viewportFrame = 0;
+    #isUploadingImages;
+
+    constructor({ isUploadingImages }) {
+        this.#isUploadingImages = isUploadingImages;
+    }
 
     autoSizeInput(input) {
         if (!(input instanceof HTMLTextAreaElement) || !input.matches('.jouzetsu-message-input')) return;
@@ -109,7 +114,10 @@ export class ComposerController {
         if (!(form instanceof HTMLFormElement) || !(input instanceof HTMLTextAreaElement)) return;
         if (primary instanceof HTMLButtonElement) {
             const isGenerating = form.dataset.composerGenerating === 'true';
-            primary.disabled = !isGenerating && !input.value.trim();
+            const hasImages = form.dataset.hasImages === 'true';
+            primary.disabled = !isGenerating && (
+                this.#isUploadingImages() || form.dataset.generationBlocked === 'true' || (!input.value.trim() && !hasImages)
+            );
         }
         if (form.dataset.composerMode === 'edit') this.#syncEditValidation(form, input);
     }
@@ -221,8 +229,15 @@ export class ComposerController {
         const styles = window.getComputedStyle(composer);
         const verticalPadding = Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom);
         const footerHeight = footer instanceof HTMLElement ? footer.getBoundingClientRect().height : 0;
+        const imageRowsHeight = Array.from(composer.querySelectorAll(
+            ':scope > .jouzetsu-image-upload-form, :scope > .jouzetsu-image-gallery, :scope > .jouzetsu-image-model-notice',
+        )).reduce((height, row) => {
+            const rowStyles = window.getComputedStyle(row);
+            return height + row.getBoundingClientRect().height
+                + Number.parseFloat(rowStyles.marginTop) + Number.parseFloat(rowStyles.marginBottom);
+        }, 0);
         const minimumHeight = Number.parseFloat(window.getComputedStyle(input).minHeight);
-        return Math.max(minimumHeight, Math.floor(this.#maximumHeight() - verticalPadding - footerHeight));
+        return Math.max(minimumHeight, Math.floor(this.#maximumHeight() - verticalPadding - footerHeight - imageRowsHeight));
     }
 
     #minimumHeight(composer) {
@@ -265,7 +280,7 @@ export class ComposerController {
     #syncEditValidation(form, input) {
         const validation = form.querySelector('[data-composer-validation="true"]');
         if (!(validation instanceof HTMLElement)) return;
-        const isEmpty = !input.value.trim();
+        const isEmpty = !input.value.trim() && form.dataset.hasImages !== 'true';
         input.setAttribute('aria-invalid', String(isEmpty));
         validation.hidden = !isEmpty;
     }

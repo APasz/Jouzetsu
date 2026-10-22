@@ -90,6 +90,16 @@ class ModelDescriptor:
         return bool(self.loaded_instance_ids)
 
 
+def vision_model_error(model: ModelDescriptor | None) -> str:
+    """Explain an unresolved or incompatible model choice for image history."""
+
+    if model is None:
+        return "Select an available vision-capable model to use images."
+    if not model.capabilities.vision:
+        return "This conversation contains images. Select a vision-capable model."
+    return ""
+
+
 @dataclass(frozen=True, slots=True)
 class GenerationMetrics:
     """Exact statistics reported after a completed prediction."""

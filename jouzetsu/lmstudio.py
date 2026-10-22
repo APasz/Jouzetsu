@@ -8,14 +8,16 @@ import logging
 import math
 from collections.abc import AsyncIterator
 from logging import Logger
-from typing import Protocol, cast
+from typing import Literal, Protocol, TypedDict, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 import aiohttp
 from aiohttp.client import ClientSession
 
+from .async_workers import run_in_worker
 from .config import GenerationSettings, ServerSettings
-from .models import Chat
+from .image_storage import ImageStorage
+from .models import Chat, ImageAttachment, Role
 from .runtime import (
     ChatStreamEvent,
     FirstToken,
@@ -30,6 +32,7 @@ from .runtime import (
     PredictionFragment,
     PromptProcessingProgress,
     ReasoningOption,
+    vision_model_error,
 )
 
 log: Logger = logging.getLogger(__name__)
@@ -46,6 +49,25 @@ _STREAM_IDLE_TIMEOUT_SECONDS: float = 120.0
 
 class LMStudioError(RuntimeError):
     """Raised when LM Studio rejects a request or is unreachable."""
+
+
+class TextContentPart(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class ImageURL(TypedDict):
+    url: str
+
+
+class ImageContentPart(TypedDict):
+    type: Literal["image_url"]
+    image_url: ImageURL
+
+
+class CompletionMessage(TypedDict):
+    role: Role
+    content: str | list[TextContentPart | ImageContentPart]
 
 
 class LMStudioClientProtocol(Protocol):
@@ -110,8 +132,11 @@ def _server_root(base_url: str) -> str:
 class LMStudioClient:
     """LM Studio model management and full-history chat streaming."""
 
-    def __init__(self, server: ServerSettings) -> None:
+    def __init__(
+        self, server: ServerSettings, *, image_storage: ImageStorage | None = None
+    ) -> None:
         self._server: ServerSettings = server
+        self._images: ImageStorage | None = image_storage
         self._session: aiohttp.ClientSession | None = None
 
     @property
@@ -309,6 +334,10 @@ class LMStudioClient:
         """
         try:
             descriptor: ModelDescriptor = await self._resolve_model(model)
+            if chat.has_images:
+                reason: str = vision_model_error(descriptor)
+                if reason:
+                    raise LMStudioError(reason)
             ttl_seconds: int | None = self._ttl_seconds()
             if not descriptor.is_loaded:
                 yield ModelLoadProgress(None)
@@ -409,7 +438,11 @@ class LMStudioClient:
         model_key: str,
         generation: GenerationSettings,
     ) -> AsyncIterator[ChatStreamEvent]:
-        messages: list[dict[str, str]] = self._build_messages(chat, generation)
+        messages: list[CompletionMessage] = (
+            await run_in_worker(self._build_messages, chat, generation, self._images)
+            if chat.has_images
+            else self._build_messages(chat, generation)
+        )
         payload: dict[str, object] = {
             "model": model_key,
             "messages": messages,
@@ -700,8 +733,8 @@ class LMStudioClient:
 
     @staticmethod
     def _build_messages(
-        chat: Chat, generation: GenerationSettings
-    ) -> list[dict[str, str]]:
+        chat: Chat, generation: GenerationSettings, images: ImageStorage | None = None
+    ) -> list[CompletionMessage]:
         system_prompt: str = (
             chat.system_prompt.strip() or generation.system_prompt.strip()
         )
@@ -709,10 +742,30 @@ class LMStudioClient:
             system_prompt = "\n\n".join(
                 part for part in (system_prompt, BRITISH_ENGLISH_INSTRUCTION) if part
             )
-        messages: list[dict[str, str]] = []
+        messages: list[CompletionMessage] = []
+        image_urls: dict[ImageAttachment, str] = {}
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         for message in chat.messages:
-            if message.role in ("user", "assistant") and message.content:
+            if message.role not in ("user", "assistant"):
+                continue
+            if message.images:
+                if images is None:
+                    raise ValueError(
+                        "image storage is required for an image-containing request"
+                    )
+                parts: list[TextContentPart | ImageContentPart] = []
+                if message.content:
+                    parts.append({"type": "text", "text": message.content})
+                for image in message.images:
+                    url: str | None = image_urls.get(image)
+                    if url is None:
+                        url = images.data_url(image)
+                        image_urls[image] = url
+                    parts.append(
+                        ImageContentPart(type="image_url", image_url={"url": url})
+                    )
+                messages.append({"role": message.role, "content": parts})
+            elif message.content:
                 messages.append({"role": message.role, "content": message.content})
         return messages

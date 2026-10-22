@@ -55,20 +55,20 @@ def render_message_delete_dialog() -> HTML:
                 cls="jouzetsu-modal-title",
             ),
             P(
-                "Choose whether to remove only this message or this message and every later message.",
+                "Delete just this message, or include all later messages.",
                 id="message-delete-dialog-description",
                 cls="jouzetsu-dialog-description",
             ),
             Div(
                 Form(
-                    Button("Delete only", type="submit", cls="jouzetsu-button"),
+                    Button("This message", type="submit", cls="jouzetsu-button"),
                     method="post",
                     cls="jouzetsu-inline-form",
                     data_delete_choice_form="single",
                 ),
                 Form(
                     Button(
-                        "Delete and following",
+                        "This and later messages",
                         type="submit",
                         cls="jouzetsu-button jouzetsu-button-danger",
                     ),
@@ -154,7 +154,7 @@ def render_message_details_dialog() -> HTML:
                 cls="jouzetsu-modal-title",
             ),
             P(
-                "Metadata and any saved reasoning trace for this message.",
+                "Timestamps, model, and saved reasoning.",
                 id="message-details-dialog-description",
                 cls="jouzetsu-dialog-description",
             ),
@@ -196,7 +196,7 @@ def render_message_details_content(message: Message | None = None) -> HTML:
         )
         if message.reasoning
         else P(
-            "No reasoning text was saved for this message.",
+            "No saved reasoning.",
             cls="jouzetsu-message-details-reasoning-empty",
             data_testid="message-details-reasoning-empty",
         )
@@ -253,7 +253,7 @@ def render_continuity_rewrite_dialog(message: Message) -> HTML:
                 cls="jouzetsu-modal-title",
             ),
             P(
-                "The model found a possible continuity issue. Apply this rewrite, or cancel to keep the current reply.",
+                "Possible continuity issue. Apply the rewrite or keep the current reply.",
                 id="continuity-rewrite-dialog-description",
                 cls="jouzetsu-dialog-description",
             ),
@@ -273,7 +273,7 @@ def render_continuity_rewrite_dialog(message: Message) -> HTML:
                     chat_mutation=True,
                 ),
                 post_button(
-                    "Cancel",
+                    "Keep current reply",
                     action=f"/messages/{message.id}/continuity-rewrite/discard",
                     marker="cancel-continuity-rewrite-button",
                     classes="jouzetsu-button jouzetsu-button-muted",
@@ -453,7 +453,7 @@ def _model_defaults_form(state: AppState) -> HTML:
                     "Default model",
                     Select(
                         Option(
-                            "No global default",
+                            "Use first loaded model",
                             value="",
                             selected=not configured_default,
                         ),
@@ -465,7 +465,7 @@ def _model_defaults_form(state: AppState) -> HTML:
                     ),
                 ),
                 field(
-                    "Auto-unload idle minutes",
+                    "Auto-unload after (minutes)",
                     Input(
                         value=_auto_unload_editor_value(state),
                         name="auto_unload_minutes",
@@ -479,7 +479,7 @@ def _model_defaults_form(state: AppState) -> HTML:
                 cls="jouzetsu-form-grid is-two-columns",
             ),
             Small(
-                "Blank timeout uses LM Studio's setting.",
+                "Leave blank to use LM Studio's setting.",
                 cls="jouzetsu-form-help",
             ),
             cls="jouzetsu-dialog-section",

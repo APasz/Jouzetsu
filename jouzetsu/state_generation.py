@@ -65,19 +65,7 @@ def generation_request_snapshot(chat: Chat) -> Chat:
 
     return replace(
         chat,
-        messages=[
-            Message(
-                id=message.id,
-                role=message.role,
-                content=message.content,
-                model=message.model,
-                continuity_rewrite=message.continuity_rewrite,
-                reasoning=message.reasoning,
-                created_at=message.created_at,
-                updated_at=message.updated_at,
-            )
-            for message in chat.messages
-        ],
+        messages=[replace(message) for message in chat.messages],
     )
 
 

@@ -42,11 +42,17 @@ from ..html import (
 )
 from .controls import (
     checkbox as _checkbox,
+    count_label,
     field as _field,
     post_button as _post_button,
     reset_form_button as _reset_form_button,
 )
 from .icons import render_icon as _icon
+from .images import (
+    render_image_gallery,
+    render_image_upload,
+    render_image_upload_control,
+)
 from .model_controls import ModelChoice, render_model_options
 
 
@@ -61,6 +67,8 @@ class ChatView:
     empty_state_message: str
     starter_prompts: tuple[StarterPrompt, ...]
     message_action_style: MessageActionStyle
+    generation_block_reason: str = ""
+    history_generation_block_reason: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -405,7 +413,10 @@ def render_navigation_panel(view: NavigationView) -> HTML:
                 cls="jouzetsu-utilities",
             ),
             Div(
-                Span(f"{len(view.chats)} chat(s)", cls="jouzetsu-sheet-footnote"),
+                Span(
+                    count_label(len(view.chats), "chat"),
+                    cls="jouzetsu-sheet-footnote",
+                ),
                 device_form,
                 cls="jouzetsu-sheet-footer-meta",
             ),
@@ -437,11 +448,9 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
         Div(
             Div(
                 Div(
-                    H2(chat.title, cls="jouzetsu-sheet-title"),
+                    H2("Chat settings", cls="jouzetsu-sheet-title"),
                     Small(
-                        "Chat prompt override active"
-                        if chat.system_prompt
-                        else "Using global system prompt",
+                        "Applies to this chat only.",
                         cls="jouzetsu-sheet-subtitle",
                     ),
                 ),
@@ -473,7 +482,6 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                 data_live_submit="true",
                 data_live_notice="Chat renamed",
             ),
-            H3("Model", cls="jouzetsu-section-title"),
             Form(
                 _field(
                     "Model",
@@ -538,15 +546,9 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                     cls="jouzetsu-form-grid is-chat-sampling-grid",
                 ),
                 Small(
-                    "Using global sampling defaults"
-                    if sampling == ChatSamplingOverrides()
-                    else "Using per-chat sampling overrides",
+                    "Blank values use global defaults.",
                     cls="jouzetsu-form-help",
                     data_testid="active-chat-sampling-source",
-                ),
-                Small(
-                    "Leave any value blank to inherit its global default.",
-                    cls="jouzetsu-form-help",
                 ),
                 Div(
                     Button(
@@ -572,23 +574,21 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                 data_live_submit="true",
                 data_live_notice="Sampling settings saved",
             ),
-            H3("Chat system prompt", cls="jouzetsu-section-title"),
+            H3("System prompt", cls="jouzetsu-section-title"),
             Form(
                 _field(
-                    "System prompt override",
+                    "Chat override",
                     Textarea(
                         chat.system_prompt,
                         name="prompt",
                         rows=6,
-                        placeholder="Leave empty to use the global system prompt.",
+                        placeholder="Instructions for this chat…",
                         disabled=generating,
                         data_testid="active-chat-prompt",
                     ),
                 ),
                 Small(
-                    "Chat prompt override active"
-                    if chat.system_prompt
-                    else "Using global system prompt",
+                    "Leave blank to use the global prompt.",
                     cls="jouzetsu-form-help",
                     data_testid="chat-prompt-source",
                 ),
@@ -634,13 +634,13 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                 _checkbox(
                     "enabled",
                     checked=chat.save_reasoning,
-                    label="Save reasoning traces",
+                    label="Save model reasoning",
                     marker="active-chat-save-reasoning",
                     disabled=generating,
                     live_autosave=True,
                 ),
                 Small(
-                    "Stores each response's reasoning with its assistant message.",
+                    "View saved reasoning in Message details.",
                     cls="jouzetsu-form-help",
                 ),
                 action="/chat/reasoning",
@@ -885,7 +885,7 @@ def render_message(
         can_change
         and message.role == "user"
         and is_last
-        and bool(message.content.strip())
+        and bool(message.content.strip() or message.images)
     )
     can_continue: bool = (
         can_change and is_last_assistant and bool(message.content.strip())
@@ -918,6 +918,7 @@ def render_message(
                 marker=f"regenerate-message-{message.id}",
                 classes="jouzetsu-message-action is-regenerate is-action-divider",
                 title="Regenerate the last assistant message",
+                disabled=bool(view.history_generation_block_reason),
                 aria_label="Regenerate the last assistant message",
                 chat_mutation=True,
             )
@@ -965,6 +966,7 @@ def render_message(
                 marker=f"resend-message-{message.id}",
                 classes="jouzetsu-message-action is-resend",
                 title="Resend this message",
+                disabled=bool(view.history_generation_block_reason),
                 aria_label="Resend this message",
                 chat_mutation=True,
             )
@@ -977,6 +979,7 @@ def render_message(
                 marker=f"continue-message-{message.id}",
                 classes="jouzetsu-message-action is-continue",
                 title="Continue this response",
+                disabled=bool(view.history_generation_block_reason),
                 aria_label="Continue this response",
                 chat_mutation=True,
                 message_action="continue",
@@ -1002,6 +1005,7 @@ def render_message(
 
     return Article(
         Div(
+            render_image_gallery(message.images) if message.images else None,
             Div(
                 text,
                 cls="jouzetsu-message-text",
@@ -1031,6 +1035,9 @@ def render_composer(
 
     generating: bool = view.generating
     editing: bool = editing_message is not None
+    has_images: bool = bool(
+        editing_message.images if editing_message else view.chat.draft_images
+    )
     content: str = (
         editing_message.content if editing_message is not None else view.chat.draft
     )
@@ -1060,7 +1067,7 @@ def render_composer(
         primary_classes = (
             "jouzetsu-button jouzetsu-button-primary jouzetsu-composer-primary is-icon"
         )
-        primary_disabled = not content.strip()
+        primary_disabled = not content.strip() and not has_images
         primary_title = f"{primary_label} ({_COMPOSER_SUBMIT_SHORTCUT_HINT})"
     else:
         action = "/chat/send"
@@ -1070,7 +1077,9 @@ def render_composer(
         primary_classes = (
             "jouzetsu-button jouzetsu-button-primary jouzetsu-composer-primary is-icon"
         )
-        primary_disabled = not content.strip()
+        primary_disabled = bool(view.generation_block_reason) or (
+            not content.strip() and not has_images
+        )
         primary_title = f"{primary_label} ({_COMPOSER_SUBMIT_SHORTCUT_HINT})"
     input_description: str = (
         "composer-status composer-edit-validation" if editing else "composer-status"
@@ -1080,7 +1089,8 @@ def render_composer(
         name="content",
         rows=1,
         placeholder="Message Jouzetsu…",
-        required=not generating,
+        aria_label="Edit message" if editing else "Message",
+        required=not generating and not has_images,
         cls="jouzetsu-message-input" + (" is-editing" if editing else ""),
         aria_describedby=input_description,
         aria_errormessage="composer-edit-validation" if editing else None,
@@ -1112,7 +1122,7 @@ def render_composer(
     if editing:
         cancel_control = A(
             "Cancel",
-            href="/",
+            href=_query_url(),
             cls="jouzetsu-button jouzetsu-button-muted",
             data_testid="cancel-edit-button",
             data_chat_navigation="true",
@@ -1178,8 +1188,24 @@ def render_composer(
             data_testid="composer-resize-handle",
         ),
         _render_generation_reasoning(view.generation_reasoning),
+        (
+            render_image_gallery(editing_message.images)
+            if editing_message.images
+            else None
+        )
+        if editing_message is not None
+        else render_image_upload(view.chat),
+        P(
+            view.generation_block_reason,
+            role="status",
+            cls="jouzetsu-image-model-notice",
+            data_testid="vision-model-required",
+        )
+        if view.generation_block_reason and not editing
+        else None,
         Form(
             Div(
+                render_image_upload_control() if not editing else None,
                 message_input,
                 Button(
                     primary_content,
@@ -1194,12 +1220,17 @@ def render_composer(
                 cls="jouzetsu-composer-input-row",
             ),
             hidden_edit,
+            Input(type="hidden", name="chat_id", value=view.chat.id),
             action=action,
             method="post",
             cls="jouzetsu-composer-form",
             data_chat_id=view.chat.id,
             data_composer_generating="true" if generating else "false",
             data_composer_mode="edit" if editing else "compose",
+            data_has_images="true" if has_images else "false",
+            data_generation_blocked="true"
+            if view.generation_block_reason and not editing
+            else "false",
             data_chat_mutation="true",
         ),
         footer,
@@ -1278,11 +1309,13 @@ def _format_runtime_status(status: RuntimeStatus) -> _ComposerStatus:
         )
     if status.phase is RuntimePhase.REASONING:
         token_detail: str = (
-            f"{status.output_tokens} tokens" if status.output_tokens else ""
+            count_label(status.output_tokens, "token") if status.output_tokens else ""
         )
         return timed_status(_ComposerStatusState.REASONING, token_detail)
     if status.phase is RuntimePhase.GENERATING:
-        token_detail = f"{status.output_tokens} tokens" if status.output_tokens else ""
+        token_detail = (
+            count_label(status.output_tokens, "token") if status.output_tokens else ""
+        )
         return timed_status(_ComposerStatusState.GENERATING, token_detail)
     if status.phase is RuntimePhase.REVIEWING:
         return timed_status(_ComposerStatusState.REVIEWING, "Response continuity")
@@ -1306,7 +1339,7 @@ def _ready_status_detail(metrics: GenerationMetrics | None) -> str:
         if metrics.tokens_per_second is not None:
             details.append(f"{metrics.tokens_per_second:.1f} tok/s")
         if metrics.output_tokens is not None:
-            details.append(f"{metrics.output_tokens} tokens")
+            details.append(count_label(metrics.output_tokens, "token"))
         if metrics.time_to_first_token_seconds is not None:
             details.append(f"TTFT {metrics.time_to_first_token_seconds:.2f}s")
     return _status_detail(*details)

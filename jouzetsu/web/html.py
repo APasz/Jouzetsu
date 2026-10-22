@@ -27,6 +27,7 @@ from fasthtml.common import (  # pyright: ignore[reportMissingTypeStubs]
     Link as _Link,
     Main as _Main,
     Meta as _Meta,
+    Noscript as _Noscript,
     Option as _Option,
     P as _P,
     Pre as _Pre,
@@ -82,6 +83,7 @@ Label: HtmlTag = _tag(_Label)
 Link: HtmlTag = _tag(_Link)
 Main: HtmlTag = _tag(_Main)
 Meta: HtmlTag = _tag(_Meta)
+Noscript: HtmlTag = _tag(_Noscript)
 Option: HtmlTag = _tag(_Option)
 P: HtmlTag = _tag(_P)
 Pre: HtmlTag = _tag(_Pre)
