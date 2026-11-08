@@ -460,3 +460,36 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(model.capabilities.trained_for_tool_use)
         self.assertTrue(model.capabilities.reasoning)
         self.assertEqual(model.capabilities.reasoning_default, "on")
+
+    async def test_inventory_distinguishes_missing_and_unsupported_capabilities(
+        self,
+    ) -> None:
+        client = RecordingLMStudioClient(ServerSettings())
+        client.recording_session.get_body = json.dumps(
+            {
+                "models": [
+                    {"type": "llm", "key": "unknown", "display_name": "Unknown"},
+                    {
+                        "type": "llm",
+                        "key": "unsupported",
+                        "display_name": "Unsupported",
+                        "capabilities": {"vision": False, "reasoning": False},
+                    },
+                    {
+                        "type": "llm",
+                        "key": "partial",
+                        "display_name": "Partial",
+                        "capabilities": {"vision": True},
+                    },
+                ]
+            }
+        )
+
+        inventory = {model.key: model for model in await client.list_model_inventory()}
+
+        self.assertIsNone(inventory["unknown"].capabilities.vision)
+        self.assertIsNone(inventory["unknown"].capabilities.reasoning)
+        self.assertIs(inventory["unsupported"].capabilities.vision, False)
+        self.assertIs(inventory["unsupported"].capabilities.reasoning, False)
+        self.assertIs(inventory["partial"].capabilities.vision, True)
+        self.assertIsNone(inventory["partial"].capabilities.reasoning)

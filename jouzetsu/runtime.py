@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Literal
+from typing import Final, Literal, cast
+
+from .sampling import UNKNOWN_PARAMETERS, ParameterSupport
 
 
 class RuntimePhase(Enum):
@@ -35,17 +37,52 @@ class ConnectionState(Enum):
 
 ReasoningOption = Literal["off", "on", "low", "medium", "high"]
 ModelFormat = Literal["gguf", "mlx"]
+REASONING_OPTIONS: Final[tuple[ReasoningOption, ...]] = (
+    "off",
+    "on",
+    "low",
+    "medium",
+    "high",
+)
+MODEL_FORMATS: Final[tuple[ModelFormat, ...]] = ("gguf", "mlx")
 
 
 @dataclass(frozen=True, slots=True)
 class ModelCapabilities:
     """Public capabilities advertised by one model."""
 
-    vision: bool = False
-    trained_for_tool_use: bool = False
-    reasoning: bool = False
+    vision: bool | None = None
+    trained_for_tool_use: bool | None = None
+    reasoning: bool | None = None
     reasoning_options: tuple[ReasoningOption, ...] = ()
     reasoning_default: ReasoningOption | None = None
+    parameters: ParameterSupport = UNKNOWN_PARAMETERS
+
+    def __post_init__(self) -> None:
+        if any(
+            value is not None and type(value) is not bool
+            for value in (self.vision, self.trained_for_tool_use, self.reasoning)
+        ):
+            raise TypeError("model capability support must be boolean or null")
+        if self.reasoning_options and self.reasoning is not True:
+            raise ValueError("reasoning options require known reasoning support")
+        if not isinstance(cast(object, self.reasoning_options), tuple) or any(
+            option not in REASONING_OPTIONS for option in self.reasoning_options
+        ):
+            raise ValueError("reasoning options must contain known option names")
+        if (
+            self.reasoning_default is not None
+            and self.reasoning_default not in REASONING_OPTIONS
+        ):
+            raise ValueError("reasoning default must be a known option name")
+        if self.reasoning_default is not None and self.reasoning is not True:
+            raise ValueError("reasoning default requires known reasoning support")
+        if (
+            self.reasoning_options
+            and self.reasoning_default is not None
+            and self.reasoning_default not in self.reasoning_options
+        ):
+            raise ValueError("reasoning default must be an allowed reasoning option")
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +132,7 @@ def vision_model_error(model: ModelDescriptor | None) -> str:
 
     if model is None:
         return "Select an available vision-capable model to use images."
-    if not model.capabilities.vision:
+    if model.capabilities.vision is not True:
         return "This conversation contains images. Select a vision-capable model."
     return ""
 

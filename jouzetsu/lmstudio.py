@@ -19,6 +19,8 @@ from .config import GenerationSettings, ServerSettings
 from .image_storage import ImageStorage
 from .models import Chat, ImageAttachment, Role
 from .runtime import (
+    MODEL_FORMATS,
+    REASONING_OPTIONS,
     ChatStreamEvent,
     FirstToken,
     GenerationMetrics,
@@ -625,8 +627,8 @@ class LMStudioClient:
 
     @staticmethod
     def _model_format(raw: object) -> ModelFormat | None:
-        if raw in {"gguf", "mlx"}:
-            return cast(ModelFormat, raw)
+        if raw in MODEL_FORMATS:
+            return raw
         return None
 
     @staticmethod
@@ -645,18 +647,20 @@ class LMStudioClient:
             raw_allowed_options: object | None = reasoning.get("allowed_options")
             if isinstance(raw_allowed_options, list):
                 reasoning_options = tuple(
-                    cast(ReasoningOption, option)
+                    option
                     for option in cast(list[object], raw_allowed_options)
-                    if option in {"off", "on", "low", "medium", "high"}
+                    if option in REASONING_OPTIONS
                 )
             reasoning_default = reasoning.get("default")
         return ModelCapabilities(
-            vision=capabilities.get("vision") is True,
-            trained_for_tool_use=capabilities.get("trained_for_tool_use") is True,
-            reasoning=reasoning is not None,
+            vision=_optional_bool(capabilities, "vision"),
+            trained_for_tool_use=_optional_bool(capabilities, "trained_for_tool_use"),
+            reasoning=True
+            if reasoning is not None
+            else _optional_bool(capabilities, "reasoning"),
             reasoning_options=reasoning_options,
-            reasoning_default=cast(ReasoningOption, reasoning_default)
-            if reasoning_default in {"off", "on", "low", "medium", "high"}
+            reasoning_default=reasoning_default
+            if reasoning_default in REASONING_OPTIONS
             else None,
         )
 

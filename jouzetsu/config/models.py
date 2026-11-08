@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from pathlib import Path
 from typing import ClassVar
 
 from ..colors import HEX_COLOR_PATTERN as _HEX_COLOR_PATTERN
+from ..sampling import DEFAULT_SAMPLING, SamplingParameters, validate_sampling
 from .paths import AppPaths, default_paths
 
 CONTINUE_PROMPT_CONTENT: str = (
@@ -98,15 +98,15 @@ class SpellingReplacement:
 class GenerationSettings:
     """Default sampling parameters sent on every generation request."""
 
-    MIN_TEMPERATURE: ClassVar[float] = 0.0
-    MAX_TEMPERATURE: ClassVar[float] = 2.0
-    MIN_TOP_P: ClassVar[float] = 0.0
-    MAX_TOP_P: ClassVar[float] = 1.0
-    MIN_MAX_TOKENS: ClassVar[int] = 1
+    MIN_TEMPERATURE: ClassVar[float] = SamplingParameters.MIN_TEMPERATURE
+    MAX_TEMPERATURE: ClassVar[float] = SamplingParameters.MAX_TEMPERATURE
+    MIN_TOP_P: ClassVar[float] = SamplingParameters.MIN_TOP_P
+    MAX_TOP_P: ClassVar[float] = SamplingParameters.MAX_TOP_P
+    MIN_MAX_TOKENS: ClassVar[int] = SamplingParameters.MIN_MAX_TOKENS
 
-    temperature: float = 0.75
-    top_p: float = 0.95
-    max_tokens: int = 4096
+    temperature: float = DEFAULT_SAMPLING.temperature
+    top_p: float = DEFAULT_SAMPLING.top_p
+    max_tokens: int = DEFAULT_SAMPLING.max_tokens
     system_prompt: str = "You are a helpful assistant."
     continuity_review: bool = True
     british_english: bool = False
@@ -115,22 +115,7 @@ class GenerationSettings:
     )
 
     def validate(self) -> None:
-        if isinstance(self.temperature, bool) or not math.isfinite(self.temperature):
-            raise ValueError("temperature must be a finite number")
-        if not self.MIN_TEMPERATURE <= self.temperature <= self.MAX_TEMPERATURE:
-            raise ValueError(
-                f"temperature must be between {self.MIN_TEMPERATURE:g} and {self.MAX_TEMPERATURE:g}"
-            )
-        if isinstance(self.top_p, bool) or not math.isfinite(self.top_p):
-            raise ValueError("top_p must be a finite number")
-        if not self.MIN_TOP_P <= self.top_p <= self.MAX_TOP_P:
-            raise ValueError(
-                f"top_p must be between {self.MIN_TOP_P:g} and {self.MAX_TOP_P:g}"
-            )
-        if type(self.max_tokens) is not int or self.max_tokens < self.MIN_MAX_TOKENS:
-            raise ValueError(
-                f"max_tokens must be an integer of at least {self.MIN_MAX_TOKENS}"
-            )
+        validate_sampling(self.temperature, self.top_p, self.max_tokens)
         if not _are_booleans(self.continuity_review, self.british_english):
             raise ValueError("continuity_review and british_english must be booleans")
         seen_sources: set[str] = set()
