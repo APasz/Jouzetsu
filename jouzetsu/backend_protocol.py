@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -161,7 +161,7 @@ class ModelManagement(Protocol):
 
     def load_model(
         self, model_id: str
-    ) -> AsyncIterator[ModelLoadProgress | ModelReady]: ...
+    ) -> AsyncGenerator[ModelLoadProgress | ModelReady]: ...
 
     async def unload_model(self, instance_id: str) -> None: ...
 
@@ -177,6 +177,6 @@ class InferenceBackend(Protocol):
 
     async def discover_models(self) -> ModelDiscovery: ...
 
-    def stream(self, request: GenerationRequest) -> AsyncIterator[ChatStreamEvent]: ...
+    def stream(self, request: GenerationRequest) -> AsyncGenerator[ChatStreamEvent]: ...
 
     async def close(self) -> None: ...

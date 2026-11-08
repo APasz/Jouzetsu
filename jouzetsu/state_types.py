@@ -10,6 +10,7 @@ from .models import ImageAttachment, Message, Role
 from .runtime import RuntimePhase, RuntimeStatus
 
 if TYPE_CHECKING:
+    from .backend_protocol import BackendError
     from .models import Chat
 
 
@@ -26,6 +27,8 @@ class ChatSession:
     )
     live_reasoning: str = ""
     empty_state_message: str = ""
+    live_response: Message | None = None
+    latest_error: BackendError | None = None
 
 
 @dataclass(frozen=True, slots=True)

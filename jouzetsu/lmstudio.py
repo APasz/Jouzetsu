@@ -8,30 +8,38 @@ import logging
 import math
 from collections.abc import AsyncIterator
 from logging import Logger
-from typing import Literal, Protocol, TypedDict, cast
+from typing import Protocol, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 import aiohttp
 from aiohttp.client import ClientSession
 
 from .async_workers import run_in_worker
+from .backend_protocol import BackendError, InferenceMessage
+from .chat_completions import (
+    CONNECT_TIMEOUT,
+    DISCOVERY_TIMEOUT,
+    LOAD_TIMEOUT,
+    STREAM_IDLE_TIMEOUT,
+    UNLOAD_TIMEOUT,
+    WireMessage,
+    build_messages,
+    completion_events,
+    iter_sse_data,
+)
 from .config import GenerationSettings, ServerSettings
 from .image_storage import ImageStorage
-from .models import Chat, ImageAttachment, Role
+from .models import Chat
 from .runtime import (
     MODEL_FORMATS,
     REASONING_OPTIONS,
     ChatStreamEvent,
-    FirstToken,
-    GenerationMetrics,
     ModelCapabilities,
     ModelDescriptor,
     ModelFormat,
     ModelInstanceDescriptor,
     ModelLoadProgress,
     ModelReady,
-    PredictionComplete,
-    PredictionFragment,
     PromptProcessingProgress,
     ReasoningOption,
     vision_model_error,
@@ -42,34 +50,15 @@ BRITISH_ENGLISH_INSTRUCTION: str = (
     "Use British English spelling and conventions in assistant responses, "
     "unless the user explicitly asks for another dialect."
 )
-_CONNECT_TIMEOUT_SECONDS: float = 10.0
-_INVENTORY_TIMEOUT_SECONDS: float = 15.0
-_MODEL_UNLOAD_TIMEOUT_SECONDS: float = 60.0
-_MODEL_LOAD_TIMEOUT_SECONDS: float = 600.0
-_STREAM_IDLE_TIMEOUT_SECONDS: float = 120.0
+_CONNECT_TIMEOUT_SECONDS: float = CONNECT_TIMEOUT
+_INVENTORY_TIMEOUT_SECONDS: float = DISCOVERY_TIMEOUT
+_MODEL_UNLOAD_TIMEOUT_SECONDS: float = UNLOAD_TIMEOUT
+_MODEL_LOAD_TIMEOUT_SECONDS: float = LOAD_TIMEOUT
+_STREAM_IDLE_TIMEOUT_SECONDS: float = STREAM_IDLE_TIMEOUT
 
 
 class LMStudioError(RuntimeError):
     """Raised when LM Studio rejects a request or is unreachable."""
-
-
-class TextContentPart(TypedDict):
-    type: Literal["text"]
-    text: str
-
-
-class ImageURL(TypedDict):
-    url: str
-
-
-class ImageContentPart(TypedDict):
-    type: Literal["image_url"]
-    image_url: ImageURL
-
-
-class CompletionMessage(TypedDict):
-    role: Role
-    content: str | list[TextContentPart | ImageContentPart]
 
 
 class LMStudioClientProtocol(Protocol):
@@ -120,7 +109,7 @@ def _optional_bool(mapping: dict[str, object] | None, key: str) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
-def _server_root(base_url: str) -> str:
+def lmstudio_server_root(base_url: str) -> str:
     """Remove a configured compatibility API suffix from a server URL."""
     parsed: SplitResult = urlsplit(base_url)
     path: str = parsed.path.rstrip("/")
@@ -145,7 +134,7 @@ class LMStudioClient:
     def _server_root(self) -> str:
         """Resolve the native API root from the current shared server settings."""
 
-        return _server_root(self._server.base_url)
+        return lmstudio_server_root(self._server.base_url)
 
     async def list_model_inventory(self) -> tuple[ModelDescriptor, ...]:
         """Return downloaded LLMs and their currently loaded instances."""
@@ -162,9 +151,7 @@ class LMStudioClient:
             ) as response:
                 body: str = await response.text()
                 if response.status != 200:
-                    raise LMStudioError(
-                        f"Model query returned {response.status}: {body}"
-                    )
+                    raise LMStudioError(f"Model query returned HTTP {response.status}")
                 payload: dict[str, object] | None = _as_object_mapping(
                     _parse_json(body)
                 )
@@ -175,6 +162,14 @@ class LMStudioClient:
             log.warning("LM Studio model inventory request failed error=%s", exc)
             raise LMStudioError(f"Could not query models: {exc}") from exc
 
+        return self.parse_model_inventory(payload)
+
+    @classmethod
+    def parse_model_inventory(
+        cls, payload: dict[str, object] | None
+    ) -> tuple[ModelDescriptor, ...]:
+        """Decode native inventory metadata independently of HTTP transport."""
+
         if payload is None:
             raise LMStudioError("Model query returned an invalid response")
         raw_models: object | None = payload.get("models")
@@ -184,13 +179,24 @@ class LMStudioClient:
         inventory: list[ModelDescriptor] = []
         for raw_model in cast(list[object], raw_models):
             model: dict[str, object] | None = _as_object_mapping(raw_model)
-            if model is None or model.get("type") != "llm":
+            if model is None or not isinstance(model.get("type"), str):
+                raise LMStudioError("Model inventory contains an invalid entry")
+            if model.get("type") != "llm":
                 continue
             key: object | None = model.get("key")
             display_name: object | None = model.get("display_name")
-            if not isinstance(key, str) or not isinstance(display_name, str):
-                continue
+            if (
+                not isinstance(key, str)
+                or not key.strip()
+                or key != key.strip()
+                or not isinstance(display_name, str)
+            ):
+                raise LMStudioError(
+                    "Model inventory contains an invalid model identity"
+                )
             raw_instances: object | None = model.get("loaded_instances")
+            if raw_instances is not None and not isinstance(raw_instances, list):
+                raise LMStudioError("Model inventory contains invalid instances")
             instances: list[object] = (
                 cast(list[object], raw_instances)
                 if isinstance(raw_instances, list)
@@ -200,13 +206,20 @@ class LMStudioClient:
             for raw_instance in instances:
                 instance: dict[str, object] | None = _as_object_mapping(raw_instance)
                 if instance is None:
-                    continue
+                    raise LMStudioError("Model inventory contains an invalid instance")
                 instance_id: object | None = instance.get("id")
-                if isinstance(instance_id, str):
-                    loaded_instances.append(
-                        self._model_instance_descriptor(instance_id, instance)
+                if (
+                    not isinstance(instance_id, str)
+                    or not instance_id.strip()
+                    or instance_id != instance_id.strip()
+                ):
+                    raise LMStudioError(
+                        "Model inventory contains an invalid instance identity"
                     )
-            context_length: int | None = self._first_context_length(instances)
+                loaded_instances.append(
+                    cls._model_instance_descriptor(instance_id, instance)
+                )
+            context_length: int | None = cls._first_context_length(instances)
             max_context_length: object | None = model.get("max_context_length")
             publisher: object | None = model.get("publisher")
             architecture: object | None = model.get("architecture")
@@ -250,7 +263,7 @@ class LMStudioClient:
                     max_context_length=max_context_length
                     if isinstance(max_context_length, int)
                     else None,
-                    auto_unload_minutes=self._first_auto_unload_minutes(
+                    auto_unload_minutes=cls._first_auto_unload_minutes(
                         model, instances
                     ),
                     publisher=publisher if isinstance(publisher, str) else "",
@@ -266,8 +279,8 @@ class LMStudioClient:
                     params_string=params_string
                     if isinstance(params_string, str)
                     else "",
-                    format=self._model_format(model_format),
-                    capabilities=self._model_capabilities(model),
+                    format=cls._model_format(model_format),
+                    capabilities=cls._model_capabilities(model),
                     description=description if isinstance(description, str) else "",
                     variants=tuple[str, ...](variants),
                     selected_variant=selected_variant
@@ -301,11 +314,8 @@ class LMStudioClient:
                     sock_connect=_CONNECT_TIMEOUT_SECONDS,
                 ),
             ) as response:
-                body: str = await response.text()
                 if response.status != 200:
-                    raise LMStudioError(
-                        f"Model unload returned {response.status}: {body}"
-                    )
+                    raise LMStudioError(f"Model unload returned HTTP {response.status}")
         except LMStudioError as exc:
             log.warning(
                 "LM Studio model unload failed instance_id=%s error=%s",
@@ -419,7 +429,6 @@ class LMStudioClient:
                 total=_MODEL_LOAD_TIMEOUT_SECONDS, sock_connect=_CONNECT_TIMEOUT_SECONDS
             ),
         ) as response:
-            body: str = await response.text()
             if response.status != 200:
                 inventory: tuple[
                     ModelDescriptor, ...
@@ -431,7 +440,7 @@ class LMStudioClient:
                         "LM Studio model was already loaded model_key=%s", model_key
                     )
                     return
-                raise LMStudioError(f"Model load returned {response.status}: {body}")
+                raise LMStudioError(f"Model load returned HTTP {response.status}")
         log.info("LM Studio model load accepted model_key=%s", model_key)
 
     async def _stream_completion(
@@ -440,7 +449,7 @@ class LMStudioClient:
         model_key: str,
         generation: GenerationSettings,
     ) -> AsyncIterator[ChatStreamEvent]:
-        messages: list[CompletionMessage] = (
+        messages: list[WireMessage] = (
             await run_in_worker(self._build_messages, chat, generation, self._images)
             if chat.has_images
             else self._build_messages(chat, generation)
@@ -459,11 +468,6 @@ class LMStudioClient:
             payload["ttl"] = ttl_seconds
         session: ClientSession = await self._get_session()
         request_started_at: float = asyncio.get_running_loop().time()
-        first_token_at: float | None = None
-        completion_tokens: int | None = None
-        prompt_tokens: int | None = None
-        stop_reason: str | None = None
-        first_token_emitted = False
 
         url: str = f"{self._server.base_url.rstrip('/')}/chat/completions"
         log.debug(
@@ -482,103 +486,19 @@ class LMStudioClient:
             ),
         ) as response:
             if response.status != 200:
-                body: str = await response.text()
-                raise LMStudioError(
-                    f"Chat completion returned {response.status}: {body}"
-                )
+                raise LMStudioError(f"Chat completion returned HTTP {response.status}")
 
-            async for data in self._iter_sse_data(response):
-                if data == "[DONE]":
-                    break
-                try:
-                    chunk: dict[str, object] | None = _as_object_mapping(
-                        _parse_json(data)
-                    )
-                except json.JSONDecodeError:
-                    log.debug("skipping malformed SSE data: %s", data)
-                    continue
-                if chunk is None:
-                    continue
-
-                usage: dict[str, object] | None = _as_object_mapping(chunk.get("usage"))
-                if usage is not None:
-                    # Usage is request-level metadata. Content fragments may
-                    # combine or split model tokens, so they cannot provide
-                    # an exact token count themselves.
-                    completion_tokens = self._optional_int(
-                        usage.get("completion_tokens")
-                    )
-                    prompt_tokens = self._optional_int(usage.get("prompt_tokens"))
-
-                choices: object | None = chunk.get("choices")
-                if not isinstance(choices, list):
-                    continue
-                for raw_choice in cast(list[object], choices):
-                    choice: dict[str, object] | None = _as_object_mapping(raw_choice)
-                    if choice is None:
-                        continue
-                    finish: object | None = choice.get("finish_reason")
-                    if isinstance(finish, str):
-                        stop_reason = finish
-                    delta: dict[str, object] | None = _as_object_mapping(
-                        choice.get("delta")
-                    )
-                    if delta is None:
-                        continue
-                    reasoning: object | None = delta.get(
-                        "reasoning_content"
-                    ) or delta.get("reasoning")
-                    content: object | None = delta.get("content")
-                    fragments: tuple[tuple[str, bool], ...] = tuple(
-                        (fragment, is_reasoning)
-                        for fragment, is_reasoning in (
-                            (reasoning, True),
-                            (content, False),
-                        )
-                        if isinstance(fragment, str) and fragment
-                    )
-                    for fragment, is_reasoning in fragments:
-                        if not first_token_emitted:
-                            first_token_at = asyncio.get_running_loop().time()
-                            first_token_emitted = True
-                            yield FirstToken()
-                        yield PredictionFragment(
-                            content=fragment,
-                            token_count=None,
-                            is_reasoning=is_reasoning,
-                        )
-
-        completed_at: float = asyncio.get_running_loop().time()
-        generation_seconds: float | None = (
-            completed_at - first_token_at if first_token_at is not None else None
-        )
-        tokens_per_second: float | None = (
-            completion_tokens / generation_seconds
-            if completion_tokens is not None
-            and generation_seconds is not None
-            and generation_seconds > 0
-            else None
-        )
-        yield PredictionComplete(
-            GenerationMetrics(
-                output_tokens=completion_tokens,
-                prompt_tokens=prompt_tokens,
-                tokens_per_second=tokens_per_second,
-                time_to_first_token_seconds=(
-                    first_token_at - request_started_at
-                    if first_token_at is not None
-                    else None
-                ),
-                stop_reason=stop_reason,
-            )
-        )
-        log.debug(
-            "LM Studio chat completion finished model=%s completion_tokens=%s prompt_tokens=%s stop_reason=%s",
-            model_key,
-            completion_tokens,
-            prompt_tokens,
-            stop_reason,
-        )
+            try:
+                async for event in completion_events(
+                    response,
+                    ready=ModelReady(model_key, model_key, 0),
+                    started_at=request_started_at,
+                    wire_model=model_key,
+                ):
+                    if not isinstance(event, ModelReady):
+                        yield event
+            except BackendError as exc:
+                raise LMStudioError(str(exc)) from exc
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -594,18 +514,8 @@ class LMStudioClient:
 
     @staticmethod
     async def _iter_sse_data(response: aiohttp.ClientResponse) -> AsyncIterator[str]:
-        buffer = b""
-        async for raw_chunk in response.content.iter_chunked(4096):
-            buffer += raw_chunk.replace(b"\r\n", b"\n")
-            while b"\n\n" in buffer:
-                raw_event, buffer = buffer.split(b"\n\n", 1)
-                data_lines: list[bytes] = [
-                    line[5:].lstrip()
-                    for line in raw_event.split(b"\n")
-                    if line.startswith(b"data:")
-                ]
-                if data_lines:
-                    yield b"\n".join(data_lines).decode("utf-8")
+        async for data in iter_sse_data(response.content.iter_chunked(4096)):
+            yield data
 
     @staticmethod
     def _model_instance_descriptor(
@@ -738,7 +648,7 @@ class LMStudioClient:
     @staticmethod
     def _build_messages(
         chat: Chat, generation: GenerationSettings, images: ImageStorage | None = None
-    ) -> list[CompletionMessage]:
+    ) -> list[WireMessage]:
         system_prompt: str = (
             chat.system_prompt.strip() or generation.system_prompt.strip()
         )
@@ -746,30 +656,13 @@ class LMStudioClient:
             system_prompt = "\n\n".join(
                 part for part in (system_prompt, BRITISH_ENGLISH_INSTRUCTION) if part
             )
-        messages: list[CompletionMessage] = []
-        image_urls: dict[ImageAttachment, str] = {}
+        messages: list[InferenceMessage] = []
         if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        for message in chat.messages:
-            if message.role not in ("user", "assistant"):
-                continue
-            if message.images:
-                if images is None:
-                    raise ValueError(
-                        "image storage is required for an image-containing request"
-                    )
-                parts: list[TextContentPart | ImageContentPart] = []
-                if message.content:
-                    parts.append({"type": "text", "text": message.content})
-                for image in message.images:
-                    url: str | None = image_urls.get(image)
-                    if url is None:
-                        url = images.data_url(image)
-                        image_urls[image] = url
-                    parts.append(
-                        ImageContentPart(type="image_url", image_url={"url": url})
-                    )
-                messages.append({"role": message.role, "content": parts})
-            elif message.content:
-                messages.append({"role": message.role, "content": message.content})
-        return messages
+            messages.append(InferenceMessage("system", system_prompt))
+        messages.extend(
+            InferenceMessage(message.role, message.content, message.images)
+            for message in chat.messages
+            if message.role in {"user", "assistant"}
+            and (message.content or message.images)
+        )
+        return build_messages(messages, images)

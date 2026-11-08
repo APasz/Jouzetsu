@@ -6,6 +6,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Final, cast
 
+from ..backend_codec import decode_backends, encode_backends
+from ..backend_models import BackendConfiguration
 from ..colors import HEX_COLOR_PATTERN
 from ..json_codec import (
     JsonDecoder as _Decoder,
@@ -72,7 +74,7 @@ def decode_config(raw: object, *, paths: AppPaths) -> AppConfig:
         required=frozenset(
             {"version", "server", "generation", "ui", "logging", "host_stats", "access"}
         ),
-        optional=frozenset({"theme"}),
+        optional=frozenset({"theme", "backends"}),
     )
     version: int = decoder.integer(
         root.get("version"), path="config.version", default=CONFIG_VERSION
@@ -93,6 +95,9 @@ def decode_config(raw: object, *, paths: AppPaths) -> AppConfig:
             decoder, root.get("host_stats"), defaults.host_stats
         ),
         access=_decode_access(decoder, root.get("access"), defaults.access),
+        backends=decode_backends(root["backends"])
+        if "backends" in root
+        else BackendConfiguration(),
     )
     try:
         config.validate()
@@ -109,6 +114,7 @@ def encode_config(config: AppConfig) -> ConfigDocument:
     config.validate()
     document: ConfigDocument = {
         "version": CONFIG_VERSION,
+        "backends": encode_backends(config.backends),
         "server": {
             "base_url": config.server.base_url,
             "api_key": config.server.api_key,

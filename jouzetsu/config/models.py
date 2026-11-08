@@ -7,6 +7,7 @@ from enum import Enum
 from pathlib import Path
 from typing import ClassVar
 
+from ..backend_models import BackendConfiguration
 from ..colors import HEX_COLOR_PATTERN as _HEX_COLOR_PATTERN
 from ..sampling import DEFAULT_SAMPLING, SamplingParameters, validate_sampling
 from .paths import AppPaths, default_paths
@@ -472,6 +473,7 @@ class AppConfig:
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     host_stats: HostStatsSettings = field(default_factory=HostStatsSettings)
     access: AccessSettings = field(default_factory=AccessSettings)
+    backends: BackendConfiguration = field(default_factory=BackendConfiguration)
 
     def apply(self, settings: AppConfig) -> None:
         """Publish saved settings while retaining shared connection/access objects."""
@@ -485,6 +487,7 @@ class AppConfig:
         self.theme = settings.theme
         self.logging = settings.logging
         self.host_stats = settings.host_stats
+        self.backends = settings.backends
         self.access.default_private = settings.access.default_private
         self.access.allow_localhost_without_approval = (
             settings.access.allow_localhost_without_approval

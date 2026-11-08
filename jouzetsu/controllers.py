@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable, Iterable
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
@@ -30,7 +31,8 @@ _POLL_INTERVAL_SECONDS: float = 120.0
 _OFFLINE_POLL_INITIAL_SECONDS: float = 5.0
 _OFFLINE_POLL_MAX_SECONDS: float = 60.0
 _INVENTORY_RETRY_DELAYS_SECONDS: tuple[float, ...] = (0.25, 1.0)
-_PERSISTENCE_DEBOUNCE_SECONDS: float = 0.15
+_PERSISTENCE_DEBOUNCE_SECONDS: float = 1.5
+_PERSISTENCE_MAX_DELAY_SECONDS: float = 10.0
 _ACTIVE_PHASES: frozenset[RuntimePhase] = frozenset[RuntimePhase](
     {
         RuntimePhase.STARTING,
@@ -51,6 +53,20 @@ class RuntimeTarget(Protocol):
     runtime_status: RuntimeStatus
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingChatWrite:
+    record: ChatJSON | None
+    first_dirty_at: float
+    last_dirty_at: float
+
+    @property
+    def deadline(self) -> float:
+        return min(
+            self.last_dirty_at + _PERSISTENCE_DEBOUNCE_SECONDS,
+            self.first_dirty_at + _PERSISTENCE_MAX_DELAY_SECONDS,
+        )
+
+
 @dataclass(slots=True)
 class PersistenceController:
     """Coalesce explicit chat upserts and deletions into durable file changes."""
@@ -59,12 +75,17 @@ class PersistenceController:
     config_store: ConfigStore
     storage: ChatStorage
 
-    _pending_chat_records: dict[str, ChatJSON] = field(default_factory=dict)
-    _pending_deleted_chat_ids: set[str] = field(default_factory=set)
+    _pending_chat_writes: dict[str, _PendingChatWrite] = field(default_factory=dict)
     _chat_write_task: asyncio.Task[None] | None = None
     _chat_write_error: Exception | None = None
     _flush_chats_event: asyncio.Event = field(default_factory=asyncio.Event)
     _write_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    on_chat_write_error: Callable[[Exception], Awaitable[None]] | None = None
+
+    @property
+    def chat_write_error(self) -> Exception | None:
+        """Expose deferred draft failures to the runtime and browser status view."""
+        return self._chat_write_error
 
     def queue_chat_changes(
         self,
@@ -87,23 +108,29 @@ class PersistenceController:
             )
         if not records and not deleted_ids:
             return
-
+        now = time.monotonic()
         for chat_id, record in records.items():
-            self._pending_chat_records[chat_id] = record
-            self._pending_deleted_chat_ids.discard(chat_id)
+            self._queue_chat_write(chat_id, record, now)
         for chat_id in deleted_ids:
-            _ = self._pending_chat_records.pop(chat_id, None)
-            self._pending_deleted_chat_ids.add(chat_id)
+            self._queue_chat_write(chat_id, None, now)
         self._chat_write_error = None
         if self._chat_write_task is None or self._chat_write_task.done():
             self._chat_write_task = asyncio.create_task(self._write_pending_chats())
 
+    def _queue_chat_write(
+        self, chat_id: str, record: ChatJSON | None, now: float
+    ) -> None:
+        previous = self._pending_chat_writes.get(chat_id)
+        self._pending_chat_writes[chat_id] = _PendingChatWrite(
+            record,
+            previous.first_dirty_at if previous else now,
+            now,
+        )
+
     async def flush_chats(self) -> None:
         """Wait until every queued chat change has reached durable storage."""
         task: asyncio.Task[None] | None = self._chat_write_task
-        if task is None and (
-            self._pending_chat_records or self._pending_deleted_chat_ids
-        ):
+        if task is None and self._pending_chat_writes:
             self._chat_write_error = None
             task = asyncio.create_task(self._write_pending_chats())
             self._chat_write_task = task
@@ -135,9 +162,8 @@ class PersistenceController:
             self._discard_pending_chat(chat_id)
 
     def _discard_pending_chat(self, chat_id: str) -> None:
-        _ = self._pending_chat_records.pop(chat_id, None)
-        self._pending_deleted_chat_ids.discard(chat_id)
-        if not self._pending_chat_records and not self._pending_deleted_chat_ids:
+        _ = self._pending_chat_writes.pop(chat_id, None)
+        if not self._pending_chat_writes:
             self._chat_write_error = None
 
     async def save_config(self, candidate: AppConfig | None = None) -> None:
@@ -150,41 +176,73 @@ class PersistenceController:
             )
 
     async def _write_pending_chats(self) -> None:
-        """Persist queued changes after a short debounce, retaining only the latest per chat."""
+        """Coalesce each document independently, preserving newer writes on failure."""
         try:
-            try:
-                _ = await asyncio.wait_for(
-                    self._flush_chats_event.wait(),
-                    timeout=_PERSISTENCE_DEBOUNCE_SECONDS,
-                )
-            except TimeoutError:
-                pass
-            self._flush_chats_event.clear()
-            while self._pending_chat_records or self._pending_deleted_chat_ids:
+            while self._pending_chat_writes:
+                await self._wait_for_draft_pause()
                 async with self._write_lock:
-                    records = dict(self._pending_chat_records)
-                    deleted_chat_ids = frozenset(self._pending_deleted_chat_ids)
-                    if not records and not deleted_chat_ids:
+                    now = time.monotonic()
+                    writes = {
+                        chat_id: write
+                        for chat_id, write in self._pending_chat_writes.items()
+                        if self._flush_chats_event.is_set() or write.deadline <= now
+                    }
+                    if not writes:
                         continue
+                    for chat_id in writes:
+                        del self._pending_chat_writes[chat_id]
+                    records = tuple(
+                        write.record
+                        for write in writes.values()
+                        if write.record is not None
+                    )
+                    deleted_ids = frozenset(
+                        chat_id
+                        for chat_id, write in writes.items()
+                        if write.record is None
+                    )
                     try:
                         await complete_before_cancelling(
                             run_in_worker(
                                 self.storage.save_records,
-                                tuple(records.values()),
-                                deleted_chat_ids=deleted_chat_ids,
+                                records,
+                                deleted_chat_ids=deleted_ids,
                             )
                         )
                     except Exception as exc:
+                        for chat_id, write in writes.items():
+                            self._pending_chat_writes.setdefault(chat_id, write)
                         self._chat_write_error = exc
                         log.exception("chat persistence worker failed")
+                        if self.on_chat_write_error is not None:
+                            try:
+                                await self.on_chat_write_error(exc)
+                            except Exception as notification_error:  # noqa: BLE001
+                                log.error(
+                                    "persistence error notification failed error_type=%s",
+                                    type(notification_error).__name__,
+                                )
                         return
-                    for chat_id, record in records.items():
-                        if self._pending_chat_records.get(chat_id) is record:
-                            del self._pending_chat_records[chat_id]
-                    self._pending_deleted_chat_ids.difference_update(deleted_chat_ids)
                     self._chat_write_error = None
         finally:
             self._chat_write_task = None
+            self._flush_chats_event.clear()
+
+    async def _wait_for_draft_pause(self) -> None:
+        """Wake for the earliest quiet draft or continuous-typing deadline."""
+        while self._pending_chat_writes and not self._flush_chats_event.is_set():
+            delay = (
+                min(write.deadline for write in self._pending_chat_writes.values())
+                - time.monotonic()
+            )
+            if delay <= 0:
+                return
+            try:
+                _ = await asyncio.wait_for(
+                    self._flush_chats_event.wait(), timeout=delay
+                )
+            except TimeoutError:
+                continue
 
 
 @dataclass(slots=True)

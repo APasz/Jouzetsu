@@ -13,6 +13,7 @@ class RuntimePhase(Enum):
     """Mutually exclusive phases shown in the active chat status line."""
 
     CHECKING = "checking"
+    QUEUED = "queued"
     OFFLINE = "offline"
     NO_MODEL_SELECTED = "no_model_selected"
     MODEL_UNLOADED = "model_unloaded"
@@ -179,6 +180,7 @@ class ModelReady:
     model_key: str
     model_name: str
     context_length: int
+    instance_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

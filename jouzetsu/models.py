@@ -11,10 +11,26 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Final, Literal, TypedDict, cast
 
+from .backend_codec import (
+    decode_attribution,
+    decode_inference,
+    encode_attribution,
+    encode_inference,
+)
+from .backend_models import ChatInferenceSettings, GenerationAttribution
 from .character_presets import CharacterFieldKind
 from .config import GenerationSettings
+from .json_codec import JsonDecoder
+from .submissions import Submission, SubmissionJSON
 
 type Role = Literal["system", "user", "assistant"]
+
+
+def _json_list(raw: object, *, path: str) -> list[object]:
+    decoder = JsonDecoder()
+    values = decoder.list(raw, path=path)
+    return decoder.construct(lambda: values, path=path)
+
 
 CHARACTER_PROMPT_NAME_TEMPLATE: str = "You are roleplaying as {name}."
 CHARACTER_PROMPT_PROFILE_HEADING: str = "Character profile:"
@@ -54,7 +70,7 @@ CHARACTER_STORY_PROMPT_CLOSING: str = (
     "unless they ask you to."
 )
 CHARACTER_CUSTOM_PROMPT_PREVIEW_EMPTY: str = "Enter a custom instruction."
-CHAT_SCHEMA_VERSION: Final[int] = 2
+CHAT_SCHEMA_VERSION: Final[int] = 3
 CHARACTER_SCHEMA_VERSION: Final[int] = 1
 CHARACTER_DRAFT_DISPLAY_NAME: Final[str] = "Untitled character"
 
@@ -129,6 +145,7 @@ class MessageJSON(TypedDict):
     images: list[ImageAttachmentJSON]
     created_at: float
     updated_at: float
+    attributions: list[dict[str, object]]
 
 
 class ChatSamplingOverridesJSON(TypedDict):
@@ -164,6 +181,10 @@ class ChatJSON(TypedDict):
     draft_images: list[ImageAttachmentJSON]
     character_cast: list[CharacterChatBindingJSON]
     messages: list[MessageJSON]
+    inference: dict[str, object]
+    revision: int
+    draft_revision: int
+    submissions: list[SubmissionJSON]
 
 
 class CharacterFieldJSON(TypedDict):
@@ -1141,9 +1162,19 @@ class Message:
     images: tuple[ImageAttachment, ...] = ()
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+    attributions: tuple[GenerationAttribution, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_image_references(self.images)
+        if not isinstance(cast(object, self.attributions), tuple) or not all(
+            isinstance(cast(object, item), GenerationAttribution)
+            for item in self.attributions
+        ):
+            raise TypeError(
+                "attributions must be an immutable tuple of generation attributions"
+            )
+        if self.attributions and self.role != "assistant":
+            raise ValueError("only assistant messages can have generation attribution")
         if self.images and self.role != "user":
             raise ValueError("only user messages can have images")
         if self.model and self.role != "assistant":
@@ -1171,6 +1202,7 @@ class Message:
         self.continuity_rewrite = message.continuity_rewrite
         self.reasoning = message.reasoning
         self.images = message.images
+        self.attributions = message.attributions
         self.created_at = message.created_at
         self.updated_at = message.updated_at
 
@@ -1232,6 +1264,7 @@ class Message:
             "images": [image.to_dict() for image in self.images],
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "attributions": [encode_attribution(item) for item in self.attributions],
         }
 
     @classmethod
@@ -1262,6 +1295,12 @@ class Message:
             continuity_rewrite=continuity_rewrite,
             reasoning=reasoning,
             images=image_attachments_from_json(raw.get("images", [])),
+            attributions=tuple(
+                decode_attribution(item)
+                for item in _json_list(
+                    raw.get("attributions", []), path="message.attributions"
+                )
+            ),
             created_at=created_at,
             updated_at=_float_from_json(raw.get("updated_at"), default=created_at),
         )
@@ -1293,8 +1332,25 @@ class Chat:
     draft_images: tuple[ImageAttachment, ...] = ()
     character_cast: tuple[CharacterChatBinding, ...] = ()
     messages: list[Message] = field(default_factory=list)
+    inference: ChatInferenceSettings = field(default_factory=ChatInferenceSettings)
+    revision: int = 0
+    draft_revision: int = 0
+    submissions: tuple[Submission, ...] = ()
 
     def __post_init__(self) -> None:
+        if not isinstance(cast(object, self.inference), ChatInferenceSettings):
+            raise TypeError("inference must be chat inference settings")
+        if not isinstance(cast(object, self.submissions), tuple) or not all(
+            isinstance(cast(object, item), Submission) for item in self.submissions
+        ):
+            raise TypeError("submissions must be an immutable tuple of receipts")
+        if any(
+            type(value) is not int or value < 0
+            for value in (self.revision, self.draft_revision)
+        ):
+            raise ValueError("chat revisions must be nonnegative integers")
+        if len({receipt.id for receipt in self.submissions}) != len(self.submissions):
+            raise ValueError("duplicate submission identifiers")
         _validate_image_references(self.draft_images)
         if not self.id:
             raise ValueError("chat id cannot be empty")
@@ -1354,6 +1410,10 @@ class Chat:
         self.draft = chat.draft
         self.draft_images = chat.draft_images
         self.character_cast = chat.character_cast
+        self.inference = chat.inference
+        self.revision = chat.revision
+        self.draft_revision = chat.draft_revision
+        self.submissions = chat.submissions
         if self.messages is not chat.messages:
             existing_messages = {message.id: message for message in self.messages}
             messages: list[Message] = []
@@ -1445,6 +1505,11 @@ class Chat:
             _merge_message_content(previous_message.content, target_message.content)
         )
         previous_message.images += target_message.images
+        previous_message.attributions = tuple(
+            dict.fromkeys(
+                (*previous_message.attributions, *target_message.attributions)
+            )
+        )
         if previous_message.role == "assistant" and not models_match:
             previous_message.clear_model()
         del self.messages[target_index]
@@ -1472,6 +1537,7 @@ class Chat:
                 continuity_rewrite=message.continuity_rewrite,
                 reasoning=message.reasoning,
                 images=message.images,
+                attributions=message.attributions,
                 created_at=message.created_at,
                 updated_at=message.updated_at,
             )
@@ -1488,6 +1554,7 @@ class Chat:
             save_reasoning=self.save_reasoning,
             character_cast=self.character_cast,
             messages=copied_messages,
+            inference=self.inference,
         )
 
     def truncate_to_message(self, message_id: str) -> int:
@@ -1533,6 +1600,10 @@ class Chat:
             "draft_images": [image.to_dict() for image in self.draft_images],
             "character_cast": [binding.to_dict() for binding in self.character_cast],
             "messages": [m.to_dict() for m in self.messages],
+            "inference": encode_inference(self.inference),
+            "revision": self.revision,
+            "draft_revision": self.draft_revision,
+            "submissions": [receipt.to_dict() for receipt in self.submissions],
         }
 
     @classmethod
@@ -1595,6 +1666,23 @@ class Chat:
             draft_images=image_attachments_from_json(raw.get("draft_images", [])),
             character_cast=character_cast,
             messages=messages,
+            inference=decode_inference(raw["inference"])
+            if "inference" in raw
+            else ChatInferenceSettings(),
+            revision=_integer_from_json(
+                raw.get("revision", 0), field_name="chat.revision", minimum=0
+            ),
+            draft_revision=_integer_from_json(
+                raw.get("draft_revision", 0),
+                field_name="chat.draft_revision",
+                minimum=0,
+            ),
+            submissions=tuple(
+                Submission.from_dict(item)
+                for item in _json_list(
+                    raw.get("submissions", []), path="chat.submissions"
+                )
+            ),
         )
 
 

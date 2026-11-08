@@ -48,7 +48,7 @@ jouzetsu --home /path/to/Jouzetsu
 
 Use the in-app settings for normal changes. `config.json` is also editable;
 restart Jouzetsu after editing it directly. Its sections are `server`,
-`generation`, `ui`, `theme`, `logging`, `host_stats`, and `access`.
+`generation`, `ui`, `theme`, `logging`, `host_stats`, `access`, and `backends`.
 It is a complete, strict, versioned document (`"version": 1`): missing,
 unknown, or invalid settings prevent startup rather than being silently changed.
 Built-in British-spelling replacements and the theme palette are packaged
@@ -67,10 +67,55 @@ retain their references. Image files are kept when references are removed so
 other chats and recoverable trash remain intact. Initial limits allow 32 images
 per message, 64 MiB per image, 512 MiB per upload, and 100 million pixels per
 image. The upload policy is centralised in `ImageLimits` for future settings.
-Chat documents use schema version 2; historical chats load without attachments
-and upgrade when saved.
+Chat documents use schema version 3, including backend profiles, generation
+attribution, independent committed/draft revisions, and submission receipts.
 WebP originals are sent to LM Studio as lossless PNG images to work around the
 0.4.26 compatibility endpoint rejecting WebP data URLs.
+
+### Rewrite checkpoint: Gate 2 server layer
+
+`jouzetsu.inference.InferenceRuntime` implements the new explicit-chat service.
+It supports multiple LM Studio and generic Chat Completions backends, per-backend
+FIFO queues and concurrency limits, independent chat profiles, send-only,
+regeneration, continuation, cancellation, and optimistic edits. Its backend
+configuration is persisted in `config.json` using the strict components in
+`backend_codec.py`. No backend is inferred from the old `server` section.
+
+**Browser integration is Gate 3.** The running web application still uses its
+existing façade and single-server controls. The new service must become the sole
+owner of its registry and configuration when that integration is approved;
+running both generation owners against the same documents is unsupported.
+Undo, continuity review, host monitoring, and the old navigation remain in the
+existing browser application until that replacement. No data migration was added.
+
+The service locks committed chat data as soon as a job is accepted, including
+queued/loading work. Drafts remain editable. Jobs and errors are memory-only;
+caller cancellation does not cancel server-owned generation. Completed,
+interrupted, and deliberately cancelled text is saved before publication.
+Reasoning alone never creates or replaces an assistant response. Attribution
+retains backend/model identities and label snapshots after renames or deletion.
+Repeated submission IDs return their persisted message IDs without regenerating,
+even after a message is edited or deleted.
+
+Streaming previews never enter persisted transcripts. A failed final save keeps
+the preview and chat lock; `retry_save()` retries persistence without inference.
+An uncertain filesystem commit instead requires storage recovery and restart,
+as enforced by Gate 1's write guard. Deferred draft errors are exposed through
+`PersistenceController.chat_write_error` and status notifications. Draft writes
+wait 1.5 seconds after activity pauses in each chat, with a ten-second continuous-typing bound,
+and flush during shutdown. JSON encoding and durable filesystem operations reuse
+the existing worker executor and serialised write boundary.
+
+These service operations write one chat document or the configuration, without
+updating a global active chat. They introduce no multi-file transaction. A crash
+can leave newer cached backend metadata beside an older chat; historical IDs and
+profiles remain recoverable. The existing façade's cross-file limitations below
+still apply until Gate 3. `shutdown()` stops accepting commands, drains accepted
+commands and jobs, flushes drafts, and then closes adapters. It returns false if
+work cannot finish within its shutdown window, output remains unsaved, or cleanup
+fails. In-flight resources remain available after a timeout; callers must report
+the outcome and can retry shutdown after pending work finishes. Adapter cleanup
+failures are logged and retried without rejecting an already committed edit.
 
 Global Settings separates chat-wide Behaviour from Appearance. The Models dialog
 has Loaded instances, per-model Aliases, and global Defaults for model selection

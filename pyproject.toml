@@ -43,9 +43,18 @@ dev = [
     "ruff>=0.15",
 ]
 
+[tool.uv]
+# The application environment and uv cache can reside on different filesystems.
+link-mode = "copy"
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+filterwarnings = [
+    # Fastcore still uses this deprecated helper (verified through 2.2.39).
+    # Remove when upstream switches to inspect.iscoroutinefunction.
+    "ignore:^'asyncio\\.iscoroutinefunction' is deprecated and slated for removal in Python 3\\.16; use inspect\\.iscoroutinefunction\\(\\) instead$:DeprecationWarning:^fastcore\\.xtras$",
+]
 markers = [
     "browser: Playwright coverage for stateful browser interactions",
 ]
