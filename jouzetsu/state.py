@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from copy import deepcopy
 from dataclasses import replace
+from functools import wraps
 from itertools import chain, pairwise
 from logging import Logger
-from typing import cast
+from typing import Concatenate, cast
 
-from .async_workers import run_in_worker
+from .async_workers import complete_before_cancelling, run_in_worker
 from .character_storage import CharacterStorage
 from .config import (
     AppConfig,
@@ -61,6 +62,7 @@ from .state_types import (
     NO_DELETED_CHAT_IDS,
     ChatMessageUndo,
     ChatSession,
+    MessageSnapshot,
     require_non_empty_text,
     restore_messages,
     snapshot_messages,
@@ -71,6 +73,40 @@ from .storage import ChatStorage
 log: Logger = logging.getLogger(__name__)
 chat_log: Logger = chat_logger()
 _SHUTDOWN_TIMEOUT_SECONDS: float = 10.0
+
+
+def _state_mutation[**P, T](
+    method: Callable[Concatenate[AppState, P], Awaitable[T]],
+) -> Callable[Concatenate[AppState, P], Coroutine[object, object, T]]:
+    """Serialize candidate preparation through publication, including cancellation."""
+
+    @wraps(method)
+    async def execute(self: AppState, *args: P.args, **kwargs: P.kwargs) -> T:
+        return await self._run_mutation(method, *args, **kwargs)  # pyright: ignore[reportPrivateUsage]
+
+    return execute
+
+
+def _generation_mutation[**P, T](
+    method: Callable[Concatenate[AppState, P], Awaitable[T]],
+    *,
+    include_draft_images: bool = False,
+) -> Callable[Concatenate[AppState, P], Coroutine[object, object, T]]:
+    """Check images without holding the command lock across backend network I/O."""
+
+    @wraps(method)
+    async def execute(self: AppState, *args: P.args, **kwargs: P.kwargs) -> T:
+        return await self._run_generation_mutation(  # pyright: ignore[reportPrivateUsage]
+            method, include_draft_images, *args, **kwargs
+        )
+
+    return execute
+
+
+def _send_mutation[**P, T](
+    method: Callable[Concatenate[AppState, P], Awaitable[T]],
+) -> Callable[Concatenate[AppState, P], Coroutine[object, object, T]]:
+    return _generation_mutation(method, include_draft_images=True)
 
 
 class AppState:
@@ -84,6 +120,8 @@ class AppState:
         image_storage: ImageStorage | None = None,
     ) -> None:
         self.config: AppConfig = config
+        self._mutation_lock: asyncio.Lock = asyncio.Lock()
+        self._mutation_task: asyncio.Task[object] | None = None
         self.storage: ChatStorage = storage
         self.character_storage: CharacterStorage = (
             character_storage or CharacterStorage(config.characters_directory)
@@ -131,6 +169,45 @@ class AppState:
 
         self._load_from_disk()
 
+    async def _run_mutation[**P, T](
+        self,
+        method: Callable[Concatenate[AppState, P], Awaitable[T]],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> T:
+        if self._mutation_task is asyncio.current_task():
+            return await method(self, *args, **kwargs)
+
+        async def locked() -> T:
+            async with self._mutation_lock:
+                self._mutation_task = asyncio.current_task()
+                try:
+                    return await method(self, *args, **kwargs)
+                finally:
+                    self._mutation_task = None
+
+        return await complete_before_cancelling(locked())
+
+    async def _run_generation_mutation[**P, T](
+        self,
+        method: Callable[Concatenate[AppState, P], Awaitable[T]],
+        include_draft_images: bool,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> T:
+        session = self._idle_active_state("generate")
+        history = snapshot_messages(session.chat.messages)
+        draft_images = session.chat.draft_images if include_draft_images else None
+        await self._prepare_image_generation(
+            session, include_draft_images=include_draft_images
+        )
+
+        async def checked(self: AppState, *args: P.args, **kwargs: P.kwargs) -> T:
+            self._validate_generation_context(session, history, draft_images)
+            return await method(self, *args, **kwargs)
+
+        return await self._run_mutation(checked, *args, **kwargs)
+
     def add_listener(self, listener: ChangeListener) -> Callable[[], None]:
         """Register a listener and return an idempotent removal callback."""
         return self._notifier.add(listener)
@@ -170,7 +247,7 @@ class AppState:
     @property
     def active_chat(self) -> Chat:
         if not self._chat_registry:
-            return self._create_chat_internal()
+            raise RuntimeError("chat registry has not been initialised")
         return self._chat_registry.active.chat
 
     @property
@@ -181,7 +258,9 @@ class AppState:
         session: ChatSession = self._by_id(
             chat_id or self._chat_registry.active_chat_id
         )
-        return session.is_generating
+        return session.is_generating or (
+            session.generation_task is not None and not session.generation_task.done()
+        )
 
     @property
     def active_generation_reasoning(self) -> str:
@@ -304,6 +383,7 @@ class AppState:
         """Return the latest monitor sample, bootstrapping only before monitoring starts."""
         return self._host_stats.latest_snapshot()
 
+    @_state_mutation
     async def refresh_host_stats_snapshot(self) -> HostStatsSnapshot:
         """Collect one explicit host sample without blocking the web event loop."""
 
@@ -370,6 +450,7 @@ class AppState:
         """Start the single application-wide LM Studio status poller."""
         await self._runtime.start()
 
+    @_state_mutation
     async def start_host_stats_monitor(self) -> None:
         """Start the application-wide host metrics sampler."""
         await self._host_stats.start()
@@ -394,7 +475,13 @@ class AppState:
         loaded: list[Chat] = self.storage.load_all()
         if not loaded:
             chat: Chat = self._create_chat_internal()
-            self.config.ui.active_chat_id = chat.id
+            candidate = replace(
+                self.config, ui=replace(self.config.ui, active_chat_id=chat.id)
+            )
+            self.storage.save_records((chat.to_dict(),))
+            self._persistence.config_store.save(candidate)
+            self.config.apply(candidate)
+            self._publish_new_chat(chat)
             log.info("initialised empty chat store with chat_id=%s", chat.id)
             chat_log.info(
                 "chat_created chat_id=%s reason=initial_empty_state model=%s message_count=%d",
@@ -422,24 +509,39 @@ class AppState:
         )
 
     def _create_chat_internal(self) -> Chat:
-        chat: Chat = Chat()
-        self._add_and_activate_chat(chat)
-        return chat
+        """Prepare an unpublished empty conversation."""
 
-    def _add_and_activate_chat(self, chat: Chat) -> None:
-        """Add a chat to state and make it the active conversation."""
+        return Chat()
+
+    def _publish_new_chat(self, chat: Chat) -> None:
+        """Register a durably saved chat without changing existing object identities."""
+
         self._chat_registry.add(
             chat,
             runtime_status=self._idle_runtime_status(chat),
-            persist=True,
+            persist=False,
             activate=True,
         )
-        self.config.ui.active_chat_id = chat.id
 
+    async def _add_and_activate_chat(self, chat: Chat) -> None:
+        """Save the document before its selection; a failed second write leaves recoverable JSON."""
+
+        if chat.id in self._chat_registry:
+            raise ValueError(f"duplicate chat id: {chat.id}")
+        candidate = replace(
+            self.config, ui=replace(self.config.ui, active_chat_id=chat.id)
+        )
+        await self._persistence.save_chat_candidate(chat)
+        await self._persistence.save_config(candidate)
+        self.config.apply(candidate)
+        self._publish_new_chat(chat)
+        await self._notify()
+
+    @_state_mutation
     async def new_chat(self) -> Chat:
         """Create a new chat and make it active."""
         chat: Chat = self._create_chat_internal()
-        await self._commit_chat(chat, config=True)
+        await self._add_and_activate_chat(chat)
         chat_log.info(
             "chat_created chat_id=%s reason=user model=%s message_count=%d",
             chat.id,
@@ -448,16 +550,18 @@ class AppState:
         )
         return chat
 
+    @_state_mutation
     async def new_character(self) -> Character:
         """Create a blank flexible profile without imposing a fixed character schema."""
 
         character: Character = Character.draft()
-        self.character_storage.save(character)
+        await run_in_worker(self.character_storage.save, character)
         self._characters[character.id] = character
         await self._notify(StateChangeKind.CHARACTERS)
         log.info("character_created character_id=%s", character.id)
         return character
 
+    @_state_mutation
     async def update_character(
         self,
         character_id: str,
@@ -477,7 +581,7 @@ class AppState:
         )
         if updated_character is character:
             return character
-        self.character_storage.save(updated_character)
+        await run_in_worker(self.character_storage.save, updated_character)
         self._characters[character_id] = updated_character
         await self._notify(StateChangeKind.CHARACTERS)
         log.info(
@@ -488,15 +592,17 @@ class AppState:
         )
         return updated_character
 
+    @_state_mutation
     async def delete_character(self, character_id: str) -> None:
         """Delete one profile while retaining all chat prompt snapshots that used it."""
 
         character: Character = self.character(character_id)
-        self.character_storage.delete(character.id)
+        await run_in_worker(self.character_storage.delete, character.id)
         del self._characters[character.id]
         await self._notify(StateChangeKind.CHARACTERS)
         log.info("character_deleted character_id=%s", character.id)
 
+    @_state_mutation
     async def start_chat_from_character(
         self,
         character_id: str,
@@ -514,6 +620,7 @@ class AppState:
             story_direction=story_direction,
         )
 
+    @_state_mutation
     async def start_chat_from_characters(
         self,
         character_ids: Sequence[str],
@@ -537,8 +644,7 @@ class AppState:
             prompt_mode=prompt_mode,
             character_cast=tuple(character.chat_binding() for character in characters),
         )
-        self._add_and_activate_chat(chat)
-        await self._commit_chat(chat, config=True)
+        await self._add_and_activate_chat(chat)
         if len(characters) == 1:
             character: Character = characters[0]
             chat_log.info(
@@ -579,13 +685,13 @@ class AppState:
             raise ValueError("character cast cannot contain duplicate characters")
         return tuple(self.character(character_id) for character_id in normalized_ids)
 
+    @_state_mutation
     async def fork_chat_at_message(self, message_id: str) -> Chat:
         """Fork the active chat through a message and select the new chat."""
         source_state: ChatSession = self._idle_active_state("fork")
 
         forked_chat: Chat = source_state.chat.fork_through(message_id)
-        self._add_and_activate_chat(forked_chat)
-        await self._commit_chat(forked_chat, config=True)
+        await self._add_and_activate_chat(forked_chat)
         chat_log.info(
             "chat_forked source_chat_id=%s chat_id=%s through_message_id=%s message_count=%d",
             source_state.chat.id,
@@ -595,13 +701,23 @@ class AppState:
         )
         return forked_chat
 
+    @_state_mutation
     async def select_chat(self, chat_id: str) -> None:
-        if not self._chat_registry.select(chat_id):
+        if (
+            chat_id not in self._chat_registry
+            or chat_id == self._chat_registry.active_chat_id
+        ):
             return
-        self.config.ui.active_chat_id = chat_id
-        await self._commit(config=True)
+        candidate = replace(
+            self.config, ui=replace(self.config.ui, active_chat_id=chat_id)
+        )
+        await self._persistence.save_config(candidate)
+        self.config.apply(candidate)
+        _ = self._chat_registry.select(chat_id)
+        await self._notify()
         chat_log.info("chat_selected chat_id=%s", chat_id)
 
+    @_state_mutation
     async def set_chat_draft(self, chat_id: str, draft: str | None) -> None:
         """Persist in-progress input text without affecting chat ordering."""
         if not self.update_chat_draft(chat_id, draft):
@@ -610,6 +726,7 @@ class AppState:
             self._by_id(chat_id).chat, flush_chats=False, notify=False
         )
 
+    @_state_mutation
     async def add_chat_images(
         self, chat_id: str, images: Sequence[ImageAttachment]
     ) -> None:
@@ -626,6 +743,7 @@ class AppState:
         chat.draft_images = combined
         await self._commit_chat(chat, notify=False)
 
+    @_state_mutation
     async def remove_chat_image(self, chat_id: str, image_id: str) -> None:
         """Remove one draft reference while preserving shared originals."""
 
@@ -685,18 +803,29 @@ class AppState:
         if not images:
             return
         history = snapshot_messages(chat.messages)
-        draft_images = chat.draft_images
+        draft_images = chat.draft_images if include_draft_images else None
         if not await self.refresh_runtime_status():
             raise ValueError("Connect to LM Studio to use images.")
         await run_in_worker(self.images.validate_available, images)
+        self._validate_generation_context(session, history, draft_images)
+
+    def _validate_generation_context(
+        self,
+        session: ChatSession,
+        history: tuple[MessageSnapshot, ...],
+        draft_images: tuple[ImageAttachment, ...] | None,
+    ) -> None:
+        """Recheck preflight results after obtaining the publication lock."""
+
+        chat = session.chat
         if self._idle_active_state("generate") is not session:
             raise ValueError("the active chat changed; retry in the intended chat")
         if snapshot_messages(chat.messages) != history or (
-            include_draft_images and chat.draft_images != draft_images
+            draft_images is not None and chat.draft_images != draft_images
         ):
             raise ValueError("the conversation changed; retry generation")
         reason: str = self.generation_block_reason(
-            chat, include_draft_images=include_draft_images
+            chat, include_draft_images=draft_images is not None
         )
         if reason:
             raise ValueError(reason)
@@ -710,6 +839,7 @@ class AppState:
         chat.draft = next_draft
         return True
 
+    @_state_mutation
     async def persist_chats(self) -> None:
         """Persist the current in-memory chats."""
         await self._commit(
@@ -719,6 +849,7 @@ class AppState:
             notify=False,
         )
 
+    @_state_mutation
     async def set_active_chat_draft(self, draft: str | None) -> None:
         await self.set_chat_draft(self._chat_registry.active_chat_id, draft)
 
@@ -728,7 +859,7 @@ class AppState:
     def _idle_active_state(self, operation: str) -> ChatSession:
         """Return the active state, rejecting mutations during generation."""
         state: ChatSession = self._chat_registry.active
-        if state.is_generating:
+        if self.is_generating(state.chat.id):
             raise ValueError(f"cannot {operation} while generation is in progress")
         return state
 
@@ -749,14 +880,14 @@ class AppState:
             raise ValueError("this continuity rewrite is no longer available")
         return st, message
 
+    @_send_mutation
     async def send_user_message(self, content: str) -> Message:
         """Append a user message and trigger a streaming assistant reply."""
         st: ChatSession = self._idle_active_state("send")
-        chat: Chat = st.chat
+        chat: Chat = st.chat.copy()
         content = (content or "").strip()
         if not chat.draft_images:
             _ = require_non_empty_text(content, field_name="message")
-        await self._prepare_image_generation(st, include_draft_images=True)
         is_first_message: bool = not chat.messages
         user_message: Message = chat.add_message("user", content)
         user_message.images = chat.draft_images
@@ -768,7 +899,7 @@ class AppState:
                 content or user_message.images[0].name
             )
 
-        await self._start_generation()
+        await self._start_generation(candidate=chat)
         chat_log.info(
             "message_sent chat_id=%s message_id=%s role=user content_length=%d",
             chat.id,
@@ -777,15 +908,15 @@ class AppState:
         )
         return user_message
 
+    @_generation_mutation
     async def regenerate_last(self) -> None:
         """Replace the final assistant turn with one fresh response or continuation."""
         st: ChatSession = self._idle_active_state("regenerate")
-        chat: Chat = st.chat
+        chat: Chat = st.chat.copy()
         if not chat.messages or chat.messages[-1].role != "assistant":
             raise ValueError(
                 "regeneration requires the last message to be an assistant response"
             )
-        await self._prepare_image_generation(st)
         removed_message: Message = chat.messages.pop()
         regenerating_continuation: bool = bool(
             chat.messages and chat.messages[-1].role == "assistant"
@@ -801,8 +932,9 @@ class AppState:
         # _start_generation adds and persists the replacement assistant turn in
         # one state publication. Publishing the removal first permits an older
         # browser fragment request to restore the deleted reply visually.
-        await self._start_generation(request_chat=request_chat)
+        await self._start_generation(request_chat=request_chat, candidate=chat)
 
+    @_generation_mutation
     async def resend_user_message(self, message_id: str) -> Message:
         """Generate a reply to the active chat's final user message without duplicating it."""
         st: ChatSession = self._idle_active_state("resend")
@@ -815,7 +947,6 @@ class AppState:
             raise ValueError("message must be the final user message")
         if not message.images:
             _ = require_non_empty_text(message.content, field_name="message")
-        await self._prepare_image_generation(st)
         await self._start_generation()
         chat_log.info(
             "message_resent chat_id=%s source_message_id=%s",
@@ -824,6 +955,7 @@ class AppState:
         )
         return message
 
+    @_generation_mutation
     async def continue_last_response(self) -> None:
         """Continue the last completed assistant response as a new message."""
         st: ChatSession = self._idle_active_state("continue")
@@ -833,12 +965,13 @@ class AppState:
             or not st.chat.messages[-1].content.strip()
         ):
             raise ValueError("last message must be a completed assistant response")
-        await self._prepare_image_generation(st)
         request_chat: Chat = chat_with_continuation_prompt(st.chat)
-        assistant: Message = st.chat.add_message("assistant", "")
+        candidate = st.chat.copy()
+        assistant: Message = candidate.add_message("assistant", "")
         await self._start_generation(
             assistant=assistant,
             request_chat=request_chat,
+            candidate=candidate,
         )
         chat_log.info(
             "generation_continued chat_id=%s message_id=%s",
@@ -846,6 +979,7 @@ class AppState:
             assistant.id,
         )
 
+    @_state_mutation
     async def edit_message(self, message_id: str, new_content: str) -> None:
         """Edit a message in place without truncating or regenerating."""
         st: ChatSession = self._idle_active_state("edit")
@@ -865,6 +999,7 @@ class AppState:
             len(new_content),
         )
 
+    @_state_mutation
     async def apply_continuity_rewrite(self, message_id: str) -> None:
         """Replace one assistant response with its reviewed rewrite after confirmation."""
 
@@ -882,6 +1017,7 @@ class AppState:
             len(rewrite),
         )
 
+    @_state_mutation
     async def discard_continuity_rewrite(self, message_id: str) -> None:
         """Discard one reviewed rewrite while retaining the original response."""
 
@@ -901,11 +1037,13 @@ class AppState:
             message.id,
         )
 
+    @_state_mutation
     async def delete_message(self, message_id: str) -> None:
         """Delete a single message from the active chat."""
 
         _ = await self.delete_message_with_undo(message_id)
 
+    @_state_mutation
     async def delete_message_with_undo(self, message_id: str) -> ChatMessageUndo | None:
         """Delete a message and return the exact transcript state needed to undo it."""
         st: ChatSession = self._idle_active_state("delete")
@@ -927,6 +1065,7 @@ class AppState:
             resulting_messages=snapshot_messages(chat.messages),
         )
 
+    @_state_mutation
     async def delete_message_and_following_with_undo(
         self, message_id: str
     ) -> ChatMessageUndo | None:
@@ -950,6 +1089,7 @@ class AppState:
             resulting_messages=snapshot_messages(chat.messages),
         )
 
+    @_state_mutation
     async def merge_message_with_previous(self, message_id: str) -> Message:
         """Merge a message into the preceding message when both roles match."""
         st: ChatSession = self._idle_active_state("merge")
@@ -972,11 +1112,13 @@ class AppState:
         )
         return merged_message
 
+    @_state_mutation
     async def truncate_chat_to_message(self, message_id: str) -> None:
         """Keep the target message and remove everything after it."""
 
         _ = await self.truncate_chat_to_message_with_undo(message_id)
 
+    @_state_mutation
     async def truncate_chat_to_message_with_undo(
         self, message_id: str
     ) -> ChatMessageUndo | None:
@@ -1000,6 +1142,7 @@ class AppState:
             resulting_messages=snapshot_messages(chat.messages),
         )
 
+    @_state_mutation
     async def restore_message_undo(self, undo: ChatMessageUndo) -> None:
         """Restore an undo snapshot only when the active transcript still matches its result."""
 
@@ -1018,6 +1161,7 @@ class AppState:
             len(chat.messages),
         )
 
+    @_state_mutation
     async def stop_generation(self) -> None:
         st: ChatSession = self._chat_registry.active
         if self._generation.request_stop(st):
@@ -1025,6 +1169,7 @@ class AppState:
             await self._notify(StateChangeKind.STATUS)
         _ = await self._cancel_generation()
 
+    @_state_mutation
     async def set_active_chat_model(self, model: str | None) -> None:
         """Persist the selected model for the active chat."""
         st: ChatSession = self._idle_active_state("set model")
@@ -1035,6 +1180,7 @@ class AppState:
         )
         chat_log.info("chat_model_changed chat_id=%s model=%s", chat.id, chat.model)
 
+    @_state_mutation
     async def set_active_chat_sampling_overrides(
         self, overrides: ChatSamplingOverrides
     ) -> None:
@@ -1055,12 +1201,14 @@ class AppState:
             overrides.max_tokens,
         )
 
+    @_state_mutation
     async def set_global_system_prompt(self, prompt: str) -> None:
         """Persist the global fallback system prompt to config.json."""
         await self.set_generation_defaults(
             replace(self.config.generation, system_prompt=trimmed_or_empty(prompt))
         )
 
+    @_state_mutation
     async def reset_global_system_prompt(self) -> None:
         """Restore the global fallback system prompt without changing generation defaults."""
 
@@ -1068,6 +1216,7 @@ class AppState:
         await self.set_global_system_prompt(defaults.generation.system_prompt)
         log.info("global system prompt reset")
 
+    @_state_mutation
     async def set_generation_defaults(self, settings: GenerationSettings) -> None:
         """Validate and atomically persist global generation defaults."""
         settings.validate()
@@ -1083,6 +1232,7 @@ class AppState:
             len(settings.system_prompt),
         )
 
+    @_state_mutation
     async def reset_generation_defaults(self) -> None:
         """Restore fields owned by Generation defaults, retaining separate prompt settings."""
 
@@ -1096,6 +1246,7 @@ class AppState:
         await self.set_generation_defaults(settings)
         log.info("generation defaults reset")
 
+    @_state_mutation
     async def set_global_settings(
         self,
         generation: GenerationSettings,
@@ -1127,6 +1278,7 @@ class AppState:
             server.base_url,
         )
 
+    @_state_mutation
     async def set_model_alias(self, model_key: str, alias: str) -> None:
         """Save or clear an alias for an explicit, known model."""
 
@@ -1162,6 +1314,7 @@ class AppState:
         await self._notify()
         log.info("model alias updated model_key=%s", key)
 
+    @_state_mutation
     async def reset_model_defaults(self) -> None:
         """Restore global model defaults, retaining connection settings and aliases."""
 
@@ -1177,6 +1330,7 @@ class AppState:
         await self.set_global_settings(self.config.generation, settings)
         log.info("model defaults reset")
 
+    @_state_mutation
     async def set_appearance_settings(
         self,
         theme: ThemeSettings,
@@ -1209,6 +1363,7 @@ class AppState:
         )
         log.info("appearance settings updated")
 
+    @_state_mutation
     async def reset_appearance_settings(self) -> None:
         """Restore all controls exposed by the Appearance settings section."""
 
@@ -1223,6 +1378,7 @@ class AppState:
         )
         log.info("appearance settings reset")
 
+    @_state_mutation
     async def reset_theme_colorway(self, colorway: ThemeColorway) -> None:
         """Restore one colourway without changing the rest of Appearance settings."""
 
@@ -1241,6 +1397,7 @@ class AppState:
         await self._commit_config(replace(self.config, theme=theme))
         log.info("theme colourway reset colourway=%s", colorway.value)
 
+    @_state_mutation
     async def set_access_defaults(
         self,
         *,
@@ -1267,6 +1424,7 @@ class AppState:
             allow_network_device_reassociation,
         )
 
+    @_state_mutation
     async def reset_access_defaults(self) -> None:
         """Restore access policy switches without changing known devices or the phrase."""
 
@@ -1279,6 +1437,7 @@ class AppState:
         )
         log.info("access defaults reset")
 
+    @_state_mutation
     async def set_device_access_allowed(
         self, device_id: str, access_allowed: bool
     ) -> None:
@@ -1290,12 +1449,14 @@ class AppState:
             access_allowed,
         )
 
+    @_state_mutation
     async def forget_pending_access_device(self, device_id: str) -> None:
         """Remove one rejected pending browser from the access configuration."""
 
         await self._access.forget_pending_device(device_id)
         log.info("pending device forgotten device_id=%s", device_id)
 
+    @_state_mutation
     async def register_access_device(
         self,
         device_id: str,
@@ -1313,6 +1474,7 @@ class AppState:
         ):
             return
 
+    @_state_mutation
     async def refresh_access_device_activity(
         self,
         device_id: str,
@@ -1332,6 +1494,7 @@ class AppState:
             hostname_observed=hostname_observed,
         )
 
+    @_state_mutation
     async def set_access_device_label(self, device_id: str, label: str) -> None:
         """Persist one known browser/device label."""
         await self._access.set_device_label(device_id, label)
@@ -1341,6 +1504,7 @@ class AppState:
             len(label.strip()),
         )
 
+    @_state_mutation
     async def set_active_chat_system_prompt(self, prompt: str | None) -> None:
         """Persist the system prompt override for the active chat."""
         st: ChatSession = self._idle_active_state("set system prompt")
@@ -1353,6 +1517,7 @@ class AppState:
             len(chat.system_prompt),
         )
 
+    @_state_mutation
     async def set_active_chat_postprocess_british_spellings(
         self, enabled: bool
     ) -> None:
@@ -1371,6 +1536,7 @@ class AppState:
             enabled,
         )
 
+    @_state_mutation
     async def set_active_chat_save_reasoning(self, enabled: bool) -> None:
         """Persist whether completed responses retain their transient reasoning trace."""
 
@@ -1384,10 +1550,11 @@ class AppState:
             "chat_reasoning_persistence_updated chat_id=%s enabled=%s", chat.id, enabled
         )
 
+    @_state_mutation
     async def rename_chat(self, chat_id: str, title: str) -> None:
         """Rename a chat explicitly."""
         session = self._by_id(chat_id)
-        if session.is_generating:
+        if self.is_generating(session.chat.id):
             raise ValueError("cannot rename while generation is in progress")
         chat: Chat = replace(session.chat)
         chat.set_manual_title(
@@ -1398,6 +1565,7 @@ class AppState:
             "chat_renamed chat_id=%s title_length=%d", chat.id, len(chat.title)
         )
 
+    @_state_mutation
     async def delete_chat(self, chat_id: str) -> None:
         """Delete a chat and choose a replacement active chat if needed."""
         session: ChatSession = self._by_id(chat_id)
@@ -1411,21 +1579,32 @@ class AppState:
                 "chat deletion followed a forced generation cancellation chat_id=%s",
                 chat_id,
             )
-        was_active: bool = self._chat_registry.active_chat_id == chat_id
-        self._chat_registry.remove(chat_id)
-
-        replacement: Chat | None = None
-        if not self._chat_registry:
-            replacement = self._create_chat_internal()
-        elif was_active:
-            self.config.ui.active_chat_id = self._chat_registry.select_most_recent()
-        replacement_id: str = self._chat_registry.active_chat_id
-
-        await self._commit(
-            changed_chats=(replacement,) if replacement is not None else (),
-            deleted_chat_ids=frozenset({chat_id}),
-            config=True,
+        remaining = [chat for chat in self.chats if chat.id != chat_id]
+        replacement = self._create_chat_internal() if not remaining else None
+        replacement_id = self._chat_registry.active_chat_id
+        if replacement_id == chat_id:
+            replacement_id = (
+                replacement.id if replacement is not None else remaining[0].id
+            )
+        candidate = replace(
+            self.config, ui=replace(self.config.ui, active_chat_id=replacement_id)
         )
+
+        # Keep a valid replacement and selection on disk before moving the old
+        # document. Failures can leave an extra chat or an advanced selection,
+        # but never destroy the only recoverable conversation.
+        if replacement is not None:
+            await self._persistence.save_chat_candidate(replacement)
+        if replacement_id != self.config.ui.active_chat_id:
+            await self._persistence.save_config(candidate)
+        await self._persistence.delete_chat(chat_id)
+
+        if replacement is not None:
+            self._publish_new_chat(replacement)
+        _ = self._chat_registry.remove(chat_id)
+        _ = self._chat_registry.select(replacement_id)
+        self.config.apply(candidate)
+        await self._notify()
         chat_log.info(
             "chat_deleted chat_id=%s replacement_chat_id=%s remaining_chats=%d",
             chat_id,
@@ -1438,9 +1617,13 @@ class AppState:
         *,
         assistant: Message | None = None,
         request_chat: Chat | None = None,
+        candidate: Chat | None = None,
     ) -> None:
         await self._generation.start(
-            self._chat_registry.active, assistant=assistant, request_chat=request_chat
+            self._chat_registry.active,
+            assistant=assistant,
+            request_chat=request_chat,
+            candidate=candidate,
         )
 
     async def _cancel_generation(self, chat_id: str | None = None) -> bool:
@@ -1482,6 +1665,10 @@ class AppState:
     ) -> None:
         """Persist one changed chat without serialising every other chat."""
 
+        if chat is not self._by_id(chat.id).chat:
+            await self._commit_chat_candidate(chat, notify=False)
+            return
+
         await self._commit(
             changed_chats=(chat,),
             config=config,
@@ -1490,19 +1677,24 @@ class AppState:
         )
 
     async def _commit_chat_candidate(
-        self, candidate: Chat, *, runtime_status: RuntimeStatus | None = None
+        self,
+        candidate: Chat,
+        *,
+        runtime_status: RuntimeStatus | None = None,
+        notify: bool = True,
     ) -> None:
         """Persist an isolated committed edit before publishing it to readers."""
 
         session = self._by_id(candidate.id)
-        if session.is_generating:
+        if self.is_generating(session.chat.id):
             raise ValueError("cannot edit while generation is in progress")
-        self._persistence.save_chat_candidate(candidate)
+        await self._persistence.save_chat_candidate(candidate)
         session.chat.apply(candidate)
         if runtime_status is not None:
             session.runtime_status = runtime_status
         self._chat_registry.mark_persisted((candidate.id,))
-        await self._notify()
+        if notify:
+            await self._notify()
 
     async def _commit_config(
         self, candidate: AppConfig, *, notify: bool = True

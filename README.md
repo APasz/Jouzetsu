@@ -138,6 +138,64 @@ Custom character preset packs are JSON files in `data/character-presets/`.
 They are data only and are never executed; malformed packs are skipped and
 reported in the character editor and logs.
 
+### Persistence boundaries and recovery
+
+Committed chat edits, new/forked/character-based chats, chat selection, deletion,
+settings, and character changes save before publishing authoritative state or
+notifying browsers. Existing chat/message and shared configuration references
+are retained when saved candidates are applied. Generation acceptance saves its
+initial transcript before starting an inference stream. Generation output is
+transient while streaming and is saved on completion or cancellation.
+
+Draft text and draft attachments deliberately use different semantics: they
+change the live draft immediately and use the existing coalesced persistence
+path. Attachment operations await that path; typing is debounced. A failed
+draft save retains the accepted draft for a later flush or orderly shutdown.
+It cannot replay a rejected committed edit or recreate a successfully deleted
+chat. Recent drafts and in-progress generation can still be lost in a crash.
+
+Runtime JSON serialisation, writes, moves, and synchronisation use the existing
+worker pool. State-changing commands are serialized from preparation through
+publication because the current application still has a global active chat and
+shared configuration. Nested commands share that boundary. A separate writer
+lock orders deferred drafts and committed/configuration writes. Readers, SSE,
+and unrelated asynchronous services can run while storage is busy. Request
+cancellation waits for the accepted command to finish before releasing these
+boundaries; it cannot stop a filesystem operation already running in a thread.
+Image preflight runs outside the command lock and revalidates its conversation
+and model context after acquiring the lock, so a backend check cannot block edits.
+Startup loading and initial empty-store creation remain synchronous, before
+the state is exposed to requests. Snapshots are copied on the event loop so a
+worker never serialises a mutable live transcript.
+
+Separate chat and configuration files are **not a transaction**:
+
+- Creation writes the chat, then its active selection in `config.json`, then
+  publishes both in memory. If the second write fails, the call fails without
+  publication. The extra valid chat file remains recoverable and is loaded on
+  restart; the existing saved selection is retained when valid. Later commands
+  do not automatically register or retry that failed creation.
+- Active-chat deletion writes any necessary empty replacement, then its saved
+  selection, then moves the old document to `data/chats/trash/`, then publishes.
+  A failed intermediate step can leave an extra replacement or a saved
+  selection ahead of the live selection. The old chat remains live in memory
+  on failure; its file is either still active or recoverable in trash. Deleting
+  a non-active chat needs no configuration write. Restart loads active files
+  and honours a valid saved selection, falling back to the most recent chat if
+  that selection is absent. There is no automatic multi-file rollback.
+
+Each replacement syncs file contents before rename and its destination directory
+afterward. Newly created directories sync their parent entries; existing
+directories need no extra parent sync. Moves confirm both affected directories,
+and removals confirm their parent. A post-mutation sync failure raises
+`CommitUncertainError` and blocks subsequent writes to the affected document in
+that store instance. Do not treat it as a safe rejection or blindly retry it:
+stop the application, inspect the active JSON/configuration and recoverable
+trash, reconcile the intended state, then reopen the stores. These guarantees
+assume one Jouzetsu process owns the application home; external edits require a
+restart. Actual power-loss durability still depends on the filesystem and
+storage device honouring synchronisation.
+
 ## Network safety
 
 Jouzetsu is a single-user shared workspace, not a multi-user system. Its device approval is a convenience gate for trusted browsers. The

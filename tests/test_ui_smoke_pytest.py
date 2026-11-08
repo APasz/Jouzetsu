@@ -156,11 +156,10 @@ def _set_device_cookie(client: httpx.AsyncClient, device_id: str) -> None:
 
 
 async def _wait_for_generation(state: AppState) -> None:
-    for _ in range(100):
-        if not state.is_generating():
-            return
-        await asyncio.sleep(0)
-    raise AssertionError("fake generation did not finish")
+    session = state._by_id(state.active_chat.id)  # pyright: ignore[reportPrivateUsage]
+    if session.generation_task is not None:
+        await asyncio.wait_for(asyncio.shield(session.generation_task), timeout=5)
+    assert not state.is_generating()
 
 
 def test_ui_event_broker_preserves_a_pending_full_refresh() -> None:
@@ -810,15 +809,15 @@ def test_mobile_message_actions_fill_the_footer_before_wrapping() -> None:
         encoding="utf-8"
     )
 
-    footer_styles = responsive_styles.partition(".jouzetsu-message-footer {")[2].partition(
-        "}"
-    )[0]
-    action_styles = responsive_styles.partition(".jouzetsu-message-actions {")[2].partition(
-        "}"
-    )[0]
-    updated_at_styles = responsive_styles.partition(
-        ".jouzetsu-message-updated-at {"
-    )[2].partition("}")[0]
+    footer_styles = responsive_styles.partition(".jouzetsu-message-footer {")[
+        2
+    ].partition("}")[0]
+    action_styles = responsive_styles.partition(".jouzetsu-message-actions {")[
+        2
+    ].partition("}")[0]
+    updated_at_styles = responsive_styles.partition(".jouzetsu-message-updated-at {")[
+        2
+    ].partition("}")[0]
 
     assert "grid-template-columns: minmax(0, 1fr);" in footer_styles
     assert '"actions"\n            "updated-at";' in footer_styles
@@ -1876,8 +1875,7 @@ def test_global_and_host_dialogs_preserve_context_and_expose_live_assets() -> No
                     in appearance_page.text
                 )
                 assert (
-                    'data-testid="theme-user-muted-automatic"'
-                    in appearance_page.text
+                    'data-testid="theme-user-muted-automatic"' in appearance_page.text
                 )
                 assert 'data-colour-override-picker="true"' in appearance_page.text
                 assert 'data-testid="message-action-style"' in appearance_page.text
@@ -2161,9 +2159,9 @@ def test_settings_reset_routes_restore_their_scoped_defaults() -> None:
                     ("save-chat-sampling-button", "reset-chat-sampling-button"),
                     ("save-chat-prompt-button", "reset-chat-prompt-button"),
                 ):
-                    assert page.text.index(f'data-testid="{save_marker}"') < page.text.index(
-                        f'data-testid="{reset_marker}"'
-                    )
+                    assert page.text.index(
+                        f'data-testid="{save_marker}"'
+                    ) < page.text.index(f'data-testid="{reset_marker}"')
                 for colorway in ThemeColorway:
                     reset_form_id = f"theme-{colorway.value}-reset-form"
                     assert (
@@ -2382,7 +2380,7 @@ def test_access_and_logs_dialog_separates_access_and_log_file_tabs() -> None:
     async def scenario(root: Path) -> None:
         state: AppState = _build_state(root, private=False)
         log_directory: Path = state.config.log_directory
-        log_directory.mkdir()
+        log_directory.mkdir(exist_ok=True)
         _ = (log_directory / "error.log").write_text(
             "error log contents", encoding="utf-8"
         )

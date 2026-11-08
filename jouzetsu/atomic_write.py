@@ -48,13 +48,12 @@ def ensure_directory(directory: Path) -> None:
     """Create directories and durably record each new parent entry."""
 
     if directory.is_dir():
-        _sync_directory(directory.parent)
         return
     parent = directory.parent
     if parent != directory:
         ensure_directory(parent)
     directory.mkdir(exist_ok=True)
-    _sync_directory(parent)
+    _confirm_directories(parent)
 
 
 def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:

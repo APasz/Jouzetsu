@@ -96,12 +96,13 @@ class GenerationController:
         *,
         assistant: Message | None = None,
         request_chat: Chat | None = None,
+        candidate: Chat | None = None,
     ) -> None:
         """Persist and launch one response stream for an idle chat session."""
 
         if session.is_generating:
             return
-        chat: Chat = session.chat
+        chat: Chat = candidate if candidate is not None else session.chat.copy()
         generation: GenerationSettings = chat.sampling_overrides.resolve(
             self._default_generation()
         )
@@ -115,6 +116,10 @@ class GenerationController:
         else:
             chat.touch()
         initial_content = assistant.content
+        await self._commit_chat(chat)
+        assistant = session.chat.find_message(assistant.id)
+        if assistant is None:
+            raise RuntimeError("saved generation message is absent from the live chat")
         session.is_generating = True
         session.cancellation_requested = asyncio.Event()
         session.live_reasoning = ""
@@ -136,7 +141,7 @@ class GenerationController:
                 british_spelling_replacements=british_spelling_replacements,
             )
         )
-        await self._commit_chat(chat)
+        await self._notify(StateChangeKind.FULL)
         chat_log.info(
             "generation_started chat_id=%s message_id=%s model=%s continuation=%s",
             chat.id,

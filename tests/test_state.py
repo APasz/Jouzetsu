@@ -2101,6 +2101,7 @@ class AppStateTests(unittest.TestCase):
             session = self.state._by_id(self.state.active_chat.id)  # pyright: ignore[reportPrivateUsage]
             self.assertFalse(session.is_generating)
             self.assertIsNotNone(session.generation_task)
+            self.assertTrue(self.state.is_generating())
 
             shutdown_task = asyncio.create_task(self.state.shutdown())
             try:

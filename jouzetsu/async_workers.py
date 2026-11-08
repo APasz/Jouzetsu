@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
@@ -21,3 +21,23 @@ async def run_in_worker[**P, T](
 
     callback: Callable[[], T] = partial(function, *args, **kwargs)
     return await asyncio.get_running_loop().run_in_executor(_WORKER_EXECUTOR, callback)
+
+
+async def complete_before_cancelling[T](operation: Awaitable[T]) -> T:
+    """Finish a persistence boundary before delivering its caller's cancellation.
+
+    Cancelling an executor future does not stop its thread. Releasing write or
+    publication locks early would let that thread overwrite a subsequent save.
+    """
+
+    task = asyncio.ensure_future(operation)
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+    result = task.result()
+    if cancelled:
+        raise asyncio.CancelledError
+    return result

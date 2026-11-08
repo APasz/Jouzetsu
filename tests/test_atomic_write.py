@@ -14,6 +14,7 @@ from jouzetsu.atomic_write import (
     CommitUncertainError,
     DurableWriteGuard,
     atomic_write_text,
+    ensure_directory,
     move_path,
     remove_path,
 )
@@ -99,8 +100,73 @@ def test_sync_order_confirms_file_before_replace_and_directory_after(
     ):
         atomic_write_text(tmp_path / "document.json", "saved")
 
-    assert events.index("file") < events.index("replace") < len(events) - 1
-    assert events[-1] == "directory"
+    assert events == ["file", "replace", "directory"]
+
+
+def test_existing_directory_needs_no_parent_sync(tmp_path: Path) -> None:
+    with patch("jouzetsu.atomic_write._sync_directory") as sync:
+        ensure_directory(tmp_path)
+    sync.assert_not_called()
+
+
+def test_each_created_directory_syncs_its_parent_once(tmp_path: Path) -> None:
+    directory = tmp_path / "one" / "two"
+    synced: list[Path] = []
+    with patch("jouzetsu.atomic_write._sync_directory", side_effect=synced.append):
+        ensure_directory(directory)
+    assert directory.is_dir()
+    assert synced == [tmp_path, tmp_path / "one"]
+
+
+def test_new_directory_sync_failure_is_an_uncertain_mutation(tmp_path: Path) -> None:
+    directory = tmp_path / "new"
+    with (
+        patch(
+            "jouzetsu.atomic_write._sync_directory", side_effect=OSError("sync failed")
+        ),
+        pytest.raises(CommitUncertainError),
+    ):
+        ensure_directory(directory)
+    assert directory.is_dir()
+
+
+def test_new_directory_then_file_syncs_in_durable_order(tmp_path: Path) -> None:
+    directory = tmp_path / "new"
+    events: list[str | Path] = []
+    replace = os.replace
+
+    def record_file_sync(_descriptor: int) -> None:
+        events.append("file")
+
+    def record_replace(source: str, destination: Path) -> None:
+        events.append("replace")
+        replace(source, destination)
+
+    with (
+        patch("jouzetsu.atomic_write._sync_directory", side_effect=events.append),
+        patch(
+            "jouzetsu.atomic_write._sync_file",
+            side_effect=record_file_sync,
+        ),
+        patch("jouzetsu.atomic_write.os.replace", side_effect=record_replace),
+    ):
+        atomic_write_text(directory / "document.json", "saved")
+    assert events == [tmp_path, "file", "replace", directory]
+
+
+def test_move_syncs_both_directories_and_remove_syncs_its_parent(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.json"
+    destination_directory = tmp_path / "trash"
+    destination_directory.mkdir()
+    destination = destination_directory / source.name
+    _ = source.write_text("saved")
+    synced: list[Path] = []
+    with patch("jouzetsu.atomic_write._sync_directory", side_effect=synced.append):
+        move_path(source, destination)
+        remove_path(destination)
+    assert synced == [destination_directory, tmp_path, destination_directory]
 
 
 def test_directory_sync_failure_reports_uncertain_commit_and_blocks_replay(

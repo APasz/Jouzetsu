@@ -17,6 +17,7 @@ from .access import (
     set_device_access,
     set_device_label,
 )
+from .async_workers import complete_before_cancelling, run_in_worker
 from .config import AppConfig, ConfigStore
 from .events import StateChangeKind
 from .lmstudio import LMStudioClientProtocol
@@ -63,6 +64,7 @@ class PersistenceController:
     _chat_write_task: asyncio.Task[None] | None = None
     _chat_write_error: Exception | None = None
     _flush_chats_event: asyncio.Event = field(default_factory=asyncio.Event)
+    _write_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def queue_chat_changes(
         self,
@@ -107,22 +109,45 @@ class PersistenceController:
             self._chat_write_task = task
         if task is not None:
             self._flush_chats_event.set()
-            await task
+            await asyncio.shield(task)
         if self._chat_write_error is not None:
             raise self._chat_write_error
 
-    def save_chat_candidate(self, chat: Chat) -> None:
+    async def save_chat_candidate(self, chat: Chat) -> None:
         """Save an unpublished edit without retaining rejected candidates for retry."""
 
-        self.storage.save_records((chat.to_dict(),))
-        _ = self._pending_chat_records.pop(chat.id, None)
+        record = chat.to_dict()
+        async with self._write_lock:
+            await complete_before_cancelling(
+                run_in_worker(self.storage.save_records, (record,))
+            )
+            self._discard_pending_chat(chat.id)
+
+    async def delete_chat(self, chat_id: str) -> None:
+        """Never put an uncommitted deletion in the draft retry queue."""
+
+        async with self._write_lock:
+            await complete_before_cancelling(
+                run_in_worker(
+                    self.storage.save_records, (), deleted_chat_ids=frozenset({chat_id})
+                )
+            )
+            self._discard_pending_chat(chat_id)
+
+    def _discard_pending_chat(self, chat_id: str) -> None:
+        _ = self._pending_chat_records.pop(chat_id, None)
+        self._pending_deleted_chat_ids.discard(chat_id)
         if not self._pending_chat_records and not self._pending_deleted_chat_ids:
             self._chat_write_error = None
 
     async def save_config(self, candidate: AppConfig | None = None) -> None:
         """Write configuration at the explicit state-commit boundary."""
 
-        self.config_store.save(candidate if candidate is not None else self.config)
+        snapshot = deepcopy(candidate if candidate is not None else self.config)
+        async with self._write_lock:
+            await complete_before_cancelling(
+                run_in_worker(self.config_store.save, snapshot)
+            )
 
     async def _write_pending_chats(self) -> None:
         """Persist queued changes after a short debounce, retaining only the latest per chat."""
@@ -136,22 +161,28 @@ class PersistenceController:
                 pass
             self._flush_chats_event.clear()
             while self._pending_chat_records or self._pending_deleted_chat_ids:
-                chat_records: tuple[ChatJSON, ...] = tuple(
-                    self._pending_chat_records.values()
-                )
-                deleted_chat_ids: frozenset[str] = frozenset(
-                    self._pending_deleted_chat_ids
-                )
-                try:
-                    self.storage.save_records(
-                        chat_records, deleted_chat_ids=deleted_chat_ids
-                    )
-                except Exception as exc:
-                    self._chat_write_error = exc
-                    log.exception("chat persistence worker failed")
-                    return
-                self._pending_chat_records.clear()
-                self._pending_deleted_chat_ids.clear()
+                async with self._write_lock:
+                    records = dict(self._pending_chat_records)
+                    deleted_chat_ids = frozenset(self._pending_deleted_chat_ids)
+                    if not records and not deleted_chat_ids:
+                        continue
+                    try:
+                        await complete_before_cancelling(
+                            run_in_worker(
+                                self.storage.save_records,
+                                tuple(records.values()),
+                                deleted_chat_ids=deleted_chat_ids,
+                            )
+                        )
+                    except Exception as exc:
+                        self._chat_write_error = exc
+                        log.exception("chat persistence worker failed")
+                        return
+                    for chat_id, record in records.items():
+                        if self._pending_chat_records.get(chat_id) is record:
+                            del self._pending_chat_records[chat_id]
+                    self._pending_deleted_chat_ids.difference_update(deleted_chat_ids)
+                    self._chat_write_error = None
         finally:
             self._chat_write_task = None
 
