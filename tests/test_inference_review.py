@@ -8,20 +8,26 @@ from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from dataclasses import replace
 from pathlib import Path
-from typing import override
+from typing import Literal, override
 from unittest.mock import patch
 
 import pytest
-from inference_support import FakeBackend, Harness, backend
+from inference_support import FakeBackend, Harness, Plan, backend
 
 from jouzetsu.atomic_write import CommitUncertainError
 from jouzetsu.backend_models import BackendConfig, ModelRef
-from jouzetsu.backend_protocol import GenerationRequest, ModelDiscovery
+from jouzetsu.backend_protocol import (
+    BackendError,
+    BackendErrorCategory,
+    GenerationRequest,
+    ModelDiscovery,
+)
 from jouzetsu.config import AppConfig, ConfigStore
 from jouzetsu.inference import (
     ChangeKind,
     ChatBusy,
     GenerationJob,
+    GenerationMode,
     JobPhase,
     RuntimeChange,
 )
@@ -475,6 +481,288 @@ def test_finalisation_is_protected_before_its_first_await(tmp_path: Path) -> Non
             await job.wait()
         assert job.phase is JobPhase.FINISHED
         assert h.reload(chat).messages[-1].content == "Reply"
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("shutdown", [False, True])
+def test_cancelled_send_finishes_submission_and_acceptance_after_delayed_save(
+    tmp_path: Path, shutdown: bool
+) -> None:
+    async def exercise() -> None:
+        config = backend()
+        h = Harness(tmp_path, (config,))
+        chat = await h.runtime.create_chat()
+        entered, release = threading.Event(), threading.Event()
+        original = h.storage.save_records
+        plan = Plan(hold=True)
+        h.adapters[config.id].plans.append(plan)
+
+        def delayed_save(
+            records: tuple[ChatJSON, ...],
+            *,
+            deleted_chat_ids: frozenset[str] = frozenset(),
+        ) -> None:
+            entered.set()
+            assert release.wait(5)
+            original(records, deleted_chat_ids=deleted_chat_ids)
+
+        with patch.object(h.storage, "save_records", side_effect=delayed_save):
+            sending = asyncio.create_task(
+                h.runtime.send_message(chat.id, 0, "submission", "Saved once")
+            )
+            await worker_started(entered)
+            _ = sending.cancel()
+            duplicate = None
+            stopping = None
+            if shutdown:
+                stopping = asyncio.create_task(h.runtime.shutdown())
+            else:
+                duplicate = asyncio.create_task(
+                    h.runtime.send_message(chat.id, 0, "submission", "Saved once")
+                )
+            await asyncio.sleep(0)
+            assert not sending.done()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await sending
+            if stopping:
+                assert await stopping
+                assert not h.adapters[config.id].requests
+                assert h.runtime.job(chat.id) is None
+            else:
+                assert duplicate
+                result = await duplicate
+                assert result.duplicate and result.job is None
+                await plan.produced.wait()
+                job = h.runtime.job(chat.id)
+                assert job and not job.done.is_set()
+                assert len(h.adapters[config.id].requests) == 1
+                assert result.message_id == chat.messages[0].id
+                plan.release.set()
+                await job.wait()
+        saved = h.reload(chat)
+        assert sum(message.role == "user" for message in saved.messages) == 1
+        assert len(saved.submissions) == 1
+        assert saved.messages[0].content == "Saved once"
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("initial", ["Original", "Original\n", "Original\n\n"])
+@pytest.mark.parametrize("outcome", ["complete", "cancelled", "interrupted"])
+def test_continuation_keeps_newline_separation_in_preview_and_storage(
+    tmp_path: Path,
+    initial: str,
+    outcome: Literal["complete", "cancelled", "interrupted"],
+) -> None:
+    async def exercise() -> None:
+        config = backend()
+        h = Harness(tmp_path, (config,))
+        chat = await h.chat()
+        h.adapters[config.id].plans.append(Plan(text=initial))
+        first = await h.runtime.generate(chat.id, chat.revision)
+        assert first
+        await first.wait()
+        original = chat.messages[-1]
+        plan = Plan(
+            text="Continuation",
+            hold=True,
+            error=BackendError(BackendErrorCategory.TIMEOUT, "Interrupted")
+            if outcome == "interrupted"
+            else None,
+        )
+        h.adapters[config.id].plans.append(plan)
+        job = await h.runtime.generate(chat.id, chat.revision, GenerationMode.CONTINUE)
+        assert job
+        await plan.produced.wait()
+        expected = (
+            initial + ("\n" if initial.endswith("\n") else "\n\n") + "Continuation"
+        )
+        preview = h.registry.get(chat.id).live_response
+        assert preview and preview.content == expected
+        assert original.content == initial == h.reload(chat).messages[-1].content
+        if outcome == "cancelled":
+            await h.runtime.cancel(chat.id)
+        else:
+            plan.release.set()
+            await job.wait()
+        assert chat.messages[-1] is original
+        assert original.content == expected == h.reload(chat).messages[-1].content
+        assert len(chat.messages) == 2
+        assert (
+            job.phase
+            is {
+                "complete": JobPhase.FINISHED,
+                "cancelled": JobPhase.CANCELLED,
+                "interrupted": JobPhase.FAILED,
+            }[outcome]
+        )
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+class SlowCancellationBackend(FakeBackend):
+    def __init__(self, config: BackendConfig) -> None:
+        super().__init__(config)
+        self.produced = asyncio.Event()
+        self.cancel_received = asyncio.Event()
+        self.release = asyncio.Event()
+        self.cleanup_entered = asyncio.Event()
+        self.cleanup_release = asyncio.Event()
+        self.terminated = asyncio.Event()
+        self.late_output = True
+
+    @override
+    async def stream(
+        self, request: GenerationRequest
+    ) -> AsyncGenerator[ChatStreamEvent]:
+        if self.requests:
+            async with aclosing(super().stream(request)) as events:
+                async for event in events:
+                    yield event
+            return
+        self.requests.append(request)
+        try:
+            yield ModelReady("model", "Model", 4096)
+            yield PredictionFragment("Initial partial", None, False)
+            self.produced.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancel_received.set()
+                await self.release.wait()
+                if self.late_output:
+                    yield PredictionFragment("Ignored late output", None, False)
+        finally:
+            self.cleanup_entered.set()
+            await self.cleanup_release.wait()
+            self.terminated.set()
+
+
+@pytest.mark.parametrize("late_output", [False, True])
+def test_cancellation_is_bounded_and_retains_locks_until_adapter_cleanup_finishes(
+    tmp_path: Path,
+    late_output: bool,
+) -> None:
+    async def exercise() -> None:
+        config = backend()
+        adapter = SlowCancellationBackend(config)
+        adapter.late_output = late_output
+        h = Harness(tmp_path, (config,), adapter_factory=lambda _: adapter)
+        first, second = await h.chat(), await h.chat()
+        job = await h.runtime.generate(first.id, first.revision)
+        assert job
+        await adapter.produced.wait()
+        queued = await h.runtime.generate(second.id, second.revision)
+        assert queued
+        with (
+            patch("jouzetsu.inference._CANCELLATION_GRACE_SECONDS", 0),
+            pytest.raises(TimeoutError, match="still stopping"),
+        ):
+            await asyncio.wait_for(h.runtime.cancel(first.id), timeout=1)
+        await adapter.cancel_received.wait()
+        assert h.registry.get(first.id).is_generating
+        assert not job.done.is_set() and queued.phase is JobPhase.QUEUED
+        with pytest.raises(ChatBusy):
+            await h.runtime.edit_chat(
+                first.id, first.revision, lambda candidate: candidate.messages.clear()
+            )
+        with pytest.raises(ChatBusy):
+            await h.runtime.update_backend(replace(config, enabled=False))
+        adapter.release.set()
+        await adapter.cleanup_entered.wait()
+        assert not adapter.terminated.is_set()
+        assert (
+            h.registry.get(first.id).is_generating and queued.phase is JobPhase.QUEUED
+        )
+        assert len(adapter.requests) == 1
+        assert len(h.reload(first).messages) == 1
+        adapter.cleanup_release.set()
+        await job.wait()
+        await queued.wait()
+        assert adapter.terminated.is_set() and job.phase is JobPhase.CANCELLED
+        assert h.reload(first).messages[-1].content == "Initial partial"
+        assert h.registry.get(first.id).latest_error is None
+        assert len(adapter.requests) == 2
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_shutdown_reports_pending_adapter_without_unlocking_or_closing_it(
+    tmp_path: Path,
+) -> None:
+    async def exercise() -> None:
+        config = backend()
+        adapter = SlowCancellationBackend(config)
+        h = Harness(tmp_path, (config,), adapter_factory=lambda _: adapter)
+        chat = await h.chat()
+        job = await h.runtime.generate(chat.id, chat.revision)
+        assert job
+        await adapter.produced.wait()
+        with patch("jouzetsu.inference._SHUTDOWN_SECONDS", 0):
+            assert not await h.runtime.shutdown()
+        await adapter.cancel_received.wait()
+        assert not adapter.closed
+        assert h.registry.get(chat.id).is_generating and not job.done.is_set()
+        adapter.release.set()
+        adapter.cleanup_release.set()
+        await job.wait()
+        assert h.reload(chat).messages[-1].content == "Initial partial"
+        assert await h.runtime.shutdown()
+        assert adapter.closed
+
+    asyncio.run(exercise())
+
+
+def test_bounded_stop_keeps_chat_locked_during_slow_final_save(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        config = backend()
+        h = Harness(tmp_path, (config,))
+        chat = await h.chat()
+        plan = Plan(hold=True)
+        h.adapters[config.id].plans.append(plan)
+        job = await h.runtime.generate(chat.id, chat.revision)
+        assert job
+        await plan.produced.wait()
+        entered, release = threading.Event(), threading.Event()
+        original_save = h.storage.save_records
+        original_wait = asyncio.wait
+
+        def delayed_save(
+            records: tuple[ChatJSON, ...],
+            *,
+            deleted_chat_ids: frozenset[str] = frozenset(),
+        ) -> None:
+            entered.set()
+            assert release.wait(5)
+            original_save(records, deleted_chat_ids=deleted_chat_ids)
+
+        async def wait_during_save(
+            tasks: set[asyncio.Task[None]], *, timeout: float
+        ) -> tuple[set[asyncio.Task[None]], set[asyncio.Task[None]]]:
+            await worker_started(entered)
+            return await original_wait(tasks, timeout=0)
+
+        with (
+            patch.object(h.storage, "save_records", side_effect=delayed_save),
+            patch("jouzetsu.inference.asyncio.wait", new=wait_during_save),
+        ):
+            with pytest.raises(TimeoutError, match="still stopping"):
+                await h.runtime.cancel(chat.id)
+            assert job.phase is JobPhase.SAVING
+            assert h.registry.get(chat.id).is_generating
+            assert h.registry.get(chat.id).latest_error is None
+            assert len(chat.messages) == 1
+            release.set()
+            await job.wait()
+        assert job.phase is JobPhase.CANCELLED
+        assert h.reload(chat).messages[-1].content == "Reply"
+        assert h.registry.get(chat.id).latest_error is None
         assert await h.runtime.shutdown()
 
     asyncio.run(exercise())

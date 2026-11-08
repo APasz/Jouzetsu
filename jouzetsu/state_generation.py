@@ -31,7 +31,10 @@ from .runtime import (
     RuntimeStatus,
 )
 from .state_types import ChatSession
-from .text_processing import apply_case_preserving_word_replacements
+from .text_processing import (
+    apply_case_preserving_word_replacements,
+    continuation_prefix,
+)
 
 log: Logger = logging.getLogger(__name__)
 chat_log: Logger = chat_logger()
@@ -587,9 +590,9 @@ class GenerationController:
     def _initial_buffer(initial_content: str, *, is_continuation: bool) -> list[str]:
         if not initial_content:
             return []
-        if not is_continuation or initial_content.endswith("\n"):
-            return [initial_content, "\n"]
-        return [initial_content, "\n\n"]
+        if is_continuation:
+            return [continuation_prefix(initial_content)]
+        return [initial_content, "\n"]
 
     @staticmethod
     def next_runtime_status(

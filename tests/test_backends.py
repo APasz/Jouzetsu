@@ -4,18 +4,26 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import threading
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from typing import cast
+from pathlib import Path
+from typing import Literal, cast
 from unittest.mock import patch
 
 import aiohttp
 import pytest
 from aiohttp import web
 
-from jouzetsu.backend_models import BackendConfig, BackendKind, ModelRef
+from jouzetsu.backend_models import (
+    BackendConfig,
+    BackendConfiguration,
+    BackendKind,
+    GenerationProfile,
+    ModelRef,
+)
 from jouzetsu.backend_protocol import (
     BackendError,
     BackendErrorCategory,
@@ -30,7 +38,11 @@ from jouzetsu.chat_completions import (
     iter_sse_data,
     json_object,
 )
+from jouzetsu.config import ConfigStore
+from jouzetsu.controllers import PersistenceController
 from jouzetsu.image_storage import ImageStorage
+from jouzetsu.inference import InferenceRuntime, JobPhase
+from jouzetsu.models import ImageAttachment, ImageMediaType
 from jouzetsu.runtime import (
     ChatStreamEvent,
     ModelCapabilities,
@@ -39,6 +51,8 @@ from jouzetsu.runtime import (
     PredictionFragment,
 )
 from jouzetsu.sampling import CHAT_COMPLETIONS_PARAMETERS, ParameterSupport
+from jouzetsu.state_registry import ChatRegistry
+from jouzetsu.storage import ChatStorage
 
 
 @asynccontextmanager
@@ -569,5 +583,197 @@ def test_slow_request_encoding_leaves_the_event_loop_available() -> None:
                 await streaming
             assert calls == 1
             await adapter.close()
+
+    asyncio.run(exercise())
+
+
+def runtime_for_backend(home: Path, backend: BackendConfig) -> InferenceRuntime:
+    store = ConfigStore.for_home(home)
+    settings = store.load()
+    settings.backends = BackendConfiguration((backend,), backend.id)
+    store.save(settings)
+    persistence = PersistenceController(
+        settings, store, ChatStorage(settings.chats_file)
+    )
+    return InferenceRuntime(ChatRegistry(lambda: ""), persistence)
+
+
+@pytest.mark.parametrize("discovery", ["unsupported", "malformed", "unavailable"])
+def test_manual_model_generation_is_independent_of_inventory_endpoint(
+    tmp_path: Path, discovery: Literal["unsupported", "malformed", "unavailable"]
+) -> None:
+    async def exercise() -> None:
+        calls: list[str] = []
+
+        async def handler(req: web.Request) -> web.Response:
+            calls.append(req.path)
+            if req.path == "/v1/models":
+                if discovery == "unsupported":
+                    return web.Response(status=404)
+                if discovery == "malformed":
+                    return web.json_response({"unexpected": "schema"})
+                return web.Response(status=503, text="SECRET echoed response")
+            assert req.path == "/v1/chat/completions"
+            payload = json_object(cast(object, await req.json()))
+            assert payload["model"] == "catalog-model"
+            return web.Response(
+                text=event(chunk("Manual model reply")) + "data: [DONE]\n\n",
+                content_type="text/event-stream",
+            )
+
+        async with server(handler) as url:
+            backend = replace(
+                config(url), defaults=GenerationProfile("catalog-model")
+            ).register_model("catalog-model")
+            runtime = runtime_for_backend(tmp_path, backend)
+            chat = await runtime.create_chat()
+            sent = await runtime.send_message(chat.id, 0, "manual", "Hello")
+            assert sent.job
+            await sent.job.wait()
+            assert sent.job.phase is JobPhase.FINISHED
+            assert chat.messages[-1].content == "Manual model reply"
+            assert runtime.health(backend.id).state is BackendReachability.ONLINE
+            error = runtime.discovery_error(backend.id)
+            if discovery == "unsupported":
+                assert error is None
+            else:
+                assert error and error.category is BackendErrorCategory.PROTOCOL
+                assert "SECRET" not in str(error)
+            assert calls == ["/v1/models", "/v1/chat/completions"]
+            assert (
+                runtime.configuration.backend(backend.id)
+                .model("catalog-model")
+                .manually_registered
+            )
+            saved = runtime.persistence.storage.load_all()
+            assert len(saved) == 1 and saved[0].to_dict() == chat.to_dict()
+            assert await runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_unreachable_discovery_marks_backend_offline_without_attempting_inference(
+    tmp_path: Path,
+) -> None:
+    async def exercise() -> None:
+        with socket.socket() as bound:
+            bound.bind(("127.0.0.1", 0))
+            # A bound socket without listen deterministically refuses connections.
+            port = bound.getsockname()[1]
+            backend = replace(
+                config(f"http://127.0.0.1:{port}/v1"),
+                defaults=GenerationProfile("catalog-model"),
+            ).register_model("catalog-model")
+            runtime = runtime_for_backend(tmp_path, backend)
+            chat = await runtime.create_chat()
+            with patch.object(
+                ChatCompletionsBackend,
+                "stream",
+                side_effect=AssertionError("Must not infer offline"),
+            ) as streaming:
+                sent = await runtime.send_message(
+                    chat.id, 0, "offline", "Saved offline"
+                )
+                assert sent.job
+                await sent.job.wait()
+                streaming.assert_not_called()
+            assert sent.job.phase is JobPhase.FAILED
+            assert (
+                sent.job.error
+                and sent.job.error.category is BackendErrorCategory.OFFLINE
+            )
+            assert runtime.health(backend.id).state is BackendReachability.OFFLINE
+            error = runtime.discovery_error(backend.id)
+            assert error and error.category is BackendErrorCategory.OFFLINE
+            assert len(runtime.persistence.storage.load_all()[0].messages) == 1
+            assert await runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("vision", [None, False])
+def test_discovery_failure_does_not_bypass_fail_closed_vision(
+    tmp_path: Path, vision: bool | None
+) -> None:
+    async def exercise() -> None:
+        posts = 0
+
+        async def handler(req: web.Request) -> web.Response:
+            nonlocal posts
+            if req.method == "POST":
+                posts += 1
+            return web.json_response({"malformed": "inventory"})
+
+        async with server(handler) as url:
+            backend = replace(
+                config(url), defaults=GenerationProfile("catalog-model")
+            ).register_model("catalog-model")
+            registered = backend.model("catalog-model")
+            backend = replace(
+                backend,
+                models=(
+                    replace(
+                        registered,
+                        descriptor=replace(
+                            registered.descriptor,
+                            capabilities=ModelCapabilities(vision=vision),
+                        ),
+                    ),
+                ),
+            )
+            runtime = runtime_for_backend(tmp_path, backend)
+            with pytest.raises(BackendError):
+                await runtime.refresh_backend(backend.id)
+            chat = await runtime.create_chat()
+            image = ImageAttachment(
+                "a" * 64, "original.png", ImageMediaType.PNG, 1, 1, 1
+            )
+            sent = await runtime.send_message(
+                chat.id, 0, "vision", "Look", images=(image,)
+            )
+            assert sent.job is None
+            assert posts == 0
+            assert chat.messages[0].images == (image,)
+            error = runtime.registry.get(chat.id).latest_error
+            assert error and error.category is BackendErrorCategory.INCOMPATIBLE
+            assert runtime.discovery_error(backend.id) is not None
+            assert await runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_discovery_timeout_remains_visible_while_manual_inference_can_succeed(
+    tmp_path: Path,
+) -> None:
+    async def exercise() -> None:
+        async def handler(req: web.Request) -> web.Response:
+            assert req.path == "/v1/chat/completions"
+            return web.Response(
+                text=event(chunk("Reply")) + "data: [DONE]\n\n",
+                content_type="text/event-stream",
+            )
+
+        async with server(handler) as url:
+            backend = replace(
+                config(url), defaults=GenerationProfile("catalog-model")
+            ).register_model("catalog-model")
+            runtime = runtime_for_backend(tmp_path, backend)
+            chat = await runtime.create_chat()
+            with patch.object(
+                aiohttp.ClientSession,
+                "request",
+                side_effect=TimeoutError("inventory timeout"),
+            ):
+                with pytest.raises(BackendError):
+                    await runtime.refresh_backend(backend.id)
+                assert runtime.health(backend.id).state is BackendReachability.STALE
+                job = await runtime.send_message(chat.id, 0, "timeout", "Hello")
+                assert job.job
+                await job.job.wait()
+            assert job.job.phase is JobPhase.FINISHED
+            assert chat.messages[-1].content == "Reply"
+            error = runtime.discovery_error(backend.id)
+            assert error and error.category is BackendErrorCategory.TIMEOUT
+            assert await runtime.shutdown()
 
     asyncio.run(exercise())

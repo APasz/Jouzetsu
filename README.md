@@ -96,6 +96,22 @@ Reasoning alone never creates or replaces an assistant response. Attribution
 retains backend/model identities and label snapshots after renames or deletion.
 Repeated submission IDs return their persisted message IDs without regenerating,
 even after a message is edited or deleted.
+Once a submission is accepted, its save and generation acceptance finish despite
+caller cancellation. Intentional shutdown still suppresses a new generation.
+Continuations retain the existing newline separation before new response text.
+
+Manual models on generic backends can generate despite unsupported, malformed,
+or unavailable discovery endpoints. Discovery errors remain visible through
+`discovery_error()` and status notifications; they do not erase cached metadata
+or establish that inference is offline. Connection failures still mark a backend
+offline, and image requests still require known vision support. Native LM Studio
+management continues to require its native inventory.
+
+Stopping waits up to two seconds for completion, then reports a timeout if work
+remains. The chat lock and backend slot stay held until the adapter terminates and
+finalisation completes; late output after cancellation is ignored. An adapter
+that never terminates can require process recovery. A timeout never forcibly
+releases its resources or starts another job in its occupied slot.
 
 Streaming previews never enter persisted transcripts. A failed final save keeps
 the preview and chat lock; `retry_save()` retries persistence without inference.

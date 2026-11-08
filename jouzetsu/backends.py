@@ -52,10 +52,7 @@ class ChatCompletionsBackend:
         try:
             _ = await self.discover_models()
         except BackendError as exc:
-            if exc.category not in {
-                BackendErrorCategory.OFFLINE,
-                BackendErrorCategory.TIMEOUT,
-            }:
+            if exc.category is not BackendErrorCategory.OFFLINE:
                 raise
             return BackendHealth(BackendReachability.OFFLINE, datetime.now(UTC))
         return BackendHealth(BackendReachability.ONLINE, datetime.now(UTC))

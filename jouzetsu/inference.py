@@ -56,12 +56,16 @@ from .runtime import (
 )
 from .state_registry import ChatRegistry
 from .submissions import Submission, submission_fingerprint
-from .text_processing import apply_case_preserving_word_replacements
+from .text_processing import (
+    apply_case_preserving_word_replacements,
+    continuation_prefix,
+)
 
 log = logging.getLogger(__name__)
 _POLL_SECONDS = 120.0
 _SHUTDOWN_SECONDS = 10.0
 _STREAM_UPDATE_SECONDS = 0.05
+_CANCELLATION_GRACE_SECONDS = 2.0
 
 
 class RevisionConflict(ValueError):
@@ -128,6 +132,7 @@ class GenerationJob:
     error: BackendError | None = None
     save_error: Exception | None = None
     cancelled: bool = False
+    manually_registered: bool = False
 
     @property
     def text(self) -> str:
@@ -161,6 +166,7 @@ class _BackendRuntime:
     last_used: dict[str, float] = field(default_factory=dict)
     unload_retry_at: float = 0.0
     unloading_model_id: str | None = None
+    discovery_error: BackendError | None = None
 
     @property
     def busy(self) -> bool:
@@ -246,6 +252,10 @@ class InferenceRuntime:
 
     def health(self, backend_id: BackendId) -> BackendHealth:
         return self._backends[backend_id].health
+
+    def discovery_error(self, backend_id: BackendId) -> BackendError | None:
+        """Inventory errors remain visible independently of inference availability."""
+        return self._backends[backend_id].discovery_error
 
     def job(self, chat_id: str) -> GenerationJob | None:
         return self._jobs.get(chat_id)
@@ -472,11 +482,16 @@ class InferenceRuntime:
             if len(candidate.messages) == 1:
                 candidate.set_auto_title_from_first_message(content)
             candidate.touch()
-            await self._commit(chat, candidate)
-            async with self._config_lock:
-                job = self._accept(chat, GenerationMode.REPLY) if generate else None
-            await self._notify(ChangeKind.STATUS, chat_id)
-            return SendResult(message.id, False, job)
+
+            async def commit_submission() -> SendResult:
+                await self._commit(chat, candidate)
+                async with self._config_lock:
+                    job = self._accept(chat, GenerationMode.REPLY) if generate else None
+                await self._notify(ChangeKind.STATUS, chat_id)
+                return SendResult(message.id, False, job)
+
+            # Caller cancellation must not split durable submission from job acceptance.
+            return await complete_before_cancelling(commit_submission())
 
     @_command
     async def generate(
@@ -579,12 +594,13 @@ class InferenceRuntime:
                 if chat.postprocess_british_spellings
                 else (),
                 replacement.id if replacement else None,
-                replacement.content
+                continuation_prefix(replacement.content)
                 if replacement and mode is GenerationMode.CONTINUE
                 else "",
                 replacement.attributions
                 if replacement and mode is GenerationMode.CONTINUE
                 else (),
+                manually_registered=registered.manually_registered,
             )
         except BackendError as exc:
             return self._reject(chat.id, exc)
@@ -630,8 +646,16 @@ class InferenceRuntime:
             if job.cancelled:
                 raise asyncio.CancelledError
             if runtime.health.state is not BackendReachability.ONLINE:
-                await self.refresh_backend(runtime.adapter.id)
-            if runtime.health.state is not BackendReachability.ONLINE:
+                try:
+                    await self.refresh_backend(runtime.adapter.id)
+                except BackendError as exc:
+                    if (
+                        not job.manually_registered
+                        or runtime.adapter.model_management is not None
+                        or exc.category is BackendErrorCategory.OFFLINE
+                    ):
+                        raise
+            if runtime.health.state is BackendReachability.OFFLINE:
                 raise BackendError(
                     BackendErrorCategory.OFFLINE, "The selected backend is offline."
                 )
@@ -649,6 +673,8 @@ class InferenceRuntime:
                             )
                         ) as events:
                             async for event in events:
+                                if job.cancelled:
+                                    raise asyncio.CancelledError
                                 if isinstance(event, ModelReady):
                                     job.ready = event
                                 else:
@@ -677,8 +703,12 @@ class InferenceRuntime:
                 progress=None,
             )
             completed = False
+            if job.cancelled:
+                raise asyncio.CancelledError
             async with aclosing(runtime.adapter.stream(job.request)) as events:
                 async for event in events:
+                    if job.cancelled:
+                        raise asyncio.CancelledError
                     if completed:
                         raise BackendError(
                             BackendErrorCategory.PROTOCOL,
@@ -686,6 +716,9 @@ class InferenceRuntime:
                         )
                     if isinstance(event, ModelReady):
                         job.ready = event
+                        runtime.health = BackendHealth(
+                            BackendReachability.ONLINE, datetime.now(UTC)
+                        )
                     elif isinstance(event, PredictionFragment):
                         fragments = (
                             job.reasoning_fragments
@@ -729,6 +762,8 @@ class InferenceRuntime:
                             progress=event.progress,
                         )
                     await self._notify(ChangeKind.STATUS, job.chat_id)
+            if job.cancelled:
+                raise asyncio.CancelledError
             if not completed:
                 raise BackendError(
                     BackendErrorCategory.PROTOCOL,
@@ -934,6 +969,22 @@ class InferenceRuntime:
             await self._notify(ChangeKind.STATUS, chat_id)
         elif job.task is not None:
             self._request_cancel(job)
+            session = self.registry.get(chat_id)
+            session.runtime_status = replace(
+                session.runtime_status, phase=RuntimePhase.STOPPING
+            )
+            await self._notify(ChangeKind.STATUS, chat_id)
+            _, pending = await asyncio.wait(
+                {job.task}, timeout=_CANCELLATION_GRACE_SECONDS
+            )
+            if pending:
+                message = "Generation is still stopping; the chat remains locked until generation and saving finish."
+                if job.phase is JobPhase.RUNNING:
+                    session.latest_error = BackendError(
+                        BackendErrorCategory.TIMEOUT, message
+                    )
+                await self._notify(ChangeKind.STATUS, chat_id)
+                raise TimeoutError(message)
             await asyncio.shield(job.task)
 
     @staticmethod
@@ -1084,16 +1135,23 @@ class InferenceRuntime:
                 runtime.health = BackendHealth(
                     BackendReachability.ONLINE, datetime.now(UTC)
                 )
+                runtime.discovery_error = None
             except BackendError as exc:
+                runtime.discovery_error = exc
+                log.warning(
+                    "model discovery failed backend_id=%s category=%s",
+                    backend_id,
+                    exc.category.value,
+                )
                 runtime.health = BackendHealth(
                     BackendReachability.OFFLINE
-                    if exc.category
-                    in {BackendErrorCategory.OFFLINE, BackendErrorCategory.TIMEOUT}
+                    if exc.category is BackendErrorCategory.OFFLINE
                     else BackendReachability.STALE,
                     datetime.now(UTC),
                 )
                 if runtime.health.state is BackendReachability.OFFLINE:
                     await self._fail_queued(runtime, exc)
+                await self._notify(ChangeKind.STATUS)
                 raise
         if runtime.health.state is BackendReachability.OFFLINE:
             await self._fail_queued(

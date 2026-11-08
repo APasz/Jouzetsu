@@ -683,9 +683,11 @@ def test_continue_preserves_original_on_empty_failure_then_appends_actual_text(
         )
         assert continued
         await continued.wait()
-        assert chat.messages[-1] is original and original.content == "Reply continued"
+        assert (
+            chat.messages[-1] is original and original.content == "Reply\n\n continued"
+        )
         assert len(chat.messages) == 2
-        assert h.reload(chat).messages[-1].content == "Reply continued"
+        assert h.reload(chat).messages[-1].content == "Reply\n\n continued"
         assert await h.runtime.shutdown()
 
     asyncio.run(exercise())
