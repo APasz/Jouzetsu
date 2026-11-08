@@ -12,7 +12,7 @@ export class NoticeController {
         const area = byId('notice-area');
         if (this.#dismissTimer) window.clearTimeout(this.#dismissTimer);
         this.#dismissTimer = 0;
-        area?.replaceChildren();
+        area?.querySelectorAll('[data-notice-kind]').forEach((notice) => notice.remove());
     }
 
     announce(message, isError = false, action = '') {
@@ -27,7 +27,8 @@ export class NoticeController {
             retry.textContent = 'Retry';
             notice.append(retry);
         }
-        area.replaceChildren(notice);
+        this.dismiss();
+        area.prepend(notice);
         this.scheduleDismissal(notice, isError);
     }
 

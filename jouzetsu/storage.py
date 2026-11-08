@@ -1,9 +1,4 @@
-"""Individual JSON-document persistence for chat transcripts.
-
-The historical single-file store is imported once into ``chats/`` beside the
-legacy file. Keeping every chat independent avoids rewriting every transcript
-into one ever-growing document and confines corruption to one conversation.
-"""
+"""Individual chat JSON documents with recoverable deletion and corruption isolation."""
 
 from __future__ import annotations
 
@@ -24,31 +19,25 @@ from .atomic_write import (
 from .models import Chat, ChatJSON, FutureSchemaVersionError
 
 log: Logger = logging.getLogger(__name__)
-_CORRUPT_FILE_SUFFIX: str = ".corrupt-"
-_MIGRATED_FILE_SUFFIX: str = ".migrated-"
 _CHAT_DIRECTORY_NAME: str = "chats"
 _TRASH_DIRECTORY_NAME: str = "trash"
 
 
 class ChatStorage:
-    """Persist each chat independently, importing the legacy aggregate once."""
+    """Persist each chat independently; unreadable files remain untouched."""
 
     def __init__(self, path: Path) -> None:
         self.path: Path = Path(path)
         self.directory: Path = self.path.parent / _CHAT_DIRECTORY_NAME
         self.trash_directory: Path = self.directory / _TRASH_DIRECTORY_NAME
-        self._future_schema_document_ids: set[str] = set()
+        self._isolated_ids: set[str] = set()
         self._write_guard: DurableWriteGuard = DurableWriteGuard()
         ensure_directory(self.path.parent)
         ensure_directory(self.directory)
         ensure_directory(self.trash_directory)
 
     def load_all(self) -> list[Chat]:
-        """Load every chat document, migrating a legacy aggregate when present."""
-
-        legacy_chats: list[Chat] | None = self._load_legacy()
-        if legacy_chats is not None:
-            return self._migrate_legacy(legacy_chats)
+        """Load valid documents without moving or repairing unreadable files."""
 
         chats: list[Chat] = self._load_documents()
         log.info(
@@ -56,12 +45,17 @@ class ChatStorage:
         )
         return chats
 
+    @property
+    def isolated_count(self) -> int:
+        """Number of unreadable documents excluded from the loaded library."""
+        return len(self._isolated_ids)
+
     def save_all(self, chats: Iterable[Chat]) -> None:
-        """Synchronise a chat snapshot without deleting newer-schema documents."""
+        """Synchronise a chat snapshot without deleting isolated documents."""
 
         chat_records: list[ChatJSON] = [chat.to_dict() for chat in chats]
         expected_ids: set[str] = _chat_record_ids(chat_records)
-        expected_ids.update(self._future_schema_document_ids)
+        expected_ids.update(self._isolated_ids)
         deleted_chat_ids: set[str] = {
             path.stem
             for path in self.directory.glob("*.json")
@@ -87,6 +81,8 @@ class ChatStorage:
             record_ids.add(chat_id)
             data: str = json.dumps(chat_record, ensure_ascii=False, indent=4) + "\n"
             path: Path = self.path_for(chat_id)
+            if chat_id in self._isolated_ids:
+                raise ValueError("cannot overwrite an isolated chat document")
             documents.append((chat_id, path, data))
 
         deleted_ids: set[str] = set(deleted_chat_ids)
@@ -161,114 +157,16 @@ class ChatStorage:
             raise ValueError("chat id must be alphanumeric")
         return self.directory / f"{chat_id}.json"
 
-    def _load_legacy(self) -> list[Chat] | None:
-        """Read the old aggregate store, retaining it as migration source until archived."""
-
-        if not self.path.exists():
-            return None
-        try:
-            raw: object = cast(
-                object, json.loads(self.path.read_text(encoding="utf-8"))
-            )
-            if not isinstance(raw, dict):
-                raise TypeError("root must be an object")
-            root: dict[object, object] = cast(dict[object, object], raw)
-            chats_raw: object = root.get("chats", [])
-            if not isinstance(chats_raw, list):
-                raise TypeError("root must contain a chat list")
-            chats: list[Chat] = []
-            for item in cast(list[object], chats_raw):
-                if not isinstance(item, dict):
-                    raise TypeError("chat entry must be an object")
-                chat_data: dict[str, object] = {
-                    key: value
-                    for key, value in cast(dict[object, object], item).items()
-                    if isinstance(key, str)
-                }
-                chats.append(Chat.from_dict(chat_data))
-        except FutureSchemaVersionError as exc:
-            log.warning(
-                "left future legacy chat store untouched path=%s reason=%s",
-                self.path,
-                exc,
-            )
-            return None
-        except Exception as exc:  # noqa: BLE001
-            self._quarantine_legacy(str(exc))
-            return None
-        log.info(
-            "loaded legacy chat store path=%s chat_count=%d", self.path, len(chats)
-        )
-        return chats
-
-    def _migrate_legacy(self, chats: list[Chat]) -> list[Chat]:
-        """Import legacy records without discarding newer documents from an interrupted migration."""
-
-        migrated_chats: list[Chat] = self._merge_migration_records(
-            chats, self._load_documents()
-        )
-        # A document this build cannot read must win over an older aggregate
-        # record with the same id, so migration never replaces it.
-        migrated_chats = [
-            chat
-            for chat in migrated_chats
-            if chat.id not in self._future_schema_document_ids
-        ]
-
-        try:
-            self.save_all(migrated_chats)
-        except Exception:
-            log.exception(
-                "legacy chat migration failed path=%s directory=%s",
-                self.path,
-                self.directory,
-            )
-            raise
-        archive_path: Path = self._migrated_backup_path()
-        try:
-            _ = self.path.replace(archive_path)
-        except OSError:
-            log.exception("could not archive migrated chat store path=%s", self.path)
-            # The aggregate remains authoritative until this rename succeeds.
-            # Continuing to accept writes in the document directory would let a
-            # later startup overwrite those newer writes from the old aggregate.
-            raise
-        log.info(
-            "migrated legacy chat store path=%s archive=%s directory=%s chat_count=%d",
-            self.path,
-            archive_path,
-            self.directory,
-            len(migrated_chats),
-        )
-        return migrated_chats
-
     def _load_documents(self) -> list[Chat]:
         """Load valid split documents without touching newer-schema documents."""
 
-        self._future_schema_document_ids.clear()
+        self._isolated_ids.clear()
         chats: list[Chat] = []
         for path in sorted(self.directory.glob("*.json")):
             chat: Chat | None = self._load_one(path)
             if chat is not None:
                 chats.append(chat)
         return chats
-
-    @staticmethod
-    def _merge_migration_records(
-        legacy_chats: list[Chat], document_chats: list[Chat]
-    ) -> list[Chat]:
-        """Prefer the newest version of each chat while retaining chats unique to either source."""
-
-        merged_by_id: dict[str, Chat] = {chat.id: chat for chat in legacy_chats}
-        ordered_ids: list[str] = [chat.id for chat in legacy_chats]
-        for document_chat in document_chats:
-            legacy_chat: Chat | None = merged_by_id.get(document_chat.id)
-            if legacy_chat is None:
-                ordered_ids.append(document_chat.id)
-                merged_by_id[document_chat.id] = document_chat
-            elif document_chat.updated_at > legacy_chat.updated_at:
-                merged_by_id[document_chat.id] = document_chat
-        return [merged_by_id[chat_id] for chat_id in ordered_ids]
 
     def _load_one(self, path: Path) -> Chat | None:
         try:
@@ -283,11 +181,16 @@ class ChatStorage:
                 raise ValueError("document id does not match its file name")
             return chat
         except FutureSchemaVersionError as exc:
-            self._future_schema_document_ids.add(path.stem)
+            self._isolated_ids.add(path.stem)
             log.warning("skipped future chat document path=%s reason=%s", path, exc)
             return None
         except Exception as exc:  # noqa: BLE001
-            self._quarantine_document(path, str(exc))
+            self._isolated_ids.add(path.stem)
+            log.error(
+                "isolated invalid chat document path=%s error_type=%s",
+                path,
+                type(exc).__name__,
+            )
             return None
 
     @staticmethod
@@ -300,49 +203,6 @@ class ChatStorage:
             return path.read_text(encoding="utf-8") == data
         except FileNotFoundError:
             return False
-
-    def _quarantine_legacy(self, reason: str) -> None:
-        backup_path: Path = self._corrupt_backup_path(self.path)
-        try:
-            _ = self.path.replace(backup_path)
-        except OSError:
-            log.exception(
-                "could not quarantine corrupt legacy chat store path=%s", self.path
-            )
-            return
-        log.warning(
-            "quarantined corrupt legacy chat store reason=%s backup=%s",
-            reason,
-            backup_path,
-        )
-
-    def _quarantine_document(self, path: Path, reason: str) -> None:
-        backup_path: Path = self._corrupt_backup_path(path)
-        try:
-            _ = path.replace(backup_path)
-        except OSError:
-            log.exception("could not quarantine corrupt chat path=%s", path)
-            return
-        log.warning(
-            "quarantined corrupt chat document reason=%s backup=%s", reason, backup_path
-        )
-
-    @staticmethod
-    def _corrupt_backup_path(path: Path) -> Path:
-        return ChatStorage._timestamped_backup_path(path, _CORRUPT_FILE_SUFFIX)
-
-    def _migrated_backup_path(self) -> Path:
-        return self._timestamped_backup_path(self.path, _MIGRATED_FILE_SUFFIX)
-
-    @staticmethod
-    def _timestamped_backup_path(path: Path, suffix: str) -> Path:
-        timestamp: str = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-        candidate: Path = path.with_name(f"{path.name}{suffix}{timestamp}")
-        sequence: int = 1
-        while candidate.exists():
-            candidate = path.with_name(f"{path.name}{suffix}{timestamp}-{sequence}")
-            sequence += 1
-        return candidate
 
 
 def _chat_record_ids(chat_records: Sequence[ChatJSON]) -> set[str]:

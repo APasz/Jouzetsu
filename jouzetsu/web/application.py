@@ -67,7 +67,6 @@ _UNUSED_FASTHTML_SESSION_KEY: Final[str] = "jouzetsu-no-session-key"
 
 type StartupCallback = Callable[[], Awaitable[None]]
 type ShutdownCallback = Callable[[], Awaitable[None]]
-type ExitCallback = Callable[[], None]
 type HttpMethod = Literal["GET", "POST"]
 type RouteResult = FT | Response
 type RouteHandler = Callable[..., Awaitable[RouteResult]]
@@ -128,7 +127,6 @@ class WebApplication:
         self._event_broker: _UiEventBroker = _UiEventBroker(state)
         self._access: _RequestAccess = _RequestAccess(config, state)
         self._mutations: _Mutations = _Mutations(state, self._access)
-        self._exit_callback: ExitCallback | None = None
         self.app: FastHTML = FastHTML(
             title="Jouzetsu",
             hdrs=(
@@ -146,7 +144,7 @@ class WebApplication:
                     Link(rel="stylesheet", href=_static_asset_url(stylesheet))
                     for stylesheet in _THEME_STYLESHEETS
                 ),
-                Link(rel="stylesheet", href="/theme.css"),
+                Link(rel="stylesheet", href="/theme.css", data_live_theme="true"),
                 Script(src=_static_asset_url("app.js"), type="module"),
             ),
             default_hdrs=False,
@@ -181,22 +179,8 @@ class WebApplication:
                 chat_settings_view=self._chat_settings_view,
                 navigation_view=self._navigation_view,
                 update_character=self._update_character_from_form,
-                request_exit=self._request_exit,
             )
         )
-
-    def set_exit_callback(self, callback: ExitCallback) -> None:
-        """Allow the production server runner to honour localhost Exit requests."""
-
-        self._exit_callback = callback
-
-    def _request_exit(self) -> bool:
-        """Request process shutdown when this hosting context supports it."""
-
-        if self._exit_callback is None:
-            return False
-        self._exit_callback()
-        return True
 
     async def _lifespan(self, _app: FastHTML) -> AsyncIterator[None]:
         self._event_broker.start()
@@ -228,20 +212,22 @@ class WebApplication:
 
         return register
 
-    def _chat_view(self) -> ChatView:
+    def _chat_view(self, chat_id: str) -> ChatView:
         """Capture the current chat data required by the pure chat renderers."""
 
-        return _chat_view(self.state)
+        return _chat_view(self.state, chat_id)
 
-    def _chat_settings_view(self) -> ChatSettingsView:
+    def _chat_settings_view(self, chat_id: str) -> ChatSettingsView:
         """Capture the active chat's independently refreshable settings data."""
 
-        return _chat_settings_view(self.state)
+        return _chat_settings_view(self.state, chat_id)
 
-    def _navigation_view(self, context: PageContext) -> NavigationView:
+    def _navigation_view(
+        self, context: PageContext, chat_id: str = ""
+    ) -> NavigationView:
         """Capture the request-aware data required by the navigation drawer."""
 
-        return _navigation_view(self.state, context)
+        return _navigation_view(self.state, context, chat_id)
 
     async def _update_character_from_form(
         self,

@@ -19,7 +19,6 @@ from .backend_codec import (
 )
 from .backend_models import ChatInferenceSettings, GenerationAttribution
 from .character_presets import CharacterFieldKind
-from .config import GenerationSettings
 from .json_codec import JsonDecoder
 from .submissions import Submission, SubmissionJSON
 
@@ -70,7 +69,7 @@ CHARACTER_STORY_PROMPT_CLOSING: str = (
     "unless they ask you to."
 )
 CHARACTER_CUSTOM_PROMPT_PREVIEW_EMPTY: str = "Enter a custom instruction."
-CHAT_SCHEMA_VERSION: Final[int] = 3
+CHAT_SCHEMA_VERSION: Final[int] = 4
 CHARACTER_SCHEMA_VERSION: Final[int] = 1
 CHARACTER_DRAFT_DISPLAY_NAME: Final[str] = "Untitled character"
 
@@ -139,21 +138,11 @@ class MessageJSON(TypedDict):
     id: str
     role: Role
     content: str
-    model: str
-    continuity_rewrite: str
     reasoning: str
     images: list[ImageAttachmentJSON]
     created_at: float
     updated_at: float
     attributions: list[dict[str, object]]
-
-
-class ChatSamplingOverridesJSON(TypedDict):
-    """Nullable sampling values persisted as overrides to global defaults."""
-
-    temperature: float | None
-    top_p: float | None
-    max_tokens: int | None
 
 
 class CharacterChatBindingJSON(TypedDict):
@@ -171,10 +160,8 @@ class ChatJSON(TypedDict):
     title_source: ChatTitleSource
     created_at: float
     updated_at: float
-    model: str
     system_prompt: str
     prompt_mode: ChatPromptMode | None
-    sampling_overrides: ChatSamplingOverridesJSON
     postprocess_british_spellings: bool
     save_reasoning: bool
     draft: str
@@ -377,29 +364,6 @@ def _required_bool_from_json(raw: object, *, field_name: str) -> bool:
     return raw
 
 
-def _optional_float_from_json(raw: object, *, field_name: str) -> float | None:
-    """Read a nullable finite number from a persisted chat field."""
-
-    if raw is None:
-        return None
-    if isinstance(raw, bool) or not isinstance(raw, int | float):
-        raise TypeError(f"{field_name} must be a number or null")
-    value: float = float(raw)
-    if not math.isfinite(value):
-        raise ValueError(f"{field_name} must be finite")
-    return value
-
-
-def _optional_integer_from_json(raw: object, *, field_name: str) -> int | None:
-    """Read a nullable integer from a persisted chat field."""
-
-    if raw is None:
-        return None
-    if isinstance(raw, bool) or not isinstance(raw, int):
-        raise TypeError(f"{field_name} must be an integer or null")
-    return raw
-
-
 def _string_mapping(raw: object, *, field_name: str) -> dict[str, object]:
     if not isinstance(raw, dict):
         raise TypeError(f"{field_name} must be an object")
@@ -428,67 +392,6 @@ def _title_source_from_json(raw: object) -> ChatTitleSource:
         return ChatTitleSource(raw)
     except ValueError as exc:
         raise ValueError(f"invalid chat.title_source: {raw!r}") from exc
-
-
-def _is_legacy_new_chat_placeholder(messages: list[Message]) -> bool:
-    """Identify the empty user turn created by versions before pristine chats."""
-
-    return (
-        len(messages) == 1
-        and messages[0].role == "user"
-        and not messages[0].content
-        and not messages[0].images
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class ChatSamplingOverrides:
-    """Optional per-chat sampling values that supersede global generation defaults."""
-
-    temperature: float | None = None
-    top_p: float | None = None
-    max_tokens: int | None = None
-
-    def resolve(self, defaults: GenerationSettings) -> GenerationSettings:
-        """Return validated effective generation settings for this chat."""
-
-        settings: GenerationSettings = replace(
-            defaults,
-            temperature=defaults.temperature
-            if self.temperature is None
-            else self.temperature,
-            top_p=defaults.top_p if self.top_p is None else self.top_p,
-            max_tokens=defaults.max_tokens
-            if self.max_tokens is None
-            else self.max_tokens,
-        )
-        settings.validate()
-        return settings
-
-    def to_dict(self) -> ChatSamplingOverridesJSON:
-        return {
-            "temperature": self.temperature,
-            "top_p": self.top_p,
-            "max_tokens": self.max_tokens,
-        }
-
-    @classmethod
-    def from_dict(cls, raw: Mapping[str, object]) -> ChatSamplingOverrides:
-        """Load and validate optional sampling values from persisted chat data."""
-
-        overrides: ChatSamplingOverrides = cls(
-            temperature=_optional_float_from_json(
-                raw.get("temperature"), field_name="chat.sampling_overrides.temperature"
-            ),
-            top_p=_optional_float_from_json(
-                raw.get("top_p"), field_name="chat.sampling_overrides.top_p"
-            ),
-            max_tokens=_optional_integer_from_json(
-                raw.get("max_tokens"), field_name="chat.sampling_overrides.max_tokens"
-            ),
-        )
-        _ = overrides.resolve(GenerationSettings())
-        return overrides
 
 
 @dataclass(frozen=True, slots=True)
@@ -1156,8 +1059,6 @@ class Message:
     id: str = field(default_factory=_new_id)
     role: Role = "user"
     content: str = ""
-    model: str = ""
-    continuity_rewrite: str = ""
     reasoning: str = ""
     images: tuple[ImageAttachment, ...] = ()
     created_at: float = field(default_factory=time.time)
@@ -1177,17 +1078,12 @@ class Message:
             raise ValueError("only assistant messages can have generation attribution")
         if self.images and self.role != "user":
             raise ValueError("only user messages can have images")
-        if self.model and self.role != "assistant":
-            raise ValueError("only assistant messages can have models")
-        if self.continuity_rewrite and self.role != "assistant":
-            raise ValueError("only assistant messages can have continuity rewrites")
         if self.reasoning and self.role != "assistant":
             raise ValueError("only assistant messages can have reasoning")
 
     def update_content(self, content: str) -> None:
         """Replace content, clearing stale reasoning and review metadata."""
         self.content = content
-        self.continuity_rewrite = ""
         self.reasoning = ""
         self.updated_at = time.time()
 
@@ -1198,34 +1094,11 @@ class Message:
             raise ValueError("cannot change message identity")
         self.role = message.role
         self.content = message.content
-        self.model = message.model
-        self.continuity_rewrite = message.continuity_rewrite
         self.reasoning = message.reasoning
         self.images = message.images
         self.attributions = message.attributions
         self.created_at = message.created_at
         self.updated_at = message.updated_at
-
-    def set_model(self, model: str) -> None:
-        """Record the model that generated this assistant response."""
-
-        if self.role != "assistant":
-            raise ValueError("only assistant messages can have models")
-        model_key: str = model.strip()
-        if not model_key:
-            raise ValueError("assistant model cannot be empty")
-        self.model = model_key
-        self.updated_at = time.time()
-
-    def clear_model(self) -> None:
-        """Clear model provenance when one message no longer has one source model."""
-
-        if self.role != "assistant":
-            raise ValueError("only assistant messages can have models")
-        if not self.model:
-            return
-        self.model = ""
-        self.updated_at = time.time()
 
     def set_reasoning(self, reasoning: str) -> None:
         """Attach the transient trace that produced one assistant response."""
@@ -1235,31 +1108,11 @@ class Message:
         self.reasoning = reasoning
         self.updated_at = time.time()
 
-    def set_continuity_rewrite(self, rewrite: str) -> None:
-        """Attach a non-empty proposed replacement to an assistant response."""
-
-        if self.role != "assistant":
-            raise ValueError("only assistant messages can have continuity rewrites")
-        if not rewrite.strip():
-            raise ValueError("continuity rewrite cannot be empty")
-        self.continuity_rewrite = rewrite
-        self.updated_at = time.time()
-
-    def discard_continuity_rewrite(self) -> None:
-        """Remove a proposed replacement without changing the response text."""
-
-        if not self.continuity_rewrite:
-            return
-        self.continuity_rewrite = ""
-        self.updated_at = time.time()
-
     def to_dict(self) -> MessageJSON:
         return {
             "id": self.id,
             "role": self.role,
             "content": self.content,
-            "model": self.model,
-            "continuity_rewrite": self.continuity_rewrite,
             "reasoning": self.reasoning,
             "images": [image.to_dict() for image in self.images],
             "created_at": self.created_at,
@@ -1272,27 +1125,15 @@ class Message:
         now: float = time.time()
         created_at: float = _float_from_json(raw.get("created_at"), default=now)
         role: Role = _role_from_json(raw.get("role", "user"))
-        model: object = raw.get("model", "")
-        continuity_rewrite: object = raw.get("continuity_rewrite", "")
         reasoning: object = raw.get("reasoning", "")
-        if not isinstance(model, str):
-            raise TypeError("message.model must be text")
-        if not isinstance(continuity_rewrite, str):
-            raise TypeError("message.continuity_rewrite must be text")
         if not isinstance(reasoning, str):
             raise TypeError("message.reasoning must be text")
-        if continuity_rewrite and role != "assistant":
-            raise ValueError("only assistant messages can have continuity rewrites")
         if reasoning and role != "assistant":
             raise ValueError("only assistant messages can have reasoning")
-        if model and role != "assistant":
-            raise ValueError("only assistant messages can have models")
         return cls(
             id=str(raw.get("id") or _new_id()),
             role=role,
             content=str(raw.get("content", "")),
-            model=model,
-            continuity_rewrite=continuity_rewrite,
             reasoning=reasoning,
             images=image_attachments_from_json(raw.get("images", [])),
             attributions=tuple(
@@ -1320,12 +1161,8 @@ class Chat:
     title_source: ChatTitleSource = ChatTitleSource.AUTO
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
-    model: str = ""
     system_prompt: str = ""
     prompt_mode: ChatPromptMode | None = None
-    sampling_overrides: ChatSamplingOverrides = field(
-        default_factory=ChatSamplingOverrides
-    )
     postprocess_british_spellings: bool = True
     save_reasoning: bool = True
     draft: str = ""
@@ -1401,10 +1238,8 @@ class Chat:
         self.title_source = chat.title_source
         self.created_at = chat.created_at
         self.updated_at = chat.updated_at
-        self.model = chat.model
         self.system_prompt = chat.system_prompt
         self.prompt_mode = chat.prompt_mode
-        self.sampling_overrides = chat.sampling_overrides
         self.postprocess_british_spellings = chat.postprocess_british_spellings
         self.save_reasoning = chat.save_reasoning
         self.draft = chat.draft
@@ -1500,7 +1335,6 @@ class Chat:
         if previous_message.role != target_message.role:
             raise ValueError("previous message must have the same role")
 
-        models_match: bool = previous_message.model == target_message.model
         previous_message.update_content(
             _merge_message_content(previous_message.content, target_message.content)
         )
@@ -1510,8 +1344,6 @@ class Chat:
                 (*previous_message.attributions, *target_message.attributions)
             )
         )
-        if previous_message.role == "assistant" and not models_match:
-            previous_message.clear_model()
         del self.messages[target_index]
         self.touch()
         return previous_message
@@ -1533,8 +1365,6 @@ class Chat:
             Message(
                 role=message.role,
                 content=message.content,
-                model=message.model,
-                continuity_rewrite=message.continuity_rewrite,
                 reasoning=message.reasoning,
                 images=message.images,
                 attributions=message.attributions,
@@ -1546,10 +1376,8 @@ class Chat:
         return Chat(
             title=self.title,
             title_source=self.title_source,
-            model=self.model,
             system_prompt=self.system_prompt,
             prompt_mode=self.prompt_mode,
-            sampling_overrides=self.sampling_overrides,
             postprocess_british_spellings=self.postprocess_british_spellings,
             save_reasoning=self.save_reasoning,
             character_cast=self.character_cast,
@@ -1590,10 +1418,8 @@ class Chat:
             "title_source": self.title_source,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-            "model": self.model,
             "system_prompt": self.system_prompt,
             "prompt_mode": self.prompt_mode,
-            "sampling_overrides": self.sampling_overrides.to_dict(),
             "postprocess_british_spellings": self.postprocess_british_spellings,
             "save_reasoning": self.save_reasoning,
             "draft": self.draft,
@@ -1621,18 +1447,6 @@ class Chat:
             Message.from_dict(_string_mapping(item, field_name="chat.messages item"))
             for item in cast(list[object], raw_messages)
         ]
-        if _is_legacy_new_chat_placeholder(messages):
-            messages = []
-        raw_sampling_overrides: object = raw.get("sampling_overrides")
-        sampling_overrides: ChatSamplingOverrides = (
-            ChatSamplingOverrides()
-            if raw_sampling_overrides is None
-            else ChatSamplingOverrides.from_dict(
-                _string_mapping(
-                    raw_sampling_overrides, field_name="chat.sampling_overrides"
-                )
-            )
-        )
         character_cast: tuple[CharacterChatBinding, ...] = _character_cast_from_chat(
             raw
         )
@@ -1653,10 +1467,8 @@ class Chat:
             title_source=title_source,
             created_at=_float_from_json(raw.get("created_at"), default=now),
             updated_at=_float_from_json(raw.get("updated_at"), default=now),
-            model=str(raw.get("model", "")),
             system_prompt=str(raw.get("system_prompt", "")),
             prompt_mode=prompt_mode,
-            sampling_overrides=sampling_overrides,
             postprocess_british_spellings=_bool_from_json(
                 raw.get("postprocess_british_spellings"),
                 default=True,

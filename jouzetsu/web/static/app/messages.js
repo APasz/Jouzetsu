@@ -1,4 +1,5 @@
-import { byId, localizeMessageDetailsTimes, parseFragment } from './dom.js';
+import { scopeChatForm } from './forms.js';
+import { byId, chatFragmentUrl, localizeMessageDetailsTimes, parseFragment } from './dom.js';
 
 const DOUBLE_TAP_DELAY_MS = 350;
 const DOUBLE_SWIPE_DELAY_MS = 1000;
@@ -29,6 +30,7 @@ export class MessageController {
     #bottomSnapFrame = 0;
     #scrollRestoreFrame = 0;
     #detailsRequest = 0;
+    #scrollPositions = new Map();
 
     #handleScrollContainerScroll = () => {
         this.#recordScrollContainerPosition(this.#scrollContainer);
@@ -108,10 +110,11 @@ export class MessageController {
         const messages = byId('message-list');
         const form = document.querySelector('.jouzetsu-composer-form');
         if (!(messages instanceof HTMLElement) || !(form instanceof HTMLFormElement) || !form.dataset.chatId) return;
+        this.#scrollPositions.set(form.dataset.chatId, messages.scrollTop);
         try {
             window.sessionStorage.setItem(
-                MESSAGE_SCROLL_STATE_KEY,
-                JSON.stringify({ chatId: form.dataset.chatId, scrollTop: messages.scrollTop }),
+                `${MESSAGE_SCROLL_STATE_KEY}-${form.dataset.chatId}`,
+                String(messages.scrollTop),
             );
         } catch {
             // Navigation is still safe if browser storage is unavailable.
@@ -119,24 +122,18 @@ export class MessageController {
     }
 
     restoreScrollAfterNavigation() {
-        let savedState = null;
-        try {
-            const serialized = window.sessionStorage.getItem(MESSAGE_SCROLL_STATE_KEY);
-            window.sessionStorage.removeItem(MESSAGE_SCROLL_STATE_KEY);
-            if (serialized) savedState = JSON.parse(serialized);
-        } catch {
-            return false;
-        }
-        if (
-            !savedState
-            || typeof savedState !== 'object'
-            || typeof savedState.chatId !== 'string'
-            || !Number.isFinite(savedState.scrollTop)
-        ) return false;
         const form = document.querySelector('.jouzetsu-composer-form');
         const messages = byId('message-list');
-        if (!(form instanceof HTMLFormElement) || form.dataset.chatId !== savedState.chatId) return false;
-        this.restoreScroll(messages, savedState.scrollTop);
+        if (!(form instanceof HTMLFormElement) || !form.dataset.chatId) return false;
+        let scrollTop = this.#scrollPositions.get(form.dataset.chatId);
+        if (scrollTop === undefined) {
+            try {
+                const saved = window.sessionStorage.getItem(`${MESSAGE_SCROLL_STATE_KEY}-${form.dataset.chatId}`);
+                if (saved !== null) scrollTop = Number(saved);
+            } catch { /* In-memory positions still work when browser storage is unavailable. */ }
+        }
+        if (!Number.isFinite(scrollTop) || scrollTop < 0) return false;
+        this.restoreScroll(messages, scrollTop);
         return true;
     }
 
@@ -392,6 +389,7 @@ export class MessageController {
         const composer = document.querySelector('.jouzetsu-composer-form');
         const isGenerating = composer instanceof HTMLFormElement && composer.dataset.composerGenerating === 'true';
         const canFork = Boolean(messageId) && !isGenerating;
+        scopeChatForm(form);
         form.action = canFork ? `/messages/${encodeURIComponent(messageId)}/fork` : '';
         form.hidden = !canFork;
         button.disabled = !canFork;
@@ -431,7 +429,7 @@ export class MessageController {
         dialog.dataset.messageDetailsMessageId = messageId;
         this.#setDetailsStatus(dialog, 'Loading message details…');
         try {
-            const response = await window.fetch(`/fragments/messages/${encodeURIComponent(messageId)}/details`, {
+            const response = await window.fetch(chatFragmentUrl(`/fragments/messages/${encodeURIComponent(messageId)}/details`), {
                 headers: { 'HX-Request': 'true' },
                 cache: 'no-store',
             });

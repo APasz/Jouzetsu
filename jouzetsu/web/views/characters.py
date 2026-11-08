@@ -61,7 +61,7 @@ from ..icon import app_icon_url
 from ..security import CSRF_FORM_FIELD
 from .context import PageContext
 from .controls import count_label, csrf_context, field
-from .feedback import render_notice_area
+from .feedback import render_notice_area, storage_warning
 from .icons import render_icon
 
 type CharacterNamePart = Literal["given_name", "family_name"]
@@ -101,7 +101,7 @@ def render_character_page(
     )
     return Div(
         csrf_context(context),
-        render_notice_area(notice=notice, error=error),
+        render_notice_area(notice=notice, error=error, warning=storage_warning(state)),
         _character_workspace_header(state),
         Div(
             _character_library(characters, selected_character_id),

@@ -29,7 +29,6 @@ from .config import (
     resolve_app_home,
 )
 from .image_storage import ImageStorage
-from .lmstudio import LMStudioClient
 from .logging_config import configure_bootstrap_logging, configure_logging
 from .process_lock import LinuxDataDirectoryLock
 from .state import AppState
@@ -112,8 +111,7 @@ def create_state(config: AppConfig, config_store: ConfigStore) -> AppState:
     storage: ChatStorage = ChatStorage(config.chats_file)
     character_storage: CharacterStorage = CharacterStorage(config.characters_directory)
     images = ImageStorage(config.paths.images_directory)
-    client: LMStudioClient = LMStudioClient(config.server, image_storage=images)
-    return AppState(config, storage, client, character_storage, config_store, images)
+    return AppState(config, storage, character_storage, config_store, images)
 
 
 async def _open_browser_after_start(config: AppConfig) -> None:
@@ -137,8 +135,7 @@ def _build_lifecycle_callbacks(
     async def startup() -> None:
         if _state is None:
             raise RuntimeError("application state is not initialised")
-        await _state.start_runtime_monitor()
-        await _state.start_host_stats_monitor()
+        await _state.start()
         _ = asyncio.create_task(_open_browser_after_start(config))
 
     async def shutdown() -> None:
@@ -258,11 +255,11 @@ def run(config: AppConfig | None = None, *, app_home: Path | None = None) -> Non
             host=resolved_config.ui.host,
             port=resolved_config.ui.port,
             log_level="warning",
+            proxy_headers=False,
             # Browser clients keep the SSE stream open indefinitely. Uvicorn's
             # default timeout is unbounded, which can otherwise stall Ctrl+C
             # before application lifespan shutdown begins.
             timeout_graceful_shutdown=_UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
         )
     )
-    _web_application.set_exit_callback(lambda: setattr(server, "should_exit", True))
     server.run()

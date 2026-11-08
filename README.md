@@ -8,7 +8,8 @@ character profiles as JSON files you control.
 
 - Python 3.14 or newer
 - [uv](https://docs.astral.sh/uv/)
-- LM Studio with its local server running (default: `http://localhost:1234`)
+- An optional local LM Studio or OpenAI-compatible Chat Completions server
+  (the application also works while inference is unavailable)
 - Linux only
 
 ## Run
@@ -33,60 +34,76 @@ jouzetsu --home /path/to/Jouzetsu
 
 - Streaming chats with per-chat model, sampling, prompt, reasoning, and
   British-spelling settings; messages can be edited, regenerated, continued,
-  forked, merged, or undone.
-- Downloaded-model discovery and loading through LM Studio, including an
-  optional idle unload time-to-live.
+  forked, merged, truncated, or deleted.
+- Multiple independently configured backends, FIFO queues, concurrency limits,
+  manual model registration and aliases. LM Studio also supports model loading
+  and optional application-managed idle unloading.
 - Vision chats with multiple JPEG, PNG, or WebP images: upload, paste, or drop
   images into the composer, preview them, and send them with or without text.
 - Character profiles and JSON preset packs; start immutable single-character or
   multi-character chats in Roleplay, Assistant, Story, or Custom prompt modes.
-- Optional post-reply continuity review, proposed rewrites requiring user
-  approval, host statistics, local-only assets, and SSE updates.
-- Default-private browser access with localhost device approval controls.
+- Shared drafts and live SSE updates, explicit chat URLs and browser-local
+  navigation. Send only is available beside Send and through Shift-click.
+- Phrase-based browser enrollment; actual localhost connections always have
+  administrative access. Approved remote browsers share ordinary settings.
 
 ## Configuration and data
 
 Use the in-app settings for normal changes. `config.json` is also editable;
-restart Jouzetsu after editing it directly. Its sections are `server`,
-`generation`, `ui`, `theme`, `logging`, `host_stats`, `access`, and `backends`.
-It is a complete, strict, versioned document (`"version": 1`): missing,
+restart Jouzetsu after editing it directly. Its sections are `generation`, `ui`, `theme`, `logging`, `access`, and `backends`.
+It is a complete, strict, versioned document (`"version": 2`): missing,
 unknown, or invalid settings prevent startup rather than being silently changed.
 Built-in British-spelling replacements and the theme palette are packaged
 separately. `generation.british_spelling_replacements` and `theme` are written
 only when you customise them.
 
 Vision models are marked in model selectors. Images stay with their original
-user message in later requests, regeneration, continuations, and continuity
-reviews. A conversation containing images requires a vision-capable model;
+user message in later requests, regeneration, continuations. A conversation containing images requires a model with confirmed vision support;
 switching to a text-only model blocks generation until a compatible model is
 selected. Editing a caption preserves its images.
 
 Original image files and small previews live in `data/images/`; the original
-resolution is preserved. Draft attachments survive reloads, and forks and undo
-retain their references. Image files are kept when references are removed so
+resolution is preserved. Draft attachments survive reloads, and forks retain their references. Image files are kept when references are removed so
 other chats and recoverable trash remain intact. Initial limits allow 32 images
 per message, 64 MiB per image, 512 MiB per upload, and 100 million pixels per
 image. The upload policy is centralised in `ImageLimits` for future settings.
-Chat documents use schema version 3, including backend profiles, generation
+Chat documents use schema version 4, including backend profiles, generation
 attribution, independent committed/draft revisions, and submission receipts.
 WebP originals are sent to LM Studio as lossless PNG images to work around the
 0.4.26 compatibility endpoint rejecting WebP data URLs.
 
-### Rewrite checkpoint: Gate 2 server layer
+### Rewrite checkpoint: Gate 3 browser integration
 
-`jouzetsu.inference.InferenceRuntime` implements the new explicit-chat service.
-It supports multiple LM Studio and generic Chat Completions backends, per-backend
-FIFO queues and concurrency limits, independent chat profiles, send-only,
-regeneration, continuation, cancellation, and optimistic edits. Its backend
-configuration is persisted in `config.json` using the strict components in
-`backend_codec.py`. No backend is inferred from the old `server` section.
+`InferenceRuntime` is now the sole owner of chat/configuration commands and
+inference jobs. The FastHTML browser application uses explicit chat IDs and
+committed revisions for every transcript/settings edit, and independent revisions
+for the shared draft. A stale edit is rejected; locally typed text remains in the
+browser for manual resolution. There is no automatic merge.
 
-**Browser integration is Gate 3.** The running web application still uses its
-existing façade and single-server controls. The new service must become the sole
-owner of its registry and configuration when that integration is approved;
-running both generation owners against the same documents is unsupported.
-Undo, continuity review, host monitoring, and the old navigation remain in the
-existing browser application until that replacement. No data migration was added.
+Each chat has a stable `/chats/<id>` URL. Selection, history, scroll position and
+open panels belong to the browser, and browsing never writes a global selection.
+The shared transcript, draft, generation status and ordinary settings synchronise
+through SSE. Reconnecting refreshes state without submitting a generation.
+
+Fresh installs have no backend. Add one in **Global settings → Backends**, register
+or discover models, choose its default profile, and optionally select it as the
+new-chat default. Each chat keeps an independent profile for each backend it has
+used. Changing defaults affects new chats and explicit profile resets. Removing a
+backend retains historical IDs, attribution and chat profiles. Generic backends
+have no native load/unload controls. Unknown vision support blocks image inference;
+unsupported/unknown sampling parameters remain stored and are marked inactive.
+No credentials or arbitrary generation parameters are exposed.
+
+**Access & Logs** is available from localhost. Set an approval phrase there and
+enter it in each new remote browser. The phrase is the sole enrollment path;
+localhost administrators can revoke devices but cannot directly approve them.
+Failed phrase attempts have a bounded, in-memory per-peer cooldown. Revocation
+blocks subsequent requests and ends existing SSE connections. Forwarded headers
+are not trusted by the bundled server (`proxy_headers=False`).
+
+Undo, continuity review, host monitoring and the in-app process Exit control have
+been removed. This checkpoint uses fresh versioned data; aggregate chat-store
+migration is not supported. Gate 4 deployment work remains separate.
 
 The service locks committed chat data as soon as a job is accepted, including
 queued/loading work. Drafts remain editable. Jobs and errors are memory-only;
@@ -125,36 +142,18 @@ the existing worker executor and serialised write boundary.
 These service operations write one chat document or the configuration, without
 updating a global active chat. They introduce no multi-file transaction. A crash
 can leave newer cached backend metadata beside an older chat; historical IDs and
-profiles remain recoverable. The existing façade's cross-file limitations below
-still apply until Gate 3. `shutdown()` stops accepting commands, drains accepted
+profiles remain recoverable. There is no persisted chat selection and therefore no chat/configuration pair
+to commit during chat creation or deletion. `shutdown()` stops accepting commands, drains accepted
 commands and jobs, flushes drafts, and then closes adapters. It returns false if
 work cannot finish within its shutdown window, output remains unsaved, or cleanup
 fails. In-flight resources remain available after a timeout; callers must report
 the outcome and can retry shutdown after pending work finishes. Adapter cleanup
 failures are logged and retried without rejecting an already committed edit.
 
-Global Settings separates chat-wide Behaviour from Appearance. The Models dialog
-has Loaded instances, per-model Aliases, and global Defaults for model selection
-and auto-unload. The Appearance editor has four independent colourways:
-App for neutral surfaces,
-text, controls, and key interface visuals; User for your messages and composer;
-Assistant for replies and generation highlights; and System for messages and
-notifications. The built-in palette uses black-and-white App surfaces with a
-purple App accent, red User, blue Assistant, and green System accents.
-Each has one main colour with automatic border, background, and hover shades.
-App also selects light/dark appearance. Advanced controls use compact native
-colour pickers with an Auto toggle to restore generated shading. Key Visual
-sits beside App's main colour; App's Advanced section exposes the uniform
-message-action colour, icon artwork colours, and the activity-meter gradient.
-Message actions default to the uniform App colour, but can instead use
-independently configurable semantic colours for delete, regenerate, merge,
-edit, and continue/resend.
-
-Existing flat palettes load automatically into the new colourways. User and
-Assistant accents and custom surface/shade overrides are retained; App and System
-receive independent default accents. Earlier message-action icon preferences
-and muted action colours migrate to the semantic action setting and palette on
-the next save. The new theme shape is then written normally.
+Global Settings separates Behaviour, Appearance and Backends. Appearance retains
+the existing App, User, Assistant and System colourways, automatic shades,
+light/dark mode, icon colours and semantic message-action colours. Generation
+errors use the System colourway with a top accent rail.
 
 Useful environment overrides:
 
@@ -164,8 +163,9 @@ Useful environment overrides:
 
 The application home contains `config.json`, `data/chats/`,
 `data/characters/`, `data/character-presets/`, and `data/logs/`. Deleted
-chats move to `data/chats/trash/`; legacy `data/chats.json` is migrated on
-startup and retained as a timestamped recovery copy. Add custom empty-chat
+chats move to `data/chats/trash/`. Invalid chat/character files are isolated in
+place and logged; other valid documents remain usable. They are not moved,
+overwritten, repaired or deleted automatically. Add custom empty-chat
 messages to `data/empty-chat-messages.txt`, one line per message.
 
 Add name suggestions to `data/character-names.json`. The file supplements the
@@ -201,49 +201,36 @@ reported in the character editor and logs.
 
 ### Persistence boundaries and recovery
 
-Committed chat edits, new/forked/character-based chats, chat selection, deletion,
+Committed chat edits, new/forked/character-based chats, deletion,
 settings, and character changes save before publishing authoritative state or
 notifying browsers. Existing chat/message and shared configuration references
 are retained when saved candidates are applied. Generation acceptance saves its
 initial transcript before starting an inference stream. Generation output is
 transient while streaming and is saved on completion or cancellation.
 
-Draft text and draft attachments deliberately use different semantics: they
-change the live draft immediately and use the existing coalesced persistence
-path. Attachment operations await that path; typing is debounced. A failed
-draft save retains the accepted draft for a later flush or orderly shutdown.
-It cannot replay a rejected committed edit or recreate a successfully deleted
-chat. Recent drafts and in-progress generation can still be lost in a crash.
+Draft text and attachments publish to the shared in-memory draft immediately and
+are written through ordered, coalesced persistence. The browser serialises its
+text, attachment and submission requests against that draft revision. Rejected
+image uploads stay in the browser for retry/download. A failed deferred disk
+write is visible with a retry action; recent drafts can still be lost in a crash.
 
-Runtime JSON serialisation, writes, moves, and synchronisation use the existing
-worker pool. State-changing commands are serialized from preparation through
-publication because the current application still has a global active chat and
-shared configuration. Nested commands share that boundary. A separate writer
-lock orders deferred drafts and committed/configuration writes. Readers, SSE,
-and unrelated asynchronous services can run while storage is busy. Request
-cancellation waits for the accepted command to finish before releasing these
-boundaries; it cannot stop a filesystem operation already running in a thread.
-Image preflight runs outside the command lock and revalidates its conversation
-and model context after acquiring the lock, so a backend check cannot block edits.
-Startup loading and initial empty-store creation remain synchronous, before
-the state is exposed to requests. Snapshots are copied on the event loop so a
-worker never serialises a mutable live transcript.
+Runtime JSON serialisation, writes, moves and synchronisation use the existing
+worker pool. Per-chat locks cover candidate preparation through durable
+publication, and one configuration lock covers all settings/backend writes.
+The writer lock orders drafts and committed/configuration writes. Readers and SSE
+can run while storage is busy. Accepted submissions finish saving and accepting
+inference independently of caller cancellation; shutdown still rejects new work.
+Startup loading remains synchronous before requests are accepted.
 
-Separate chat and configuration files are **not a transaction**:
-
-- Creation writes the chat, then its active selection in `config.json`, then
-  publishes both in memory. If the second write fails, the call fails without
-  publication. The extra valid chat file remains recoverable and is loaded on
-  restart; the existing saved selection is retained when valid. Later commands
-  do not automatically register or retry that failed creation.
-- Active-chat deletion writes any necessary empty replacement, then its saved
-  selection, then moves the old document to `data/chats/trash/`, then publishes.
-  A failed intermediate step can leave an extra replacement or a saved
-  selection ahead of the live selection. The old chat remains live in memory
-  on failure; its file is either still active or recoverable in trash. Deleting
-  a non-active chat needs no configuration write. Restart loads active files
-  and honours a valid saved selection, falling back to the most recent chat if
-  that selection is absent. There is no automatic multi-file rollback.
+Separate JSON files are **not a transaction**. Chat lifecycle operations now write
+only the affected chat document, leaving no active-selection/configuration write
+to fail afterward. Deletion of the last chat leaves an empty workspace; a new
+chat is created only on request. Backend metadata/configuration and independent
+chat documents may still reflect different moments after a crash. Stable IDs,
+retained profiles and saved attribution preserve recoverability without rollback
+or a transaction engine. A missing preview can be rebuilt from its verified
+original; missing originals keep their references, show an unavailable placeholder
+and block inference.
 
 Each replacement syncs file contents before rename and its destination directory
 afterward. Newly created directories sync their parent entries; existing
@@ -261,8 +248,8 @@ storage device honouring synchronisation.
 
 Jouzetsu is a single-user shared workspace, not a multi-user system. Its device approval is a convenience gate for trusted browsers. The
 built-in server is HTTP-only: keep it on localhost, a trusted LAN, or a
-private network such as Tailscale. Use an authenticated TLS reverse proxy if
-you need wider access; never expose the port directly to the public internet.
+private network such as Tailscale. Do not expose the application port directly to the public internet. Proxy and
+Pi deployment guidance belongs to Gate 4.
 
 ## Development
 

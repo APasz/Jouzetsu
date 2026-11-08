@@ -4,42 +4,50 @@ from __future__ import annotations
 
 from fastcore.xml import FT  # pyright: ignore[reportMissingTypeStubs]
 
-from ..html import Button, Div, Form, Input, Span
+from ...state import AppState
+from ..html import Div, Span
 
 type HTML = FT
 
 
-def render_notice_area(*, notice: str, error: str, undo_token: str = "") -> HTML:
+def storage_warning(state: AppState) -> str:
+    """Explain why isolated documents are absent without exposing their contents."""
+    chats = state.storage.isolated_count
+    characters = state.character_storage.isolated_count
+    if not chats and not characters:
+        return ""
+    return (
+        f"Some documents could not be loaded ({chats} chat files, "
+        f"{characters} character files). Their files were left unchanged. "
+        "Check the server logs for details."
+    )
+
+
+def render_notice_area(*, notice: str, error: str, warning: str = "") -> HTML:
     """Render server-side feedback in an ARIA live region."""
 
     message: str = error or notice
-    if not message:
-        return Div(id="notice-area", cls="jouzetsu-notice-area")
     classes: str = (
         "jouzetsu-notice jouzetsu-notice-error" if error else "jouzetsu-notice"
     )
-    undo_control: HTML | None = None
-    if undo_token and not error:
-        undo_control = Form(
-            Input(type="hidden", name="undo_token", value=undo_token),
-            Button(
-                "Undo",
-                type="submit",
-                cls="jouzetsu-notice-action",
-                data_notice_action="undo",
-            ),
-            action="/messages/undo",
-            method="post",
-        )
     return Div(
         Div(
             Span(message, cls="jouzetsu-notice-message"),
-            undo_control,
             cls=classes,
             role="alert" if error else "status",
             data_notice_kind="error" if error else "success",
             data_notice_dismiss="true",
-        ),
+        )
+        if message
+        else None,
+        Div(
+            Span(warning, cls="jouzetsu-notice-message"),
+            cls="jouzetsu-notice",
+            role="alert",
+            data_storage_warning="true",
+        )
+        if warning
+        else None,
         id="notice-area",
         cls="jouzetsu-notice-area",
     )

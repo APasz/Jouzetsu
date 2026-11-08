@@ -13,7 +13,6 @@ from ..config import (
     ThemeColorway,
 )
 from ..config.defaults import builtin_message_action_color, builtin_theme_values
-from .host_stats_styles import host_stat_meter_rules
 
 _MESSAGE_SHADES: Final[tuple[str, ...]] = (
     "accent",
@@ -48,7 +47,6 @@ _SHADOW_OPACITIES: Final[tuple[tuple[str, int], ...]] = (
 def render_theme_css(config: AppConfig) -> str:
     """Generate base surfaces, role shades, and message-local colour assignments."""
 
-    config.host_stats.validate()
     surfaces, colourways = _resolved_theme_colours(config)
     variables: dict[str, str] = {
         f"--jouzetsu-app-{name.replace('_', '-')}": value
@@ -73,10 +71,6 @@ def render_theme_css(config: AppConfig) -> str:
         )
         for name, opacity in _SHADOW_OPACITIES
     )
-    start = config.host_stats.activity_start_color
-    end = config.host_stats.activity_end_color
-    variables["--jouzetsu-stat-start"] = start
-    variables["--jouzetsu-stat-end"] = end
     declarations = [f"    {name}: {value};" for name, value in variables.items()]
     declarations.append(
         f"    color-scheme: {'dark' if config.ui.dark_mode else 'light'};"
@@ -98,7 +92,6 @@ def render_theme_css(config: AppConfig) -> str:
                 f".jouzetsu-message.is-{owner.value}", "message", owner, _MESSAGE_SHADES
             )
         )
-    rules.append(host_stat_meter_rules(start, end))
     return "\n".join(rules) + "\n"
 
 

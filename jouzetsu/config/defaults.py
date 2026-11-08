@@ -14,10 +14,8 @@ from .models import (
     AccessSettings,
     AppConfig,
     GenerationSettings,
-    HostStatsSettings,
     LoggingSettings,
     MessageAction,
-    ServerSettings,
     SpellingReplacement,
     ThemeColorway,
     ThemeSettings,
@@ -181,14 +179,12 @@ def default_config(paths: AppPaths) -> AppConfig:
 
     config: AppConfig = AppConfig(
         paths=paths,
-        server=ServerSettings(),
         generation=GenerationSettings(
             british_spelling_replacements=list(builtin_spelling_replacements())
         ),
         ui=UiSettings(),
         theme=builtin_theme(),
         logging=LoggingSettings(directory=paths.log_directory),
-        host_stats=HostStatsSettings(),
         access=AccessSettings(),
     )
     config.validate()

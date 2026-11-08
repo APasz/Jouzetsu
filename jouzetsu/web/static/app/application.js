@@ -4,8 +4,7 @@ import { ComposerController, currentComposerDraft } from './composer.js';
 import { DeviceActivityController } from './device-activity.js';
 import { DraftController } from './drafts.js';
 import { byId, localizeMessageUpdatedTimes } from './dom.js';
-import { addCsrfToken } from './forms.js';
-import { HostStatsController } from './host-stats.js';
+import { addCsrfToken, randomIdentifier } from './forms.js';
 import { ImageController } from './images.js';
 import { MessageController } from './messages.js';
 import { NoticeController, RETRY_DRAFT_NOTICE_ACTION } from './notices.js';
@@ -25,12 +24,7 @@ const bootstrapDeviceCookie = () => {
         const match = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix));
         return match ? decodeURIComponent(match.slice(prefix.length)) : '';
     };
-    const createDeviceId = () => {
-        if (window.crypto?.randomUUID) return `dvc_${window.crypto.randomUUID()}`;
-        const random = new Uint32Array(4);
-        window.crypto?.getRandomValues(random);
-        return `dvc_${Array.from(random, (value) => value.toString(16)).join('_')}`;
-    };
+    const createDeviceId = () => `dvc_${randomIdentifier()}`;
     let deviceId = '';
     try {
         deviceId = window.localStorage.getItem(DEVICE_COOKIE_NAME) || readCookie();
@@ -75,21 +69,6 @@ const installComposerResize = (composer, event, controller) => {
     handle.addEventListener('pointercancel', finish);
 };
 
-const openDeleteDialog = (target) => {
-    const messageId = target.dataset.deleteChoiceOpen || '';
-    const dialog = byId('message-delete-dialog');
-    if (!messageId || !(dialog instanceof HTMLDialogElement) || dialog.open) return;
-    const single = dialog.querySelector('[data-delete-choice-form="single"]');
-    const following = dialog.querySelector('[data-delete-choice-form="following"]');
-    if (!(single instanceof HTMLFormElement) || !(following instanceof HTMLFormElement)) return;
-    const hasFollowing = target.dataset.deleteChoiceHasFollowing === 'true';
-    const encodedId = encodeURIComponent(messageId);
-    single.action = `/messages/${encodedId}/delete`;
-    following.action = `/messages/${encodedId}/delete-following`;
-    following.hidden = !hasFollowing;
-    dialog.showModal();
-};
-
 const colourOverrideContainer = (target) => (
     target instanceof Element ? target.closest('[data-colour-override]') : null
 );
@@ -109,6 +88,14 @@ const activateColourOverride = (picker) => {
     synchronizeColourOverride(container);
 };
 
+const markUnavailableImage = (image) => {
+    if (!(image instanceof HTMLImageElement) || !image.closest('.jouzetsu-image-preview')) return;
+    const placeholder = document.createElement('span');
+    placeholder.textContent = `Image unavailable: ${image.alt}`;
+    placeholder.className = 'jouzetsu-form-help';
+    image.replaceWith(placeholder);
+};
+
 export const startApplication = () => {
     const notices = new NoticeController();
     const composer = new ComposerController({ isUploadingImages: () => images.isUploading });
@@ -117,18 +104,24 @@ export const startApplication = () => {
     const drafts = new DraftController(currentComposerDraft, notices.announce.bind(notices));
     const deviceActivity = new DeviceActivityController();
     const panels = new PanelController();
-    const hostStats = new HostStatsController();
     const images = new ImageController({
-        announce: notices.announce.bind(notices), syncPrimary: composer.syncPrimary.bind(composer),
+        announce: notices.announce.bind(notices), syncPrimary: composer.syncPrimary.bind(composer), drafts,
     });
     const chat = new ChatController({ composer, messages, drafts, notices, panels, images });
     images.setRefresh(chat.replaceFragment.bind(chat));
     panels.setRefreshPanel(chat.replacePanelFragment.bind(chat));
     messages.watchScrollContainer();
 
+    document.addEventListener('error', (event) => markUnavailableImage(event.target), true);
+    document.querySelectorAll('.jouzetsu-image-preview img').forEach((image) => {
+        if (image.complete && image.naturalWidth === 0) markUnavailableImage(image);
+    });
+
     document.addEventListener('click', (event) => {
         const target = event.target instanceof Element ? event.target : null;
         if (!target) return;
+        const send = target.closest('[data-testid="send-message-button"]');
+        if (send instanceof HTMLButtonElement && send.form) send.form.dataset.sendOnly = event.shiftKey ? 'true' : 'false';
         const tab = target.closest('[data-tab-target]');
         if (tab instanceof HTMLButtonElement) {
             event.preventDefault();
@@ -168,7 +161,6 @@ export const startApplication = () => {
             if (dialog instanceof HTMLDialogElement && !dialog.open) {
                 panels.close(false);
                 dialog.showModal();
-                hostStats.start();
             }
             return;
         }
@@ -192,11 +184,6 @@ export const startApplication = () => {
         }
         const contextMenu = byId('message-context-menu');
         if (contextMenu instanceof HTMLElement && !contextMenu.contains(target)) messages.closeContextMenu();
-        if (target.closest('[data-host-stats-refresh]')) {
-            event.preventDefault();
-            void hostStats.refresh(true);
-            return;
-        }
         const suggestion = target.closest('[data-suggestion]');
         if (suggestion instanceof HTMLElement) {
             const input = document.querySelector('[data-draft-sync]');
@@ -205,11 +192,6 @@ export const startApplication = () => {
             input.value = `${input.value}${separator}${suggestion.dataset.suggestion || ''}`;
             input.dispatchEvent(new Event('input', { bubbles: true }));
             input.focus();
-            return;
-        }
-        const deleteChoice = target.closest('[data-delete-choice-open]');
-        if (deleteChoice instanceof HTMLElement) {
-            openDeleteDialog(deleteChoice);
             return;
         }
         const link = target.closest('a[href]');
@@ -260,7 +242,7 @@ export const startApplication = () => {
         }
         if (form.dataset.chatMutation === 'true') {
             event.preventDefault();
-            void chat.submitMutation(form);
+            void chat.submitMutation(form, submitter);
             return;
         }
         messages.saveScrollForNavigation();
@@ -284,6 +266,7 @@ export const startApplication = () => {
     document.addEventListener('input', (event) => {
         const input = event.target;
         if (!(input instanceof Element)) return;
+        if (input.closest('.jouzetsu-panel, dialog')) input.closest('form')?.setAttribute('data-local-dirty', 'true');
         characters.handleInput(input);
         if (
             input instanceof HTMLInputElement
@@ -298,6 +281,7 @@ export const startApplication = () => {
     document.addEventListener('change', (event) => {
         const control = event.target;
         if (!(control instanceof Element)) return;
+        if (control.closest('.jouzetsu-panel, dialog')) control.closest('form')?.setAttribute('data-local-dirty', 'true');
         images.handleChange(control);
         characters.handleChange(control);
         if (control instanceof HTMLInputElement) {
@@ -389,27 +373,28 @@ export const startApplication = () => {
         }
     });
 
-    document.querySelectorAll('dialog').forEach((dialog) => {
+    document.addEventListener('click', (event) => {
+        const dialog = event.target;
         if (!(dialog instanceof HTMLDialogElement)) return;
-        dialog.addEventListener('click', (event) => {
-            const bounds = dialog.getBoundingClientRect();
-            if (
-                event.clientX < bounds.left
-                || event.clientX > bounds.right
-                || event.clientY < bounds.top
-                || event.clientY > bounds.bottom
-            ) dialog.close();
-        });
-        dialog.addEventListener('cancel', () => panels.removeTransientParameters());
-        dialog.addEventListener('close', () => {
-            if (dialog.id === 'message-details-dialog') messages.clearDetailsRequest();
-            panels.removeTransientParameters();
-            const feedback = dialog.querySelector('.jouzetsu-dialog-feedback');
-            if (feedback instanceof HTMLElement && feedback.textContent) {
-                notices.announce(feedback.textContent, feedback.classList.contains('is-error'));
-            }
-        });
+        const bounds = dialog.getBoundingClientRect();
+        if (
+            event.clientX < bounds.left
+            || event.clientX > bounds.right
+            || event.clientY < bounds.top
+            || event.clientY > bounds.bottom
+        ) dialog.close();
     });
+    // Dialogs are replaced by live refreshes; capture their non-bubbling events.
+    document.addEventListener('close', (event) => {
+        const dialog = event.target;
+        if (!(dialog instanceof HTMLDialogElement)) return;
+        if (dialog.id === 'message-details-dialog') messages.clearDetailsRequest();
+        panels.removeTransientParameters();
+        const feedback = dialog.querySelector('.jouzetsu-dialog-feedback');
+        if (feedback instanceof HTMLElement && feedback.textContent) {
+            notices.announce(feedback.textContent, feedback.classList.contains('is-error'));
+        }
+    }, true);
 
     composer.reconcileViewport();
     characters.initialize();
@@ -431,7 +416,10 @@ export const startApplication = () => {
     window.visualViewport?.addEventListener('resize', () => composer.scheduleViewportReconciliation());
     window.visualViewport?.addEventListener('scroll', () => composer.scheduleViewportReconciliation());
     window.addEventListener('popstate', () => void chat.handlePopstate());
-    window.addEventListener('pagehide', () => drafts.persistOnPageHide());
+    window.addEventListener('pagehide', () => {
+        messages.saveScrollForNavigation();
+        drafts.persistOnPageHide();
+    });
 
     bootstrapDeviceCookie();
     deviceActivity.start();
@@ -442,10 +430,10 @@ export const startApplication = () => {
     }
     notices.scheduleInitialDismissal();
     panels.removeTransientParameters();
-    hostStats.start();
 
     if ('EventSource' in window && !document.querySelector('[data-testid="access-locked-page"]')) {
         const source = new EventSource('/events');
+        source.addEventListener('revoked', () => { source.close(); window.location.assign('/'); });
         source.addEventListener('state', (event) => {
             if (!(event instanceof MessageEvent)) {
                 chat.scheduleFullRefresh();
@@ -453,8 +441,13 @@ export const startApplication = () => {
             }
             try {
                 const payload = JSON.parse(event.data);
+                if (payload?.configuration_changed === true) {
+                    const theme = document.querySelector('link[data-live-theme]');
+                    if (theme instanceof HTMLLinkElement) theme.href = `/theme.css?revision=${encodeURIComponent(payload.revision)}`;
+                    void chat.refreshDialogs();
+                }
                 if (payload?.characters_changed === true && characters.refreshIfNeeded(notices.announce.bind(notices))) return;
-                if (payload?.kind === 'full') {
+                if (payload?.kind === 'full' || payload?.kind === 'config') {
                     chat.scheduleFullRefresh();
                     void chat.refreshPanels();
                 } else if (payload?.kind === 'characters') {

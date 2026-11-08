@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from ..backend_models import BackendConfiguration
 from ..colors import HEX_COLOR_PATTERN as _HEX_COLOR_PATTERN
@@ -109,7 +109,6 @@ class GenerationSettings:
     top_p: float = DEFAULT_SAMPLING.top_p
     max_tokens: int = DEFAULT_SAMPLING.max_tokens
     system_prompt: str = "You are a helpful assistant."
-    continuity_review: bool = True
     british_english: bool = False
     british_spelling_replacements: list[SpellingReplacement] = field(
         default_factory=_builtin_spelling_replacements
@@ -117,8 +116,8 @@ class GenerationSettings:
 
     def validate(self) -> None:
         validate_sampling(self.temperature, self.top_p, self.max_tokens)
-        if not _are_booleans(self.continuity_review, self.british_english):
-            raise ValueError("continuity_review and british_english must be booleans")
+        if not _are_booleans(self.british_english):
+            raise ValueError("british_english must be a boolean")
         seen_sources: set[str] = set()
         for replacement in self.british_spelling_replacements:
             replacement.validate()
@@ -346,7 +345,6 @@ class UiSettings:
     port: int = 8080
     dark_mode: bool = True
     auto_open_browser: bool = False
-    active_chat_id: str = ""
     message_action_style: MessageActionStyle = MessageActionStyle.UNIFORM
     icon_colors: IconColorSettings = field(default_factory=IconColorSettings)
     starter_prompts: list[StarterPrompt] = field(
@@ -380,46 +378,6 @@ class LoggingSettings:
 
 
 @dataclass
-class HostStatsDeviceSettings:
-    """Per-device host-statistics presentation settings."""
-
-    visible: bool = True
-    label: str = ""
-
-    def validate(self) -> None:
-        if not _are_booleans(self.visible):
-            raise ValueError("device visibility must be a boolean")
-
-
-@dataclass
-class HostStatsSettings:
-    """Visibility controls for the host diagnostics dialog."""
-
-    system: bool = True
-    cpu: bool = True
-    gpu: bool = True
-    network: bool = True
-    gpus: dict[str, HostStatsDeviceSettings] = field(default_factory=dict)
-    interfaces: dict[str, HostStatsDeviceSettings] = field(default_factory=dict)
-    activity_start_color: str = "#1266d6"
-    activity_end_color: str = "#ff3048"
-
-    def validate(self) -> None:
-        if not _are_booleans(self.system, self.cpu, self.gpu, self.network):
-            raise ValueError("host-stat visibility values must be booleans")
-        for field_name, value in (
-            ("activity_start_color", self.activity_start_color),
-            ("activity_end_color", self.activity_end_color),
-        ):
-            if not _HEX_COLOR_PATTERN.fullmatch(value):
-                raise ValueError(f"{field_name} must be a six-digit hexadecimal color")
-        for device_id, settings in {**self.gpus, **self.interfaces}.items():
-            if not device_id.strip():
-                raise ValueError("host-stat device IDs cannot be blank")
-            settings.validate()
-
-
-@dataclass
 class DeviceAccessSettings:
     """Access state for one browser/device identifier."""
 
@@ -439,22 +397,12 @@ class DeviceAccessSettings:
 class AccessSettings:
     """Default-private browser/device access controls."""
 
-    default_private: bool = True
-    allow_localhost_without_approval: bool = True
-    global_settings_for_approved: bool = False
-    allow_network_device_reassociation: bool = False
     approval_phrase: str = ""
     devices: dict[str, DeviceAccessSettings] = field(default_factory=dict)
 
     def validate(self) -> None:
-        flags: tuple[bool, ...] = (
-            self.default_private,
-            self.allow_localhost_without_approval,
-            self.global_settings_for_approved,
-            self.allow_network_device_reassociation,
-        )
-        if not _are_booleans(*flags):
-            raise ValueError("access flags must be booleans")
+        if not isinstance(cast(object, self.approval_phrase), str):
+            raise TypeError("approval_phrase must be text")
         for device_id, device in self.devices.items():
             if not device_id.strip():
                 raise ValueError("access device IDs cannot be blank")
@@ -466,12 +414,10 @@ class AppConfig:
     """Complete runtime configuration with one authoritative path set."""
 
     paths: AppPaths = field(default_factory=default_paths)
-    server: ServerSettings = field(default_factory=ServerSettings)
     generation: GenerationSettings = field(default_factory=GenerationSettings)
     ui: UiSettings = field(default_factory=UiSettings)
     theme: ThemeSettings = field(default_factory=ThemeSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
-    host_stats: HostStatsSettings = field(default_factory=HostStatsSettings)
     access: AccessSettings = field(default_factory=AccessSettings)
     backends: BackendConfiguration = field(default_factory=BackendConfiguration)
 
@@ -481,23 +427,11 @@ class AppConfig:
         if self.paths != settings.paths:
             raise ValueError("cannot change application paths at runtime")
         settings.validate()
-        self.server.apply(settings.server)
         self.generation = settings.generation
         self.ui = settings.ui
         self.theme = settings.theme
         self.logging = settings.logging
-        self.host_stats = settings.host_stats
         self.backends = settings.backends
-        self.access.default_private = settings.access.default_private
-        self.access.allow_localhost_without_approval = (
-            settings.access.allow_localhost_without_approval
-        )
-        self.access.global_settings_for_approved = (
-            settings.access.global_settings_for_approved
-        )
-        self.access.allow_network_device_reassociation = (
-            settings.access.allow_network_device_reassociation
-        )
         self.access.approval_phrase = settings.access.approval_phrase
         self.access.devices = settings.access.devices
 
@@ -530,7 +464,6 @@ class AppConfig:
         return self.logging.directory or self.paths.log_directory
 
     def validate(self) -> None:
-        self.server.validate()
         self.generation.validate()
         self.ui.validate()
         self.theme.validate()
@@ -548,5 +481,4 @@ class AppConfig:
             for protected_path in protected_paths
         ):
             raise ValueError("logging.directory must not contain application data")
-        self.host_stats.validate()
         self.access.validate()

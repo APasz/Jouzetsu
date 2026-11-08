@@ -53,6 +53,8 @@ export const localizeMessageDetailsTimes = (content) => {
 };
 
 export const chatFragmentUrl = (path) => {
-    const edit = new URLSearchParams(window.location.search).get('edit');
-    return edit ? `${path}?edit=${encodeURIComponent(edit)}` : path;
+    const match = window.location.pathname.match(/^\/chats\/([A-Za-z0-9]+)$/);
+    const params = new URLSearchParams(window.location.search);
+    if (match) params.set('chat_id', match[1]);
+    return `${path}?${params}`;
 };

@@ -3,23 +3,19 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
 from typing import cast
 
 import pytest
 
 from jouzetsu.access import AccessDecision
-from jouzetsu.config import AppConfig, MessageActionStyle, StarterPrompt
+from jouzetsu.backend_models import BackendConfiguration, GenerationProfile
+from jouzetsu.config import MessageActionStyle, StarterPrompt
 from jouzetsu.models import CharacterChatBinding, Chat, ChatPromptMode, Message
 from jouzetsu.runtime import (
-    ConnectionState,
     GenerationMetrics,
-    ModelDescriptor,
-    ModelInstanceDescriptor,
     RuntimePhase,
     RuntimeStatus,
 )
-from jouzetsu.state import AppState
 from jouzetsu.web.views.access import render_locked_access_page
 from jouzetsu.web.views.chat import (
     ChatSettingsView,
@@ -31,36 +27,8 @@ from jouzetsu.web.views.chat import (
     render_settings_panel,
 )
 from jouzetsu.web.views.context import PageContext
-from jouzetsu.web.views.dialogs import render_loaded_model_card
 from jouzetsu.web.views.feedback import render_notice_area
 from jouzetsu.web.views.model_controls import ModelChoice, render_model_options
-
-
-@dataclass(frozen=True, slots=True)
-class _SettingsViewState:
-    """Minimal state surface used by the active-chat settings renderer."""
-
-    active_chat: Chat
-    generating: bool
-    config: AppConfig = field(default_factory=AppConfig)
-    model_inventory: tuple[ModelDescriptor, ...] = ()
-    generating_model_keys: frozenset[str] = frozenset()
-    model_connection: ConnectionState = ConnectionState.ONLINE
-
-    def is_generating(self, chat_id: str | None = None) -> bool:
-        _ = chat_id
-        return self.generating
-
-    def model_display_name(self, model_key: str, fallback: str = "") -> str:
-        return self.config.server.model_aliases.get(model_key, fallback or model_key)
-
-    def model_descriptor(self, model_key: str) -> ModelDescriptor | None:
-        return next(
-            (model for model in self.model_inventory if model.key == model_key), None
-        )
-
-    def is_model_generating(self, model_key: str) -> bool:
-        return model_key in self.generating_model_keys
 
 
 def _render_message(
@@ -104,6 +72,9 @@ def _chat_view(
         empty_state_message=empty_state_message,
         starter_prompts=starter_prompts,
         message_action_style=message_action_style,
+        live_response=chat.messages[-1]
+        if generating and chat.messages and chat.messages[-1].role == "assistant"
+        else None,
     )
 
 
@@ -115,7 +86,6 @@ def test_last_assistant_message_renders_only_valid_actions_in_display_order() ->
             id="assistant-2",
             role="assistant",
             content="Second answer",
-            continuity_rewrite="Rewritten second answer",
         ),
     ]
 
@@ -123,7 +93,6 @@ def test_last_assistant_message_renders_only_valid_actions_in_display_order() ->
     markers: list[str] = [
         "delete-message-assistant-2",
         "regenerate-message-assistant-2",
-        "review-continuity-rewrite-assistant-2",
         "merge-message-assistant-2",
         "edit-message-assistant-2",
         "continue-message-assistant-2",
@@ -133,14 +102,11 @@ def test_last_assistant_message_renders_only_valid_actions_in_display_order() ->
         markup.index(f'data-testid="{marker}"') for marker in markers
     )
     assert 'action="/messages/assistant-2/regenerate"' in markup
-    assert 'href="/chats?continuity_rewrite=assistant-2"' in markup
     assert 'action="/messages/assistant-2/continue"' in markup
     assert 'data-message-action="continue"' in markup
     assert 'data-chat-mutation="true"' in markup
     assert "truncate-message-assistant-2" not in markup
     assert "fork-message-assistant-2" not in markup
-    assert 'data-delete-choice-open="assistant-2"' in markup
-    assert 'data-delete-choice-has-following="false"' in markup
     assert 'class="jouzetsu-svg-icon"' in markup
 
 
@@ -178,25 +144,8 @@ def test_nonfinal_message_delete_action_marks_following_messages() -> None:
     ]
 
     markup: str = _render_message(messages, 0)
-
-    assert 'data-delete-choice-has-following="true"' in markup
-
-
-def test_nonfinal_assistant_message_hides_its_continuity_rewrite_action() -> None:
-    messages: list[Message] = [
-        Message(id="user-1", role="user", content="Question"),
-        Message(
-            id="assistant-1",
-            role="assistant",
-            content="Answer",
-            continuity_rewrite="Proposed rewrite",
-        ),
-        Message(id="user-2", role="user", content="Follow-up"),
-    ]
-
-    markup: str = _render_message(messages, 1)
-
-    assert "review-continuity-rewrite-assistant-1" not in markup
+    assert "/delete-following" in markup
+    assert "/truncate" in markup
 
 
 def test_streaming_message_hides_message_actions() -> None:
@@ -528,7 +477,8 @@ def test_generating_chat_disables_every_generation_sensitive_setting() -> None:
     view: ChatSettingsView = ChatSettingsView(
         chat=Chat(id="chat-generating-settings"),
         generating=True,
-        generation_defaults=AppConfig().generation,
+        backends=BackendConfiguration(),
+        profile=GenerationProfile(),
         model_choices=(ModelChoice(key="demo-model", label="Demo Model"),),
     )
 
@@ -565,7 +515,8 @@ def test_settings_panel_lists_every_character_in_a_cast() -> None:
     view: ChatSettingsView = ChatSettingsView(
         chat=chat,
         generating=False,
-        generation_defaults=AppConfig().generation,
+        backends=BackendConfiguration(),
+        profile=GenerationProfile(),
         model_choices=(),
     )
 
@@ -579,36 +530,6 @@ def test_settings_panel_lists_every_character_in_a_cast() -> None:
     assert 'href="/characters/ren123"' in markup
 
 
-def test_generating_model_cannot_be_unloaded_from_the_models_dialog() -> None:
-    model: ModelDescriptor = ModelDescriptor(
-        key="demo-model", display_name="Demo Model"
-    )
-    state: AppState = cast(
-        AppState,
-        cast(
-            object,
-            _SettingsViewState(
-                active_chat=Chat(id="chat-generating-model"),
-                generating=False,
-                generating_model_keys=frozenset({model.key}),
-            ),
-        ),
-    )
-
-    markup: str = repr(
-        render_loaded_model_card(
-            state, model, ModelInstanceDescriptor(id="demo-instance")
-        )
-    )
-    marker_index: int = markup.index('data-testid="unload-model-demo-instance"')
-    opening_tag: str = markup[
-        markup.rfind("<", 0, marker_index) : markup.index(">", marker_index)
-    ]
-
-    assert "disabled" in opening_tag
-    assert "Cannot unload a model while it is generating a response" in markup
-
-
 def test_model_options_mark_stale_entries_and_retain_the_current_selection() -> None:
     choice = ModelChoice("missing-model", "Old model", "Unavailable", selectable=False)
     unavailable: str = repr(render_model_options((choice,), "")[0])
@@ -618,41 +539,6 @@ def test_model_options_mark_stale_entries_and_retain_the_current_selection() -> 
     assert "disabled" in unavailable
     assert "selected" in selected
     assert "disabled" not in selected
-
-
-def test_loaded_model_summary_exposes_alias_key_quantisation_and_context() -> None:
-    model = ModelDescriptor(
-        key="local/demo-q4",
-        display_name="Demo Model",
-        loaded_instance_ids=("demo-instance",),
-        quantization_name="Q4_K_M",
-    )
-    config = AppConfig()
-    config.server.model_aliases[model.key] = "Daily assistant"
-    state = cast(
-        AppState,
-        cast(
-            object,
-            _SettingsViewState(
-                active_chat=Chat(id="summary-test"),
-                generating=False,
-                config=config,
-                model_inventory=(model,),
-            ),
-        ),
-    )
-    markup = repr(
-        render_loaded_model_card(
-            state,
-            model,
-            ModelInstanceDescriptor(id="demo-instance", context_length=32768),
-        )
-    )
-    summary = markup.partition("<summary")[2].partition("</summary>")[0]
-
-    assert "Daily assistant" in summary
-    assert model.key in summary
-    assert "Q4_K_M · 32,768 tokens · Loaded" in summary
 
 
 def test_composer_status_distinguishes_model_loading_from_prompt_processing() -> None:
@@ -865,24 +751,6 @@ def test_composer_status_places_reasoning_and_output_in_the_state_column() -> No
             in markup
         )
         assert 'data-composer-status-timers="true"' in markup
-
-
-def test_reviewing_composer_status_labels_the_review_stage() -> None:
-    view: ChatView = _chat_view(
-        Chat(id="chat-reviewing"),
-        generating=True,
-        runtime_status=RuntimeStatus(
-            RuntimePhase.REVIEWING,
-            model_name="Demo Model",
-            started_at=time.monotonic() - 2.0,
-            phase_started_at=time.monotonic() - 0.5,
-        ),
-    )
-
-    markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
-
-    assert ">Reviewing<" in markup
-    assert "Response continuity" in markup
 
 
 def test_composer_status_labels_preparing_and_stopping_stages() -> None:

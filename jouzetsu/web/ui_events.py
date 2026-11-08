@@ -21,6 +21,7 @@ class UiEvent:
     revision: int
     kind: StateChangeKind
     characters_changed: bool = False
+    configuration_changed: bool = False
 
 
 class UiEventBroker:
@@ -45,6 +46,7 @@ class UiEventBroker:
             revision=self._revision,
             kind=kind,
             characters_changed=kind is StateChangeKind.CHARACTERS,
+            configuration_changed=kind is StateChangeKind.CONFIG,
         )
         for queue in tuple(self._queues):
             queued_event: UiEvent = event
@@ -65,12 +67,14 @@ class UiEventBroker:
 
         queue: asyncio.Queue[UiEvent] = asyncio.Queue(maxsize=1)
         self._queues.add(queue)
+        self._state.inference.set_observers(len(self._queues))
         return queue
 
     def unsubscribe(self, queue: asyncio.Queue[UiEvent]) -> None:
         """Release a browser queue after its streaming response disconnects."""
 
         self._queues.discard(queue)
+        self._state.inference.set_observers(len(self._queues))
 
     def close(self) -> None:
         """Detach listeners and browser queues during one lifespan shutdown."""
@@ -79,23 +83,35 @@ class UiEventBroker:
             self._remove_listener()
             self._remove_listener = None
         self._queues.clear()
+        self._state.inference.set_observers(0)
 
 
 async def stream_events(
-    broker: UiEventBroker, queue: asyncio.Queue[UiEvent]
+    broker: UiEventBroker,
+    queue: asyncio.Queue[UiEvent],
+    allowed: Callable[[], bool] = lambda: True,
 ) -> AsyncIterator[str]:
     """Yield SSE frames and release the queue when its response disconnects."""
 
     try:
-        yield _sse_frame(UiEvent(revision=0, kind=StateChangeKind.FULL))
+        if not allowed():
+            return
+        yield _sse_frame(
+            UiEvent(revision=0, kind=StateChangeKind.FULL, configuration_changed=True)
+        )
         while True:
             try:
                 event: UiEvent = await asyncio.wait_for(
                     queue.get(), timeout=_HEARTBEAT_SECONDS
                 )
             except TimeoutError:
+                if not allowed():
+                    return
                 yield ": ping\n\n"
                 continue
+            if not allowed():
+                yield "event: revoked\ndata: {}\n\n"
+                return
             yield _sse_frame(event)
     finally:
         broker.unsubscribe(queue)
@@ -106,13 +122,18 @@ def _coalesce(previous: UiEvent, current: UiEvent) -> UiEvent:
 
     kind: StateChangeKind = (
         StateChangeKind.FULL
-        if previous.kind is StateChangeKind.FULL or current.kind is StateChangeKind.FULL
+        if previous.kind
+        in {StateChangeKind.FULL, StateChangeKind.DRAFT, StateChangeKind.CONFIG}
+        or current.kind
+        in {StateChangeKind.FULL, StateChangeKind.DRAFT, StateChangeKind.CONFIG}
         else current.kind
     )
     return UiEvent(
         revision=current.revision,
         kind=kind,
         characters_changed=previous.characters_changed or current.characters_changed,
+        configuration_changed=previous.configuration_changed
+        or current.configuration_changed,
     )
 
 
@@ -124,6 +145,7 @@ def _sse_frame(event: UiEvent) -> str:
             "revision": event.revision,
             "kind": event.kind.value,
             "characters_changed": event.characters_changed,
+            "configuration_changed": event.configuration_changed,
         },
         separators=(",", ":"),
     )

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
 from logging import Logger
 from pathlib import Path
 from typing import cast
@@ -18,7 +17,6 @@ from .atomic_write import (
 from .models import Character, FutureSchemaVersionError
 
 log: Logger = logging.getLogger(__name__)
-_CORRUPT_FILE_SUFFIX: str = ".corrupt-"
 
 
 class CharacterStorage:
@@ -27,12 +25,14 @@ class CharacterStorage:
     def __init__(self, directory: Path) -> None:
         self.directory: Path = Path(directory)
         self._write_guard: DurableWriteGuard = DurableWriteGuard()
+        self._isolated_ids: set[str] = set()
         ensure_directory(self.directory)
 
     def load_all(self) -> list[Character]:
         """Load valid profiles, leaving forward-incompatible documents untouched."""
 
         characters: list[Character] = []
+        self._isolated_ids.clear()
         for path in sorted(self.directory.glob("*.json")):
             character: Character | None = self._load_one(path)
             if character is not None:
@@ -44,11 +44,18 @@ class CharacterStorage:
         )
         return characters
 
+    @property
+    def isolated_count(self) -> int:
+        """Number of unreadable documents excluded from the loaded library."""
+        return len(self._isolated_ids)
+
     def save(self, character: Character) -> None:
         """Atomically replace the one document for ``character``."""
 
         data: str = json.dumps(character.to_dict(), ensure_ascii=False, indent=4) + "\n"
         path: Path = self.path_for(character.id)
+        if character.id in self._isolated_ids:
+            raise ValueError("cannot overwrite an isolated character document")
         with self._write_guard.protect(path):
             atomic_write_text(path, data)
         log.info(
@@ -86,39 +93,16 @@ class CharacterStorage:
                 raise ValueError("document id does not match its file name")
             return character
         except FutureSchemaVersionError as exc:
+            self._isolated_ids.add(path.stem)
             log.warning(
                 "skipped future character document path=%s reason=%s", path, exc
             )
             return None
         except Exception as exc:  # noqa: BLE001
-            self._quarantine_corrupt_file(path, str(exc))
-            return None
-
-    def _quarantine_corrupt_file(self, path: Path, reason: str) -> None:
-        """Move just one unreadable profile aside instead of losing the library."""
-
-        backup_path: Path = self._corrupt_backup_path(path)
-        try:
-            _ = path.replace(backup_path)
-        except OSError:
-            log.exception("could not quarantine corrupt character file path=%s", path)
-            return
-        log.warning(
-            "quarantined corrupt character file reason=%s backup=%s",
-            reason,
-            backup_path,
-        )
-
-    @staticmethod
-    def _corrupt_backup_path(path: Path) -> Path:
-        timestamp: str = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-        candidate: Path = path.with_name(
-            f"{path.name}{_CORRUPT_FILE_SUFFIX}{timestamp}"
-        )
-        sequence: int = 1
-        while candidate.exists():
-            candidate = path.with_name(
-                f"{path.name}{_CORRUPT_FILE_SUFFIX}{timestamp}-{sequence}"
+            self._isolated_ids.add(path.stem)
+            log.error(
+                "isolated invalid character document path=%s error_type=%s",
+                path,
+                type(exc).__name__,
             )
-            sequence += 1
-        return candidate
+            return None

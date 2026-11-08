@@ -1,7 +1,6 @@
 """Server-owned inference jobs, explicit chat commands and per-backend FIFO queues.
 
-This service owns mutations of its registry and configuration. The legacy web
-façade remains the composition root until the Gate 3 browser integration.
+This service is the sole owner of chat and configuration mutations.
 """
 
 from __future__ import annotations
@@ -12,6 +11,7 @@ import time
 from collections import deque
 from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine
 from contextlib import aclosing, asynccontextmanager
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import Enum
@@ -40,7 +40,7 @@ from .backend_protocol import (
     InferenceMessage,
 )
 from .backends import create_backend
-from .config import CONTINUE_PROMPT_CONTENT, SpellingReplacement
+from .config import CONTINUE_PROMPT_CONTENT, AppConfig, SpellingReplacement
 from .controllers import PersistenceController
 from .image_storage import ImageStorage
 from .lmstudio import BRITISH_ENGLISH_INSTRUCTION
@@ -152,6 +152,8 @@ class SendResult:
     message_id: str
     duplicate: bool
     job: GenerationJob | None = None
+    draft_revision: int | None = None
+    draft_cleared: bool = False
 
 
 @dataclass(slots=True)
@@ -253,6 +255,10 @@ class InferenceRuntime:
     def health(self, backend_id: BackendId) -> BackendHealth:
         return self._backends[backend_id].health
 
+    def inventory(self, backend_id: BackendId) -> tuple[ModelDescriptor, ...]:
+        """Observed model instances; use health to distinguish current and cached data."""
+        return self._backends[backend_id].inventory
+
     def discovery_error(self, backend_id: BackendId) -> BackendError | None:
         """Inventory errors remain visible independently of inference availability."""
         return self._backends[backend_id].discovery_error
@@ -312,8 +318,6 @@ class InferenceRuntime:
             _ = self.registry.add(
                 candidate,
                 runtime_status=RuntimeStatus(RuntimePhase.READY),
-                persist=False,
-                activate=False,
             )
             await self._notify(ChangeKind.CHAT, candidate.id)
 
@@ -388,8 +392,6 @@ class InferenceRuntime:
                 _ = self.registry.add(
                     candidate,
                     runtime_status=RuntimeStatus(RuntimePhase.READY),
-                    persist=False,
-                    activate=False,
                 )
                 await self._notify(ChangeKind.CHAT, candidate.id)
 
@@ -437,6 +439,11 @@ class InferenceRuntime:
             return chat.draft_revision
 
     @_command
+    async def flush_drafts(self) -> None:
+        await self.persistence.flush_chats()
+        await self._notify(ChangeKind.STATUS)
+
+    @_command
     async def send_message(
         self,
         chat_id: str,
@@ -471,10 +478,11 @@ class InferenceRuntime:
             candidate.submissions += (
                 Submission(submission_id, message.id, fingerprint),
             )
-            if (
+            draft_cleared = (
                 expected_draft_revision is not None
                 and chat.draft_revision == expected_draft_revision
-            ):
+            )
+            if draft_cleared:
                 candidate.draft = ""
                 candidate.draft_images = ()
                 candidate.draft_revision += 1
@@ -488,7 +496,9 @@ class InferenceRuntime:
                 async with self._config_lock:
                     job = self._accept(chat, GenerationMode.REPLY) if generate else None
                 await self._notify(ChangeKind.STATUS, chat_id)
-                return SendResult(message.id, False, job)
+                return SendResult(
+                    message.id, False, job, candidate.draft_revision, draft_cleared
+                )
 
             # Caller cancellation must not split durable submission from job acceptance.
             return await complete_before_cancelling(commit_submission())
@@ -1005,7 +1015,7 @@ class InferenceRuntime:
             session.runtime_status = replace(
                 session.runtime_status, phase=RuntimePhase.READY
             )
-        await self._notify(ChangeKind.STATUS, chat_id)
+        await self._notify(ChangeKind.CHAT, chat_id)
 
     async def _fail_queued(self, runtime: _BackendRuntime, error: BackendError) -> None:
         while runtime.queue:
@@ -1016,10 +1026,14 @@ class InferenceRuntime:
             await self._notify(ChangeKind.STATUS, job.chat_id)
 
     @_command
-    async def update_backend(self, candidate: BackendConfig) -> None:
-        await complete_before_cancelling(self._update_backend(candidate))
+    async def update_backend(
+        self, candidate: BackendConfig, *, expected: BackendConfig | None = None
+    ) -> None:
+        await complete_before_cancelling(self._update_backend(candidate, expected))
 
-    async def _update_backend(self, candidate: BackendConfig) -> None:
+    async def _update_backend(
+        self, candidate: BackendConfig, expected: BackendConfig | None
+    ) -> None:
         async with self._config_lock:
             previous = next(
                 (
@@ -1029,6 +1043,8 @@ class InferenceRuntime:
                 ),
                 None,
             )
+            if expected is not None and previous != expected:
+                raise RevisionConflict("backend configuration changed while editing")
             disruptive = previous is not None and (
                 previous.kind,
                 previous.base_url,
@@ -1089,6 +1105,33 @@ class InferenceRuntime:
             await self._save_configuration(
                 replace(self.configuration, default_backend_id=backend_id)
             )
+
+    @_command
+    async def update_settings(
+        self, edit: Callable[[AppConfig], None], *, notify: bool = True
+    ) -> None:
+        """Serialize non-backend settings with backend discovery and configuration writes."""
+        async with self._config_lock:
+            candidate = deepcopy(self.persistence.config)
+            edit(candidate)
+            if (
+                candidate.paths != self.persistence.config.paths
+                or candidate.backends != self.configuration
+            ):
+                raise ValueError(
+                    "backend and path changes require their explicit commands"
+                )
+            candidate.validate()
+            if candidate == self.persistence.config:
+                return
+
+            async def publish() -> None:
+                await self.persistence.save_config(candidate)
+                self.persistence.config.apply(candidate)
+                if notify:
+                    await self._notify(ChangeKind.CONFIG)
+
+            await complete_before_cancelling(publish())
 
     async def _save_configuration(
         self, backends: BackendConfiguration, *, notify: bool = True

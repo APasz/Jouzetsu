@@ -40,6 +40,8 @@ from fasthtml.common import (  # pyright: ignore[reportMissingTypeStubs]
     Textarea as _Textarea,
 )
 
+from ..models import Chat
+
 type HTML = FT
 type HtmlChild = HTML | str | int | float | bool | None
 
@@ -94,3 +96,38 @@ Small: HtmlTag = _tag(_Small)
 Span: HtmlTag = _tag(_Span)
 Summary: HtmlTag = _tag(_Summary)
 Textarea: HtmlTag = _tag(_Textarea)
+
+
+class _MutableElement(Protocol):
+    tag: str
+    attrs: dict[str, object]
+    children: tuple[object, ...]
+
+
+def scope_chat_forms(element: HTML, chat: Chat) -> HTML:
+    """Stamp chat command forms with the document snapshot used for rendering."""
+
+    def visit(node: object) -> None:
+        if not isinstance(node, FT):
+            return
+        item = cast(_MutableElement, cast(object, node))
+        if item.tag == "form":
+            action = str(item.attrs.get("action", ""))
+            if action.startswith(("/chat/", "/messages/", f"/chats/{chat.id}/")):
+                existing = {
+                    cast(_MutableElement, child).attrs.get("name")
+                    for child in item.children
+                    if isinstance(child, FT)
+                }
+                for name, value in (
+                    ("chat_id", chat.id),
+                    ("revision", chat.revision),
+                    ("draft_revision", chat.draft_revision),
+                ):
+                    if name not in existing:
+                        item.children += (Input(type="hidden", name=name, value=value),)
+        for child in item.children:
+            visit(child)
+
+    visit(element)
+    return element

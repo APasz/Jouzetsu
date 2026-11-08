@@ -37,25 +37,27 @@ from ..html import (
     Textarea,
 )
 from ..theme import resolved_theme_colours
+from .backends import render_backends
 from .context import PageContext
 from .controls import (
     checkbox,
     close_dialog_button,
     field,
     form_submit_actions,
-    post_button,
     reset_form_button,
 )
 from .feedback import dialog_feedback
 from .tabs import DialogTab, render_dialog_tab_list, render_dialog_tab_panel
 
-type GlobalSettingsTab = Literal["behaviour", "appearance"]
+type GlobalSettingsTab = Literal["behaviour", "appearance", "backends"]
 
 _BEHAVIOUR_TAB: Final[DialogTab] = DialogTab("behaviour", "Behaviour")
 _APPEARANCE_TAB: Final[DialogTab] = DialogTab("appearance", "Appearance")
+_BACKENDS_TAB: Final[DialogTab] = DialogTab("backends", "Backends")
 _GLOBAL_SETTINGS_TABS: Final[tuple[DialogTab, ...]] = (
     _BEHAVIOUR_TAB,
     _APPEARANCE_TAB,
+    _BACKENDS_TAB,
 )
 _COLOURWAY_DESCRIPTIONS: Final[dict[ThemeColorway, str]] = {
     ThemeColorway.APP: "Interface surfaces, text and controls.",
@@ -110,20 +112,15 @@ def render_global_settings_dialog(
                 active_tab,
                 _appearance_form(state),
             ),
+            render_dialog_tab_panel(
+                "global-settings-dialog",
+                _BACKENDS_TAB,
+                active_tab,
+                render_backends(state),
+            ),
             Div(
                 close_dialog_button("global-settings-dialog"),
                 cls="jouzetsu-dialog-actions",
-            ),
-            (
-                post_button(
-                    "Stop server",
-                    action="/app/exit",
-                    marker="exit-process-button",
-                    classes="jouzetsu-button jouzetsu-button-danger",
-                    confirm="Stop Jouzetsu for all connected browsers?",
-                )
-                if context.decision.can_manage_access
-                else None
             ),
             cls="jouzetsu-modal-card jouzetsu-global-settings-card",
         ),
@@ -137,7 +134,13 @@ def render_global_settings_dialog(
 def global_settings_tab_from_text(value: str) -> GlobalSettingsTab:
     """Return a supported Global Settings tab, defaulting to behaviour."""
 
-    return "appearance" if value == "appearance" else "behaviour"
+    return (
+        "backends"
+        if value == "backends"
+        else "appearance"
+        if value == "appearance"
+        else "behaviour"
+    )
 
 
 def _system_prompt_form(state: AppState) -> HTML:
@@ -379,7 +382,6 @@ def _key_visual_field(settings: AppColorwaySettings, *, preview: str) -> HTML:
 def _app_appearance_controls(state: AppState) -> tuple[HTML, ...]:
     app: AppColorwaySettings = state.config.theme.app
     icon = state.config.ui.icon_colors
-    host = state.config.host_stats
     return (
         _message_action_style_control(state.config.ui.message_action_style),
         _appearance_feature(
@@ -410,23 +412,6 @@ def _app_appearance_controls(state: AppState) -> tuple[HTML, ...]:
                     "icon_surface_color",
                     icon.surface_color,
                     "icon-surface-color",
-                ),
-            ),
-        ),
-        _appearance_feature(
-            "Host activity meter",
-            (
-                (
-                    "Low activity",
-                    "activity_start_color",
-                    host.activity_start_color,
-                    "host-stats-activity-start-color",
-                ),
-                (
-                    "High activity",
-                    "activity_end_color",
-                    host.activity_end_color,
-                    "host-stats-activity-end-color",
                 ),
             ),
         ),
@@ -484,57 +469,6 @@ def _generation_defaults_form(state: AppState) -> HTML:
     return Form(
         Section(
             H3("Generation defaults", cls="jouzetsu-section-title"),
-            Div(
-                field(
-                    "Temperature",
-                    Input(
-                        value=settings.temperature,
-                        name="temperature",
-                        type="number",
-                        min=GenerationSettings.MIN_TEMPERATURE,
-                        max=GenerationSettings.MAX_TEMPERATURE,
-                        step="0.05",
-                        data_testid="global-temperature",
-                    ),
-                ),
-                field(
-                    "Top P",
-                    Input(
-                        value=settings.top_p,
-                        name="top_p",
-                        type="number",
-                        min=GenerationSettings.MIN_TOP_P,
-                        max=GenerationSettings.MAX_TOP_P,
-                        step="0.05",
-                        data_testid="global-top-p",
-                    ),
-                ),
-                field(
-                    "Maximum output tokens",
-                    Input(
-                        value=settings.max_tokens,
-                        name="max_tokens",
-                        type="number",
-                        min=GenerationSettings.MIN_MAX_TOKENS,
-                        step=1,
-                        data_testid="global-max-tokens",
-                    ),
-                ),
-                cls="jouzetsu-form-grid",
-            ),
-            Div(
-                checkbox(
-                    "continuity_review",
-                    checked=settings.continuity_review,
-                    label="Check replies for continuity",
-                    marker="global-continuity-review",
-                ),
-                Small(
-                    "Adds a model pass to suggest fixes for contradictions or missed instructions.",
-                    cls="jouzetsu-form-help",
-                ),
-                cls="jouzetsu-dialog-section",
-            ),
             _spelling_replacements_editor(settings.british_spelling_replacements),
             cls="jouzetsu-dialog-section",
         ),

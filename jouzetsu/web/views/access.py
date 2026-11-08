@@ -29,12 +29,9 @@ from ..html import (
 )
 from .context import PageContext
 from .controls import (
-    checkbox,
     close_dialog_button,
     csrf_context,
     field,
-    form_submit_actions,
-    post_button,
 )
 from .feedback import dialog_feedback
 from .tabs import DialogTab, render_dialog_tab_list, render_dialog_tab_panel
@@ -67,17 +64,6 @@ def render_locked_access_page(
         if show_device_controls
         else None
     )
-    approve_current_device: HTML | None = (
-        post_button(
-            "Approve this browser",
-            action="/access/current-device/approve",
-            marker="approve-current-device-button",
-            classes="jouzetsu-button jouzetsu-button-primary",
-        )
-        if not preview and decision.can_manage_access and decision.device_id
-        else None
-    )
-
     return Div(
         csrf_context(context),
         Div(
@@ -91,7 +77,6 @@ def render_locked_access_page(
             _pending_device_form(context, approval_phrase_enabled)
             if show_device_controls
             else None,
-            approve_current_device,
             A(
                 "Refresh",
                 href="/",
@@ -112,9 +97,7 @@ def _locked_page_message(decision: AccessDecision, *, preview: bool = False) -> 
         return "This is the page shown to browsers awaiting approval."
     if decision.reason == "missing_device_id":
         return "Setting up this browser for approval…"
-    if decision.can_manage_access:
-        return "This browser is not approved for chats. Approve it below, then refresh."
-    return "Waiting for approval from the Jouzetsu host."
+    return "Enter the approval phrase provided by the Jouzetsu host."
 
 
 def _pending_device_form(context: PageContext, approval_phrase_enabled: bool) -> HTML:
@@ -125,12 +108,13 @@ def _pending_device_form(context: PageContext, approval_phrase_enabled: bool) ->
                 name="approval_phrase",
                 type="password",
                 autocomplete="off",
+                required=True,
                 data_testid="access-approval-phrase-input",
             ),
         )
         if approval_phrase_enabled
         else Small(
-            "The host can approve this browser from localhost.",
+            "Set an approval phrase from localhost to enroll this browser.",
             cls="jouzetsu-form-help",
         )
     )
@@ -146,8 +130,9 @@ def _pending_device_form(context: PageContext, approval_phrase_enabled: bool) ->
         ),
         phrase_control,
         Button(
-            "Save browser details",
+            "Approve browser",
             type="submit",
+            disabled=not approval_phrase_enabled,
             cls="jouzetsu-button",
             data_testid="save-pending-device-button",
         ),
@@ -217,44 +202,22 @@ def _access_dialog_tabs() -> HTML:
 
 
 def _access_panel(state: AppState, context: PageContext) -> HTML:
-    access = state.config.access
     return render_dialog_tab_panel(
         "access-dialog",
         _ACCESS_TAB,
         _ACCESS_TAB.name,
         Form(
-            checkbox(
-                "default_private",
-                checked=access.default_private,
-                label="Require browser approval",
-                marker="access-default-private",
+            field(
+                "Approval phrase",
+                Input(
+                    name="approval_phrase", type="password", autocomplete="new-password"
+                ),
             ),
-            checkbox(
-                "allow_localhost_without_approval",
-                checked=access.allow_localhost_without_approval,
-                label="Allow localhost without approval",
-                marker="access-localhost-bypass",
+            Small(
+                "Share this phrase with browsers you want to enroll. Blank disables enrollment."
             ),
-            checkbox(
-                "global_settings_for_approved",
-                checked=access.global_settings_for_approved,
-                label="Approved devices may use global settings",
-                marker="access-global-settings-approved",
-            ),
-            checkbox(
-                "allow_network_device_reassociation",
-                checked=access.allow_network_device_reassociation,
-                label="Recognise returning devices by hostname and IP",
-                marker="access-network-reassociation",
-            ),
-            form_submit_actions(
-                "Save access defaults",
-                "save-access-defaults-button",
-                reset_action="/access/defaults/reset",
-                reset_marker="reset-access-defaults-button",
-                reset_confirmation="Reset access defaults to their built-in values?",
-            ),
-            action="/access/defaults",
+            Button("Save phrase", type="submit", cls="jouzetsu-button"),
+            action="/access/phrase",
             method="post",
         ),
         H3("Known devices", cls="jouzetsu-section-title"),
@@ -428,38 +391,19 @@ def _device_last_active_summary(device: DeviceAccessSettings) -> str:
     return f"Last active {timestamp}" if timestamp else "Activity time unknown"
 
 
-def _device_access_action(device_id: str, *, access_allowed: bool) -> HTML:
+def _device_access_action(device_id: str) -> HTML:
     """Render the one intentional access-state transition for a non-local device."""
 
-    next_access_allowed: bool = not access_allowed
     return Form(
-        Input(
-            type="hidden",
-            name="access_allowed",
-            value="true" if next_access_allowed else "false",
-        ),
         Button(
-            "Approve" if next_access_allowed else "Revoke access",
+            "Revoke access",
             type="submit",
-            cls=(
-                "jouzetsu-button jouzetsu-button-primary"
-                if next_access_allowed
-                else "jouzetsu-button jouzetsu-button-danger"
-            ),
-            data_confirm=(
-                "Revoke this device's access? It will need approval to return."
-                if not next_access_allowed
-                else None
-            ),
-            data_testid=(
-                f"approve-device-{device_id}"
-                if next_access_allowed
-                else f"revoke-device-{device_id}"
-            ),
+            cls="jouzetsu-button jouzetsu-button-danger",
+            data_testid=f"revoke-device-{device_id}",
+            data_confirm="Revoke this browser's access?",
         ),
         action=f"/access/devices/{device_id}",
         method="post",
-        cls="jouzetsu-inline-form",
     )
 
 
@@ -513,9 +457,11 @@ def _device_actions(
 
     if is_current_browser:
         return None
-    actions: list[HTML] = [
-        _device_access_action(device_id, access_allowed=access_allowed)
-    ]
+    actions: list[HTML] = (
+        [_device_access_action(device_id)]
+        if access_allowed
+        else []
+    )
     if not access_allowed:
         actions.append(_forget_pending_device_action(device_id))
     return Div(*actions, cls="jouzetsu-device-card-actions")

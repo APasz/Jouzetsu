@@ -22,7 +22,6 @@ class RuntimePhase(Enum):
     PROCESSING_PROMPT = "processing_prompt"
     REASONING = "reasoning"
     GENERATING = "generating"
-    REVIEWING = "reviewing"
     STOPPING = "stopping"
     READY = "ready"
     ERROR = "error"

@@ -15,11 +15,9 @@ from ..config import (
     AppColorwaySettings,
     ColorwaySettings,
     GenerationSettings,
-    HostStatsSettings,
     IconColorSettings,
     MessageAction,
     MessageActionStyle,
-    ServerSettings,
     SpellingReplacement,
     ThemeSettings,
     builtin_message_action_color,
@@ -217,38 +215,12 @@ def updated_generation_settings(
 
     current: GenerationSettings = state.config.generation
     return GenerationSettings(
-        temperature=require_float(form.text("temperature"), field_name="temperature"),
-        top_p=require_float(form.text("top_p"), field_name="top_p"),
-        max_tokens=require_integer(form.text("max_tokens"), field_name="max_tokens"),
         system_prompt=system_prompt.strip(),
-        continuity_review=form.flag("continuity_review"),
         british_english=current.british_english,
         british_spelling_replacements=_parse_spelling_replacements(
             form.text("british_spelling_replacements")
         ),
     )
-
-
-def updated_server_settings(
-    state: AppState,
-    *,
-    default_model: str,
-    auto_unload_minutes: str,
-) -> ServerSettings:
-    """Construct complete server settings from global-form deltas."""
-
-    current: ServerSettings = state.config.server
-    settings: ServerSettings = ServerSettings(
-        base_url=current.base_url,
-        api_key=current.api_key,
-        default_model=default_model.strip(),
-        model_aliases=dict(current.model_aliases),
-        auto_unload_minutes=optional_integer(
-            auto_unload_minutes, field_name="auto_unload_minutes"
-        ),
-    )
-    settings.validate()
-    return settings
 
 
 def updated_icon_color_settings(state: AppState, form: FormValues) -> IconColorSettings:
@@ -363,15 +335,11 @@ def key_visual_from_form(
     return selected
 
 
-def _automatic_override_state(
-    form: FormValues, *, field_name: str
-) -> bool | None:
+def _automatic_override_state(form: FormValues, *, field_name: str) -> bool | None:
     """Return an explicit Auto state, or ``None`` for submissions from older forms."""
 
     automatic_field: str = f"{field_name}_automatic"
-    if not (
-        form.has(f"{automatic_field}_present") or form.has(automatic_field)
-    ):
+    if not (form.has(f"{automatic_field}_present") or form.has(automatic_field)):
         return None
     return form.flag(automatic_field)
 
@@ -403,25 +371,6 @@ def _message_action_colour_from_form(
     if not selected or selected.casefold() == builtin_message_action_color(action):
         return None
     return selected
-
-
-def updated_host_stat_activity_colors(
-    state: AppState, form: FormValues
-) -> tuple[str, str]:
-    """Read validated host-meter endpoint colours without changing visibility settings."""
-
-    current: HostStatsSettings = state.config.host_stats
-    updated: HostStatsSettings = replace(
-        current,
-        activity_start_color=form.text(
-            "activity_start_color", default=current.activity_start_color
-        ).strip(),
-        activity_end_color=form.text(
-            "activity_end_color", default=current.activity_end_color
-        ).strip(),
-    )
-    updated.validate()
-    return updated.activity_start_color, updated.activity_end_color
 
 
 def _parse_spelling_replacements(raw: str) -> list[SpellingReplacement]:

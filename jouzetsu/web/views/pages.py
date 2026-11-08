@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-from ...models import Message
 from ...state import AppState
-from ..html import H1, H2, HTML, A, Div, Header, Img, Main, P, Section, Span
+from ..html import (
+    H1,
+    H2,
+    HTML,
+    A,
+    Button,
+    Div,
+    Form,
+    Header,
+    Img,
+    Main,
+    P,
+    Section,
+    Span,
+)
 from ..icon import app_icon_url
 from .access import render_access_dialog
 from .chat import (
@@ -18,25 +31,19 @@ from .chat import (
 from .context import PageContext
 from .controls import csrf_context
 from .dialogs import (
-    models_tab_from_text,
-    render_continuity_rewrite_dialog,
-    render_host_stats_dialog,
     render_message_context_menu,
-    render_message_delete_dialog,
     render_message_details_dialog,
-    render_models_dialog,
 )
-from .feedback import render_notice_area
+from .feedback import render_notice_area, storage_warning
 from .global_settings import (
     global_settings_tab_from_text,
     render_global_settings_dialog,
 )
+from .icons import render_icon
 
 _DIALOG_ELEMENT_ID_BY_NAME: dict[str, str] = {
     "global": "global-settings-dialog",
     "access": "access-dialog",
-    "models": "models-dialog",
-    "host": "host-stats-dialog",
 }
 
 
@@ -48,19 +55,13 @@ def render_main_page(
     context: PageContext,
     *,
     edit_message_id: str = "",
-    continuity_rewrite_message_id: str = "",
     active_dialog: str = "",
     active_dialog_tab: str = "",
     notice: str = "",
     error: str = "",
-    undo_token: str = "",
 ) -> HTML:
     """Compose the chat workspace around independently refreshable fragments."""
 
-    continuity_rewrite: Message | None = _continuity_rewrite_message(
-        chat_view.chat.messages,
-        continuity_rewrite_message_id,
-    )
     dialogs: tuple[HTML, ...] = _workspace_dialogs(
         state,
         context,
@@ -68,49 +69,25 @@ def render_main_page(
         active_dialog_tab=active_dialog_tab,
         notice=notice,
         error=error,
-        continuity_rewrite=continuity_rewrite,
     )
     open_dialog: str = _DIALOG_ELEMENT_ID_BY_NAME.get(active_dialog, "")
-    if not open_dialog and continuity_rewrite is not None:
-        open_dialog = "continuity-rewrite-dialog"
     return Div(
         csrf_context(context),
         render_notice_area(
             notice="" if active_dialog else notice,
             error="" if active_dialog else error,
-            undo_token=undo_token if not active_dialog else "",
+            warning=storage_warning(state),
         ),
         render_navigation_panel(navigation_view),
         render_settings_panel(chat_settings_view),
         Div(cls="jouzetsu-panel-backdrop", data_panel_backdrop="true"),
         render_chat_fragment(chat_view, edit_message_id=edit_message_id),
         render_message_context_menu(),
-        render_message_delete_dialog(),
         render_message_details_dialog(),
         *dialogs,
         cls="jouzetsu-app",
         data_open_dialog=open_dialog,
     )
-
-
-def _continuity_rewrite_message(
-    messages: list[Message], message_id: str
-) -> Message | None:
-    """Return the final assistant message when it has a reviewed rewrite available."""
-
-    if not message_id or not messages:
-        return None
-    message: Message | None = next(
-        (message for message in messages if message.id == message_id), None
-    )
-    if (
-        message is None
-        or message is not messages[-1]
-        or message.role != "assistant"
-        or not message.continuity_rewrite
-    ):
-        return None
-    return message
 
 
 def _workspace_dialogs(
@@ -121,7 +98,6 @@ def _workspace_dialogs(
     active_dialog_tab: str,
     notice: str,
     error: str,
-    continuity_rewrite: Message | None,
 ) -> tuple[HTML, ...]:
     dialogs: list[HTML] = []
     if context.decision.can_use_global_settings:
@@ -143,20 +119,75 @@ def _workspace_dialogs(
                 error=error if active_dialog == "access" else "",
             )
         )
-    if active_dialog == "models" and context.decision.can_use_global_settings:
-        dialogs.append(
-            render_models_dialog(
-                state,
-                active_tab=models_tab_from_text(active_dialog_tab),
-                notice=notice,
-                error=error,
-            )
-        )
-    elif active_dialog == "host" and context.decision.can_use_global_settings:
-        dialogs.append(render_host_stats_dialog(state, notice=notice, error=error))
-    if continuity_rewrite is not None:
-        dialogs.append(render_continuity_rewrite_dialog(continuity_rewrite))
     return tuple(dialogs)
+
+
+def render_empty_chat_page(
+    state: AppState,
+    navigation: NavigationView,
+    context: PageContext,
+    *,
+    active_dialog: str = "",
+    active_dialog_tab: str = "",
+    notice: str = "",
+    error: str = "",
+) -> HTML:
+    """An empty shared library needs an explicit create action, not a GET-time write."""
+    return Div(
+        csrf_context(context),
+        render_notice_area(notice=notice, error=error, warning=storage_warning(state)),
+        render_navigation_panel(navigation),
+        Div(cls="jouzetsu-panel-backdrop", data_panel_backdrop="true"),
+        Div(
+            Header(
+                Button(
+                    render_icon("menu"),
+                    type="button",
+                    cls="jouzetsu-icon-button",
+                    data_panel_open="navigation",
+                    data_testid="open-nav-button",
+                    aria_label="Open chats",
+                ),
+                H1("Chats", cls="jouzetsu-title"),
+                Button(
+                    render_icon("settings"),
+                    type="button",
+                    cls="jouzetsu-icon-button",
+                    data_dialog_open="global-settings-dialog",
+                    aria_label="Global settings",
+                ),
+                cls="jouzetsu-topbar",
+            ),
+            Main(
+                Section(
+                    P("No chats yet.", cls="jouzetsu-empty-state"),
+                    Form(
+                        Button(
+                            "New chat",
+                            type="submit",
+                            cls="jouzetsu-button jouzetsu-button-primary",
+                            data_testid="start-first-chat",
+                        ),
+                        action="/chats/new",
+                        method="post",
+                    ),
+                    cls="jouzetsu-messages",
+                ),
+                cls="jouzetsu-main-content",
+            ),
+            cls="jouzetsu-chat-shell",
+        ),
+        *_workspace_dialogs(
+            state,
+            context,
+            active_dialog=active_dialog,
+            active_dialog_tab=active_dialog_tab,
+            notice=notice,
+            error=error,
+        ),
+        cls="jouzetsu-app",
+        data_open_dialog=_DIALOG_ELEMENT_ID_BY_NAME.get(active_dialog, ""),
+    )
 
 
 def render_launch_page(
@@ -170,7 +201,7 @@ def render_launch_page(
 
     return Div(
         csrf_context(context),
-        render_notice_area(notice=notice, error=error),
+        render_notice_area(notice=notice, error=error, warning=storage_warning(state)),
         Header(
             Div(
                 Img(

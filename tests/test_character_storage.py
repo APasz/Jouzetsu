@@ -71,7 +71,7 @@ def test_character_storage_leaves_a_future_schema_document_intact() -> None:
         assert list(directory.glob(f"{path.name}.corrupt-*")) == []
 
 
-def test_character_storage_quarantines_only_the_invalid_document() -> None:
+def test_character_storage_isolates_invalid_document_in_place() -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         directory: Path = Path(temporary_directory) / "characters"
         storage = CharacterStorage(directory)
@@ -83,5 +83,5 @@ def test_character_storage_quarantines_only_the_invalid_document() -> None:
         loaded = storage.load_all()
 
         assert [character.id for character in loaded] == [valid.id]
-        assert not damaged.exists()
-        assert len(list(directory.glob("bad.json.corrupt-*"))) == 1
+        assert damaged.read_text() == "{"
+        assert not list(directory.glob("bad.json.corrupt-*"))

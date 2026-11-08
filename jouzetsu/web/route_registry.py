@@ -6,9 +6,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final, Literal, Protocol, cast
 from urllib.parse import urlencode
@@ -18,46 +19,54 @@ from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import (
     FileResponse,
+    JSONResponse,
     PlainTextResponse,
     RedirectResponse,
     Response,
     StreamingResponse,
 )
 
-from ..access import is_device_access_approval_phrase
 from ..async_workers import run_in_worker
+from ..backend_models import (
+    BackendConfig,
+    BackendId,
+    BackendKind,
+    GenerationProfile,
+    ModelManagementSettings,
+    ModelRef,
+)
+from ..backend_protocol import BackendReachability
 from ..character_presets import CharacterNameSuggestionsCatalog, CharacterPresetCatalog
 from ..config import (
     AppConfig,
     GenerationSettings,
     IconColorSettings,
     MessageActionStyle,
-    ServerSettings,
     ThemeColorway,
     ThemeSettings,
 )
+from ..inference import GenerationMode, RevisionConflict
 from ..models import (
     Character,
     CharacterField,
+    Chat,
     ChatPromptMode,
-    ChatSamplingOverrides,
     ImageAttachment,
     Message,
     chat_prompt_mode_from_text,
+    image_attachments_from_json,
 )
-from ..state import AppState, ChatMessageUndo
+from ..sampling import SamplingParameters
+from ..state import AppState
 from .form_data import (
     FormValues as _FormValues,
     character_fields_from_form as _character_fields_from_form,
     form_values as _form_values,
     message_action_style_from_form as _message_action_style_from_form,
     missing_preset_fields as _missing_preset_fields,
-    optional_float as _optional_float,
     optional_integer as _optional_integer,
     updated_generation_settings as _updated_generation_settings,
-    updated_host_stat_activity_colors as _updated_host_stat_activity_colors,
     updated_icon_color_settings as _updated_icon_color_settings,
-    updated_server_settings as _updated_server_settings,
     updated_theme_settings as _updated_theme_settings,
 )
 from .icon import configured_icon_svg, icon_artwork_path
@@ -88,9 +97,9 @@ from .views.chat import (
     render_settings_panel,
 )
 from .views.context import PageContext
-from .views.dialogs import models_tab_from_text, render_message_details_content
-from .views.host_stats import render_content as render_host_stats_content
+from .views.dialogs import render_message_details_content
 from .views.pages import (
+    render_empty_chat_page,
     render_launch_page,
     render_main_page,
 )
@@ -98,7 +107,7 @@ from .views.pages import (
 log: logging.Logger = logging.getLogger(__name__)
 _NOTICE_MAXIMUM_LENGTH: Final[int] = 240
 _ASSET_DIRECTORY: Path = Path(__file__).resolve().parent / "static"
-_DIALOG_NAMES: Final[frozenset[str]] = frozenset({"global", "access", "models", "host"})
+_DIALOG_NAMES: Final[frozenset[str]] = frozenset({"global", "access"})
 
 type HttpMethod = Literal["GET", "POST"]
 type RouteResult = FT | Response
@@ -132,11 +141,10 @@ class RouteContext:
     events: UiEventBroker
     access: RequestAccess
     mutations: Mutations
-    chat_view: Callable[[], ChatView]
-    chat_settings_view: Callable[[], ChatSettingsView]
-    navigation_view: Callable[[PageContext], NavigationView]
+    chat_view: Callable[[str], ChatView]
+    chat_settings_view: Callable[[str], ChatSettingsView]
+    navigation_view: Callable[[PageContext, str], NavigationView]
     update_character: CharacterUpdater
-    request_exit: Callable[[], bool]
 
 
 def register_routes(context: RouteContext) -> None:
@@ -147,6 +155,7 @@ def register_routes(context: RouteContext) -> None:
     _register_chat_routes(context)
     _register_settings_routes(context)
     _register_access_routes(context)
+    _register_backend_routes(context)
 
 
 def _register_page_routes(context: RouteContext) -> None:
@@ -158,7 +167,9 @@ def _register_page_routes(context: RouteContext) -> None:
                 _path_text(request, "image_id")
             )
             thumbnail: bool = _query_text(request, "thumbnail") == "1"
-            path: Path = context.state.images.path_for(image, thumbnail=thumbnail)
+            path: Path = await run_in_worker(
+                context.state.images.available_path, image, thumbnail=thumbnail
+            )
             if not path.is_file():
                 raise ValueError("image file is missing")
         except ValueError as exc:
@@ -204,17 +215,15 @@ def _register_page_routes(context: RouteContext) -> None:
             )
         return render_main_page(
             context.state,
-            context.chat_view(),
-            context.chat_settings_view(),
-            context.navigation_view(request_context.page),
+            context.chat_view(_existing_chat_id(context.state, request)),
+            context.chat_settings_view(_existing_chat_id(context.state, request)),
+            context.navigation_view(request_context.page, _chat_id(request)),
             request_context.page,
             edit_message_id=_query_text(request, "edit"),
-            continuity_rewrite_message_id=_query_text(request, "continuity_rewrite"),
             active_dialog=_query_dialog_name(request),
             active_dialog_tab=_query_text(request, "tab"),
             notice=_query_text(request, "notice"),
             error=_query_text(request, "error"),
-            undo_token=_query_text(request, "undo"),
         )
 
     @context.route("GET", "/", "index")
@@ -251,7 +260,45 @@ def _register_page_routes(context: RouteContext) -> None:
         )
 
     @context.route("GET", "/chats", "chats")
-    async def chats(request: Request) -> FT:
+    async def chats(request: Request) -> FT | Response:
+        request_context = await context.access.context(request, register_device=True)
+        if not request_context.page.decision.access_allowed:
+            return render_locked_access_page(
+                request_context.page,
+                bootstrap_device=request_context.page.decision.reason
+                == "missing_device_id",
+                approval_phrase_enabled=bool(context.config.access.approval_phrase),
+            )
+        if context.state.chats:
+            return RedirectResponse(
+                f"/chats/{context.state.chats[0].id}"
+                + (f"?{request.url.query}" if request.url.query else ""),
+                status_code=303,
+            )
+        return render_empty_chat_page(
+            context.state,
+            context.navigation_view(request_context.page, ""),
+            request_context.page,
+            active_dialog=_query_dialog_name(request),
+            active_dialog_tab=_query_text(request, "tab"),
+            notice=_query_text(request, "notice"),
+            error=_query_text(request, "error"),
+        )
+
+    @context.route("GET", "/chats/{chat_id}", "chat_page")
+    async def chat_page(request: Request) -> FT:
+        request_context = await context.access.context(request, register_device=True)
+        if not request_context.page.decision.access_allowed:
+            return render_locked_access_page(
+                request_context.page,
+                bootstrap_device=request_context.page.decision.reason
+                == "missing_device_id",
+                approval_phrase_enabled=bool(context.config.access.approval_phrase),
+            )
+        try:
+            _ = context.state.session(_chat_id(request))
+        except KeyError as exc:
+            raise HTTPException(404, "chat no longer exists") from exc
         return await render_chat_page(request)
 
     @context.route("GET", "/characters", "characters")
@@ -306,14 +353,16 @@ def _register_page_routes(context: RouteContext) -> None:
     async def chat_fragment(request: Request) -> FT:
         _ = await context.access.require(request)
         return render_chat_fragment(
-            context.chat_view(), edit_message_id=_query_text(request, "edit")
+            context.chat_view(_existing_chat_id(context.state, request)),
+            edit_message_id=_query_text(request, "edit"),
         )
 
     @context.route("GET", "/fragments/chat/live", "chat_live_fragment")
     async def chat_live_fragment(request: Request) -> FT:
         _ = await context.access.require(request)
         return render_chat_live_fragment(
-            context.chat_view(), edit_message_id=_query_text(request, "edit")
+            context.chat_view(_existing_chat_id(context.state, request)),
+            edit_message_id=_query_text(request, "edit"),
         )
 
     @context.route(
@@ -323,7 +372,9 @@ def _register_page_routes(context: RouteContext) -> None:
         _ = await context.access.require(request)
         message_id: str = _path_text(request, "message_id")
         try:
-            message: Message = context.mutations.require_visible_message(message_id)
+            message: Message = context.mutations.require_visible_message(
+                _chat_id(request), message_id
+            )
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
         return render_message_details_content(message)
@@ -331,41 +382,50 @@ def _register_page_routes(context: RouteContext) -> None:
     @context.route("GET", "/fragments/navigation", "navigation_fragment")
     async def navigation_fragment(request: Request) -> FT:
         request_context: _RequestContext = await context.access.require(request)
-        return render_navigation_panel(context.navigation_view(request_context.page))
+        return render_navigation_panel(
+            context.navigation_view(request_context.page, _chat_id(request))
+        )
 
     @context.route("GET", "/fragments/settings", "settings_fragment")
     async def settings_fragment(request: Request) -> FT:
         _ = await context.access.require(request)
-        return render_settings_panel(context.chat_settings_view())
-
-    @context.route("GET", "/fragments/host-stats", "host_stats_fragment")
-    async def host_stats_fragment(request: Request) -> FT:
-        _ = await context.access.require(request, require_global_settings=True)
-        _ = await context.state.refresh_host_stats_snapshot()
-        return render_host_stats_content(
-            context.state.host_stats_snapshot(), context.state.config.host_stats
+        return render_settings_panel(
+            context.chat_settings_view(_existing_chat_id(context.state, request))
         )
 
-    @context.route(
-        "POST", "/fragments/host-stats/refresh", "refresh_host_stats_fragment"
-    )
-    async def refresh_host_stats_fragment(request: Request) -> FT:
-        _ = await context.access.require(
-            request,
-            require_csrf=True,
-            require_global_settings=True,
+    @context.route("GET", "/fragments/global", "global_fragment")
+    async def global_fragment(request: Request) -> FT:
+        from .views.global_settings import (
+            global_settings_tab_from_text,
+            render_global_settings_dialog,
         )
-        _ = await context.state.refresh_host_stats_snapshot()
-        return render_host_stats_content(
-            context.state.host_stats_snapshot(), context.state.config.host_stats
+
+        request_context = await context.access.require(
+            request, require_global_settings=True
         )
+        return render_global_settings_dialog(
+            context.state,
+            request_context.page,
+            active_tab=global_settings_tab_from_text(_query_text(request, "tab")),
+        )
+
+    @context.route("GET", "/fragments/access", "access_fragment")
+    async def access_fragment(request: Request) -> FT:
+        from .views.access import render_access_dialog
+
+        request_context = await context.access.require(
+            request, require_access_management=True
+        )
+        return render_access_dialog(context.state, request_context.page)
 
     @context.route("GET", "/events", "events")
     async def events(request: Request) -> Response:
         _ = await context.access.require(request)
         queue: asyncio.Queue[_UiEvent] = context.events.subscribe()
         return StreamingResponse(
-            _stream_events(context.events, queue),
+            _stream_events(
+                context.events, queue, lambda: context.access.allowed(request)
+            ),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -379,8 +439,8 @@ def _register_character_routes(context: RouteContext) -> None:
             character = await context.state.new_character()
         except HTTPException:
             raise
-        except Exception as exc:
-            log.exception("character creation failed")
+        except Exception as exc:  # noqa: BLE001
+            log.error("character creation failed error_type=%s", type(exc).__name__)
             return _character_redirect(error=str(exc))
         return _character_redirect(character.id, notice="Character created")
 
@@ -393,8 +453,12 @@ def _register_character_routes(context: RouteContext) -> None:
             character: Character = await context.update_character(character_id, form)
         except HTTPException:
             raise
-        except Exception as exc:
-            log.exception("character update failed character_id=%s", character_id)
+        except Exception as exc:  # noqa: BLE001
+            log.error(
+                "character update failed character_id=%s error_type=%s",
+                character_id,
+                type(exc).__name__,
+            )
             return _character_redirect(character_id, error=str(exc))
         return _character_redirect(character.id, notice="Character saved")
 
@@ -416,8 +480,12 @@ def _register_character_routes(context: RouteContext) -> None:
             )
         except HTTPException:
             raise
-        except Exception as exc:
-            log.exception("character field add failed character_id=%s", character_id)
+        except Exception as exc:  # noqa: BLE001
+            log.error(
+                "character field add failed character_id=%s error_type=%s",
+                character_id,
+                type(exc).__name__,
+            )
             return _character_redirect(character_id, error=str(exc))
         return _character_redirect(character.id, notice="Field added")
 
@@ -446,8 +514,12 @@ def _register_character_routes(context: RouteContext) -> None:
             )
         except HTTPException:
             raise
-        except Exception as exc:
-            log.exception("character preset apply failed character_id=%s", character_id)
+        except Exception as exc:  # noqa: BLE001
+            log.error(
+                "character preset apply failed character_id=%s error_type=%s",
+                character_id,
+                type(exc).__name__,
+            )
             return _character_redirect(character_id, error=str(exc))
         return _character_redirect(character.id, notice="Selected presets applied")
 
@@ -459,8 +531,12 @@ def _register_character_routes(context: RouteContext) -> None:
             await context.state.delete_character(character_id)
         except HTTPException:
             raise
-        except Exception as exc:
-            log.exception("character deletion failed character_id=%s", character_id)
+        except Exception as exc:  # noqa: BLE001
+            log.error(
+                "character deletion failed character_id=%s error_type=%s",
+                character_id,
+                type(exc).__name__,
+            )
             return _character_redirect(character_id, error=str(exc))
         return _character_redirect(notice="Character deleted")
 
@@ -488,7 +564,7 @@ def _register_character_routes(context: RouteContext) -> None:
             )
             return _character_redirect(character_id, error=str(exc))
         return RedirectResponse(
-            f"/chats?{urlencode({'notice': f'Chat started with {chat.title}'})}",
+            f"/chats/{chat.id}",
             status_code=303,
         )
 
@@ -500,80 +576,207 @@ def _register_chat_routes(context: RouteContext) -> None:
             request, context.state.new_chat, notice="New chat created"
         )
 
-    @context.route("POST", "/chats/{chat_id}/select", "select_chat")
-    async def select_chat(request: Request) -> Response:
-        chat_id: str = _path_text(request, "chat_id")
-        return await context.mutations.perform(
-            request, lambda: context.state.select_chat(chat_id), notice="Chat selected"
-        )
-
-    @context.route("POST", "/chats/{chat_id}/rename", "rename_chat")
-    async def rename_chat(request: Request) -> Response:
-        chat_id: str = _path_text(request, "chat_id")
-        form: _FormValues = await _form_values(request)
-        return await context.mutations.perform(
-            request,
-            lambda: context.state.rename_chat(chat_id, form.text("title")),
-            notice="Chat renamed",
-        )
-
-    @context.route("POST", "/chats/{chat_id}/delete", "delete_chat")
-    async def delete_chat(request: Request) -> Response:
-        chat_id: str = _path_text(request, "chat_id")
-
-        async def operation() -> None:
-            if chat_id != context.state.active_chat.id:
-                raise ValueError("only the active chat can be deleted from this page")
-            await context.state.delete_chat(chat_id)
-
-        return await context.mutations.perform(
-            request, operation, notice="Chat deleted"
-        )
-
     @context.route("POST", "/chat/draft", "save_draft")
     async def save_draft(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
         _ = await context.access.require(request, require_csrf=True)
+        form = await _form_values(request)
         try:
-            await context.state.set_chat_draft(
-                form.required_text("chat_id"), form.text("draft")
+            revision = await context.state.inference.update_draft(
+                form.required_text("chat_id"),
+                _revision(form, "draft_revision"),
+                form.text("draft"),
+                images=context.state.session(
+                    form.required_text("chat_id")
+                ).chat.draft_images,
             )
-        except Exception as exc:
-            log.exception("draft save failed")
+        except RevisionConflict as exc:
+            return PlainTextResponse(str(exc), status_code=409)
+        except (ValueError, TypeError, KeyError) as exc:
             return PlainTextResponse(str(exc), status_code=400)
-        return Response(status_code=204)
+        return JSONResponse({"draft_revision": revision})
 
-    @context.route("POST", "/chat/send", "send_message")
-    async def send_message(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
+    async def command(request: Request) -> Response:
+        form = await _form_values(request)
+        action = request.url.path.rsplit("/", 1)[-1]
+        runtime = context.state.inference
 
-        async def operation() -> None:
-            if (
-                form.text("chat_id", default=context.state.active_chat.id)
-                != context.state.active_chat.id
-            ):
-                raise ValueError("the active chat changed; retry in the intended chat")
-            _ = await context.state.send_user_message(form.text("content"))
+        async def operation() -> object:
+            chat_id = form.required_text("chat_id")
+            chat = context.state.session(chat_id).chat
+            revision = _revision(form)
+            message_id = _path_text(request, "message_id", required=False) or form.text(
+                "message_id"
+            )
+            if action == "send":
+                return await runtime.send_message(
+                    chat_id,
+                    revision,
+                    form.required_text("submission_id"),
+                    form.text("content"),
+                    images=image_attachments_from_json(
+                        json.loads(form.text("images", default="[]"))
+                    ),
+                    generate=form.flag("generate") if form.has("generate") else True,
+                    expected_draft_revision=_revision(form, "draft_revision"),
+                )
+            if action == "stop":
+                await runtime.cancel(chat_id)
+                return None
+            if action == "retry-draft-save":
+                await runtime.flush_drafts()
+                return None
+            if action == "retry-save":
+                await runtime.retry_save(chat_id)
+                return None
+            if action == "dismiss-error":
+                await runtime.dismiss_error(chat_id)
+                return None
+            if action == "delete" and not message_id:
+                await runtime.delete_chat(chat_id, revision)
+                return None
+            if action == "fork":
+                return await runtime.fork_chat(chat_id, revision, message_id)
+            if action in {"regenerate", "continue", "resend"}:
+                message = context.mutations.require_visible_message(chat_id, message_id)
+                if not chat.messages or message is not chat.messages[-1]:
+                    raise ValueError("generation action requires the final message")
+                required_role = "user" if action == "resend" else "assistant"
+                if message.role != required_role:
+                    raise ValueError("invalid generation target")
+                mode = (
+                    GenerationMode.REPLY
+                    if action == "resend"
+                    else GenerationMode.REGENERATE
+                    if action == "regenerate"
+                    else GenerationMode.CONTINUE
+                )
+                return await runtime.generate(chat_id, revision, mode=mode)
+            if action == "backend":
+                await runtime.select_backend(
+                    chat_id, revision, BackendId(form.required_text("backend_id"))
+                )
+                return None
+            if action in {"model", "sampling"}:
+                selected = chat.inference.selected_backend_id
+                if selected is None:
+                    raise ValueError("select a backend first")
+                profile = chat.inference.profiles[selected]
+                if action == "model":
+                    profile = replace(profile, model_id=form.text("model") or None)
+                else:
+                    profile = replace(profile, parameters=_sampling(form))
+                await runtime.set_profile(chat_id, revision, profile)
+                return None
+            if action == "reset" and request.url.path.startswith("/chat/sampling"):
+                await runtime.reset_profile(chat_id, revision)
+                return None
+
+            def edit(candidate: Chat) -> None:
+                if action == "rename":
+                    title = form.required_text("title").strip()
+                    if not title:
+                        raise ValueError("title cannot be blank")
+                    candidate.set_manual_title(title)
+                elif action in {"prompt", "reset"}:
+                    candidate.system_prompt = (
+                        form.text("prompt").strip() if action == "prompt" else ""
+                    )
+                elif action == "british-spellings":
+                    candidate.postprocess_british_spellings = form.flag("enabled")
+                elif action == "reasoning":
+                    candidate.save_reasoning = form.flag("enabled")
+                else:
+                    message = candidate.find_message(message_id)
+                    if message is None or message.role not in {"user", "assistant"}:
+                        raise ValueError("message action requires a visible message")
+                    if action == "edit":
+                        content = form.text("content")
+                        if not content.strip() and not message.images:
+                            raise ValueError("message cannot be empty")
+                        candidate.update_message(message_id, content)
+                    elif action == "delete":
+                        candidate.remove_message(message_id)
+                    elif action == "delete-following":
+                        candidate.remove_messages_from(message_id)
+                    elif action == "truncate":
+                        candidate.truncate_to_message(message_id)
+                    elif action == "merge":
+                        merged = candidate.merge_message_with_previous(message_id)
+                        context.state.images.limits.validate_image_count(
+                            len(merged.images)
+                        )
+                    else:
+                        raise ValueError("unknown chat action")
+
+            await runtime.edit_chat(chat_id, revision, edit)
+            return None
 
         return await context.mutations.perform(request, operation, notice="")
 
+    for path in (
+        "/chat/send",
+        "/chat/stop",
+        "/chat/retry-draft-save",
+        "/chat/retry-save",
+        "/chat/dismiss-error",
+        "/chats/{chat_id}/rename",
+        "/chats/{chat_id}/delete",
+        "/messages/edit",
+        *(
+            f"/messages/{{message_id}}/{action}"
+            for action in (
+                "delete",
+                "truncate",
+                "delete-following",
+                "regenerate",
+                "continue",
+                "resend",
+                "fork",
+                "merge",
+            )
+        ),
+        *(
+            f"/chat/{action}"
+            for action in (
+                "backend",
+                "model",
+                "sampling",
+                "sampling/reset",
+                "prompt",
+                "prompt/reset",
+                "british-spellings",
+                "reasoning",
+            )
+        ),
+    ):
+        context.route(
+            "POST",
+            path,
+            "chat_" + path.replace("/", "_").replace("{", "").replace("}", ""),
+        )(command)
+
     @context.route("POST", "/chats/{chat_id}/images", "upload_chat_images")
     async def upload_chat_images(request: Request) -> Response:
-        async def operation() -> None:
-            limits = context.state.images.limits
-            form = _FormValues(
-                await request.form(
-                    max_files=limits.max_images_per_message,
-                    max_part_size=limits.max_image_bytes,
-                )
+        _ = await context.access.require(request)
+        form = _FormValues(
+            await request.form(
+                max_files=context.state.images.limits.max_images_per_message,
+                max_part_size=context.state.images.limits.max_image_bytes,
             )
+        )
+
+        async def operation() -> None:
+            chat_id = form.required_text("chat_id")
+            if chat_id != _path_text(request, "chat_id"):
+                raise ValueError("chat target mismatch")
             uploads = form.uploads("images")
             if not uploads:
                 raise ValueError("select at least one image")
             images: list[ImageAttachment] = []
-            total_bytes: int = 0
+            total_bytes = 0
+            limits = context.state.images.limits
             for upload in uploads:
-                data: bytes = await upload.read(limits.max_image_bytes + 1)
+                data = await upload.read(limits.max_image_bytes + 1)
                 total_bytes += len(data)
                 if total_bytes > limits.max_batch_bytes:
                     raise ValueError("the combined images exceed the upload limit")
@@ -582,10 +785,24 @@ def _register_chat_routes(context: RouteContext) -> None:
                         context.state.images.store, data, upload.filename or "image"
                     )
                 )
-            await context.state.add_chat_images(_path_text(request, "chat_id"), images)
+            chat = context.state.session(chat_id).chat
+            merged_images = tuple(
+                {image.id: image for image in (*chat.draft_images, *images)}.values()
+            )
+            limits.validate_image_count(len(merged_images))
+            await context.state.inference.update_draft(
+                chat_id,
+                _revision(form, "draft_revision"),
+                chat.draft,
+                images=merged_images,
+            )
 
         try:
-            return await context.mutations.perform(request, operation, notice="")
+            result = await context.mutations.perform(request, operation, notice="")
+            if result.status_code != 303:
+                return result
+            chat = context.state.session(form.required_text("chat_id")).chat
+            return JSONResponse({"draft_revision": chat.draft_revision})
         finally:
             await request.close()
 
@@ -593,313 +810,51 @@ def _register_chat_routes(context: RouteContext) -> None:
         "POST", "/chats/{chat_id}/images/{image_id}/remove", "remove_chat_image"
     )
     async def remove_chat_image(request: Request) -> Response:
-        return await context.mutations.perform(
-            request,
-            lambda: context.state.remove_chat_image(
-                _path_text(request, "chat_id"), _path_text(request, "image_id")
-            ),
-            notice="",
-        )
-
-    @context.route("POST", "/chat/stop", "stop_generation")
-    async def stop_generation(request: Request) -> Response:
-        return await context.mutations.perform(
-            request, context.state.stop_generation, notice=""
-        )
-
-    @context.route("POST", "/messages/edit", "edit_message")
-    async def edit_message(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
-        message_id: str = form.required_text("message_id")
+        form = await _form_values(request)
 
         async def operation() -> None:
-            _ = context.mutations.require_visible_message(message_id)
-            await context.state.edit_message(message_id, form.text("content"))
-
-        return await context.mutations.perform(
-            request, operation, notice="Message updated"
-        )
-
-    @context.route("POST", "/messages/{message_id}/delete", "delete_message")
-    async def delete_message(request: Request) -> Response:
-        message_id: str = _path_text(request, "message_id")
-
-        async def operation() -> ChatMessageUndo | None:
-            _ = context.mutations.require_visible_message(message_id)
-            return await context.state.delete_message_with_undo(message_id)
-
-        try:
-            _ = await context.access.require(request, require_csrf=True)
-            undo: ChatMessageUndo | None = await operation()
-        except HTTPException:
-            raise
-        except Exception as exc:
-            log.exception("web mutation failed route=%s", request.url.path)
-            return context.mutations.redirect(error=str(exc))
-        return context.mutations.redirect(
-            notice="Message deleted",
-            undo=context.mutations.store_message_undo(undo) if undo else "",
-        )
-
-    @context.route("POST", "/messages/{message_id}/truncate", "truncate_message")
-    async def truncate_message(request: Request) -> Response:
-        message_id: str = _path_text(request, "message_id")
-
-        async def operation() -> ChatMessageUndo | None:
-            _ = context.mutations.require_visible_message(message_id)
-            return await context.state.truncate_chat_to_message_with_undo(message_id)
-
-        try:
-            _ = await context.access.require(request, require_csrf=True)
-            undo: ChatMessageUndo | None = await operation()
-        except HTTPException:
-            raise
-        except Exception as exc:
-            log.exception("web mutation failed route=%s", request.url.path)
-            return context.mutations.redirect(error=str(exc))
-        return context.mutations.redirect(
-            notice="Chat truncated",
-            undo=context.mutations.store_message_undo(undo) if undo else "",
-        )
-
-    @context.route(
-        "POST",
-        "/messages/{message_id}/delete-following",
-        "delete_message_and_following",
-    )
-    async def delete_message_and_following(request: Request) -> Response:
-        message_id: str = _path_text(request, "message_id")
-
-        async def operation() -> ChatMessageUndo | None:
-            _ = context.mutations.require_visible_message(message_id)
-            return await context.state.delete_message_and_following_with_undo(
-                message_id
+            chat_id = form.required_text("chat_id")
+            if chat_id != _path_text(request, "chat_id"):
+                raise ValueError("chat target mismatch")
+            chat = context.state.session(chat_id).chat
+            image_id = _path_text(request, "image_id")
+            await context.state.inference.update_draft(
+                chat_id,
+                _revision(form, "draft_revision"),
+                chat.draft,
+                images=tuple(
+                    image for image in chat.draft_images if image.id != image_id
+                ),
             )
 
-        try:
-            _ = await context.access.require(request, require_csrf=True)
-            undo: ChatMessageUndo | None = await operation()
-        except HTTPException:
-            raise
-        except Exception as exc:
-            log.exception("web mutation failed route=%s", request.url.path)
-            return context.mutations.redirect(error=str(exc))
-        return context.mutations.redirect(
-            notice="Messages deleted",
-            undo=context.mutations.store_message_undo(undo) if undo else "",
+        result = await context.mutations.perform(request, operation, notice="")
+        if result.status_code != 303:
+            return result
+        return JSONResponse(
+            {
+                "draft_revision": context.state.session(
+                    form.required_text("chat_id")
+                ).chat.draft_revision
+            }
         )
 
-    @context.route("POST", "/messages/{message_id}/regenerate", "regenerate_message")
-    async def regenerate_message(request: Request) -> Response:
-        message_id: str = _path_text(request, "message_id")
 
-        async def operation() -> None:
-            _ = context.mutations.require_last_assistant_message(message_id)
-            await context.state.regenerate_last()
+def _revision(form: _FormValues, field: str = "revision") -> int:
+    value = int(form.required_text(field))
+    if value < 0:
+        raise ValueError("revision cannot be negative")
+    return value
 
-        return await context.mutations.perform(request, operation, notice="")
 
-    @context.route("POST", "/messages/{message_id}/continue", "continue_message")
-    async def continue_message(request: Request) -> Response:
-        message_id: str = _path_text(request, "message_id")
-
-        async def operation() -> None:
-            _ = context.mutations.require_last_assistant_message(message_id)
-            await context.state.continue_last_response()
-
-        return await context.mutations.perform(request, operation, notice="")
-
-    @context.route(
-        "POST",
-        "/messages/{message_id}/continuity-rewrite/apply",
-        "apply_continuity_rewrite",
+def _sampling(form: _FormValues) -> SamplingParameters:
+    return SamplingParameters(
+        temperature=float(form.required_text("temperature")),
+        top_p=float(form.required_text("top_p")),
+        max_tokens=int(form.required_text("max_tokens")),
     )
-    async def apply_continuity_rewrite(request: Request) -> Response:
-        message_id: str = _path_text(request, "message_id")
-
-        async def operation() -> None:
-            _ = context.mutations.require_visible_message(message_id)
-            await context.state.apply_continuity_rewrite(message_id)
-
-        return await context.mutations.perform(
-            request, operation, notice="Continuity rewrite applied"
-        )
-
-    @context.route(
-        "POST",
-        "/messages/{message_id}/continuity-rewrite/discard",
-        "discard_continuity_rewrite",
-    )
-    async def discard_continuity_rewrite(request: Request) -> Response:
-        message_id: str = _path_text(request, "message_id")
-
-        async def operation() -> None:
-            _ = context.mutations.require_visible_message(message_id)
-            await context.state.discard_continuity_rewrite(message_id)
-
-        return await context.mutations.perform(
-            request, operation, notice="Continuity rewrite discarded"
-        )
-
-    @context.route("POST", "/messages/{message_id}/resend", "resend_message")
-    async def resend_message(request: Request) -> Response:
-        message_id: str = _path_text(request, "message_id")
-
-        async def operation() -> None:
-            _ = context.mutations.require_last_user_message(message_id)
-            _ = await context.state.resend_user_message(message_id)
-
-        return await context.mutations.perform(request, operation, notice="")
-
-    @context.route("POST", "/messages/undo", "undo_message_action")
-    async def undo_message_action(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
-        try:
-            _ = await context.access.require(request, require_csrf=True)
-            undo: ChatMessageUndo = context.mutations.consume_message_undo(
-                form.required_text("undo_token")
-            )
-            await context.state.restore_message_undo(undo)
-        except HTTPException:
-            raise
-        except Exception as exc:
-            log.exception("message undo failed")
-            return context.mutations.redirect(error=str(exc))
-        return context.mutations.redirect(notice="Change undone")
-
-    @context.route("POST", "/messages/{message_id}/fork", "fork_message")
-    async def fork_message(request: Request) -> Response:
-        message_id: str = _path_text(request, "message_id")
-
-        async def operation() -> None:
-            _ = context.mutations.require_visible_message(message_id)
-            _ = await context.state.fork_chat_at_message(message_id)
-
-        return await context.mutations.perform(request, operation, notice="Chat forked")
-
-    @context.route("POST", "/messages/{message_id}/merge", "merge_message")
-    async def merge_message(request: Request) -> Response:
-        message_id: str = _path_text(request, "message_id")
-
-        async def operation() -> None:
-            _ = context.mutations.require_visible_message(message_id)
-            _ = await context.state.merge_message_with_previous(message_id)
-
-        return await context.mutations.perform(
-            request, operation, notice="Messages merged"
-        )
-
-    @context.route("POST", "/chat/model", "set_chat_model")
-    async def set_chat_model(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
-        model: str = form.text("model")
-        return await context.mutations.perform(
-            request,
-            lambda: context.state.set_active_chat_model(model or None),
-            notice="Chat model saved",
-        )
-
-    @context.route("POST", "/chat/sampling", "set_chat_sampling")
-    async def set_chat_sampling(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
-        overrides: ChatSamplingOverrides = ChatSamplingOverrides(
-            temperature=_optional_float(
-                form.text("temperature"), field_name="temperature"
-            ),
-            top_p=_optional_float(form.text("top_p"), field_name="top p"),
-            max_tokens=_optional_integer(
-                form.text("max_tokens"), field_name="maximum output tokens"
-            ),
-        )
-        return await context.mutations.perform(
-            request,
-            lambda: context.state.set_active_chat_sampling_overrides(overrides),
-            notice="Sampling settings saved",
-        )
-
-    @context.route("POST", "/chat/sampling/reset", "reset_chat_sampling")
-    async def reset_chat_sampling(request: Request) -> Response:
-        return await context.mutations.perform(
-            request,
-            lambda: context.state.set_active_chat_sampling_overrides(
-                ChatSamplingOverrides()
-            ),
-            notice="Sampling reset to global defaults",
-        )
-
-    @context.route("POST", "/chat/prompt", "set_chat_prompt")
-    async def set_chat_prompt(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
-        return await context.mutations.perform(
-            request,
-            lambda: context.state.set_active_chat_system_prompt(form.text("prompt")),
-            notice="Chat prompt saved",
-        )
-
-    @context.route("POST", "/chat/prompt/reset", "reset_chat_prompt")
-    async def reset_chat_prompt(request: Request) -> Response:
-        return await context.mutations.perform(
-            request,
-            lambda: context.state.set_active_chat_system_prompt(None),
-            notice="Chat prompt reset to global default",
-        )
-
-    @context.route("POST", "/chat/british-spellings", "set_british_spellings")
-    async def set_british_spellings(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
-        return await context.mutations.perform(
-            request,
-            lambda: context.state.set_active_chat_postprocess_british_spellings(
-                form.flag("enabled")
-            ),
-            notice="Spelling setting saved",
-        )
-
-    @context.route("POST", "/chat/reasoning", "set_reasoning_persistence")
-    async def set_reasoning_persistence(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
-        return await context.mutations.perform(
-            request,
-            lambda: context.state.set_active_chat_save_reasoning(form.flag("enabled")),
-            notice="Reasoning setting saved",
-        )
 
 
 def _register_settings_routes(context: RouteContext) -> None:
-    @context.route("POST", "/settings/global", "save_global_settings")
-    async def save_global_settings(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
-
-        async def operation() -> None:
-            generation: GenerationSettings = _updated_generation_settings(
-                context.state,
-                form,
-                system_prompt=form.text("system_prompt").strip(),
-            )
-            server: ServerSettings = _updated_server_settings(
-                context.state,
-                default_model=form.text(
-                    "default_model", default=context.state.config.server.default_model
-                ),
-                auto_unload_minutes=form.text("auto_unload_minutes"),
-            )
-            icon_colors: IconColorSettings = _updated_icon_color_settings(
-                context.state, form
-            )
-            await context.state.set_global_settings(
-                generation,
-                server,
-                icon_colors=icon_colors,
-            )
-
-        return await context.mutations.perform(
-            request,
-            operation,
-            notice="Global settings saved",
-            require_global_settings=True,
-            dialog="global",
-            dialog_tab="behaviour",
-        )
 
     @context.route("POST", "/settings/global/prompt", "save_global_prompt")
     async def save_global_prompt(request: Request) -> Response:
@@ -924,46 +879,6 @@ def _register_settings_routes(context: RouteContext) -> None:
             dialog_tab="behaviour",
         )
 
-    @context.route(
-        "POST", "/settings/global/model-defaults", "save_global_model_defaults"
-    )
-    async def save_global_model_defaults(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
-
-        async def operation() -> None:
-            server: ServerSettings = _updated_server_settings(
-                context.state,
-                default_model=form.text(
-                    "default_model", default=context.state.config.server.default_model
-                ),
-                auto_unload_minutes=form.text("auto_unload_minutes"),
-            )
-            await context.state.set_global_settings(
-                context.state.config.generation, server
-            )
-
-        return await context.mutations.perform(
-            request,
-            operation,
-            notice="Model defaults saved",
-            require_global_settings=True,
-            dialog="models",
-            dialog_tab="defaults",
-        )
-
-    @context.route(
-        "POST", "/settings/global/model-defaults/reset", "reset_global_model_defaults"
-    )
-    async def reset_global_model_defaults(request: Request) -> Response:
-        return await context.mutations.perform(
-            request,
-            context.state.reset_model_defaults,
-            notice="Model defaults reset",
-            require_global_settings=True,
-            dialog="models",
-            dialog_tab="defaults",
-        )
-
     @context.route("POST", "/settings/global/appearance", "save_global_appearance")
     async def save_global_appearance(request: Request) -> Response:
         form: _FormValues = await _form_values(request)
@@ -973,9 +888,6 @@ def _register_settings_routes(context: RouteContext) -> None:
             icon_colors: IconColorSettings = _updated_icon_color_settings(
                 context.state, form
             )
-            activity_start_color, activity_end_color = (
-                _updated_host_stat_activity_colors(context.state, form)
-            )
             message_action_style: MessageActionStyle = _message_action_style_from_form(
                 context.state, form
             )
@@ -984,8 +896,6 @@ def _register_settings_routes(context: RouteContext) -> None:
                 icon_colors,
                 dark_mode=form.flag("dark_mode"),
                 message_action_style=message_action_style,
-                activity_start_color=activity_start_color,
-                activity_end_color=activity_end_color,
             )
 
         return await context.mutations.perform(
@@ -1074,55 +984,17 @@ def _register_access_routes(context: RouteContext) -> None:
         await context.access.record_current_device_activity(request)
         return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
-    @context.route("POST", "/access/current-device/approve", "approve_current_device")
-    async def approve_current_device(request: Request) -> Response:
-        async def operation() -> None:
-            request_context: _RequestContext = await context.access.context(
-                request, register_device=True
-            )
-            if not request_context.page.decision.device_id:
-                raise ValueError(
-                    "this browser does not have a valid device identifier yet"
-                )
-            await context.state.set_device_access_allowed(
-                request_context.page.decision.device_id, True
-            )
-
-        return await context.mutations.perform(
-            request,
-            operation,
-            notice="Browser approved",
-            require_access_management=True,
-        )
-
     @context.route("POST", "/access/current-device/pending", "save_pending_device")
     async def save_pending_device(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
+        await require_csrf_token(request)
+        form = await _form_values(request)
         try:
-            await require_csrf_token(request)
-            request_context: _RequestContext = await context.access.context(
-                request, register_device=True
+            await context.access.approve_with_phrase(
+                request, form.text("approval_phrase"), label=form.text("label")
             )
-            device_id: str = request_context.page.decision.device_id
-            if not device_id:
-                raise ValueError(
-                    "this browser does not have a valid device identifier yet"
-                )
-            await context.state.set_access_device_label(device_id, form.text("label"))
-            approved: bool = is_device_access_approval_phrase(
-                form.text("approval_phrase"),
-                required_phrase=context.config.access.approval_phrase,
-            )
-            if approved:
-                await context.state.set_device_access_allowed(device_id, True)
-        except HTTPException:
-            raise
-        except Exception as exc:
-            log.exception("pending device update failed")
-            return context.mutations.redirect(error=str(exc))
-        return context.mutations.redirect(
-            notice="Browser approved" if approved else "Browser details saved"
-        )
+        except (ValueError, TypeError, KeyError) as exc:
+            return PlainTextResponse(str(exc), status_code=400)
+        return context.mutations.redirect(notice="Browser approved")
 
     @context.route("POST", "/access/current-device/label", "label_current_device")
     async def label_current_device(request: Request) -> Response:
@@ -1144,32 +1016,13 @@ def _register_access_routes(context: RouteContext) -> None:
             request, operation, notice="Device label saved"
         )
 
-    @context.route("POST", "/access/defaults", "save_access_defaults")
-    async def save_access_defaults(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
+    @context.route("POST", "/access/phrase", "save_approval_phrase")
+    async def save_approval_phrase(request: Request) -> Response:
+        form = await _form_values(request)
         return await context.mutations.perform(
             request,
-            lambda: context.state.set_access_defaults(
-                default_private=form.flag("default_private"),
-                allow_localhost_without_approval=form.flag(
-                    "allow_localhost_without_approval"
-                ),
-                global_settings_for_approved=form.flag("global_settings_for_approved"),
-                allow_network_device_reassociation=form.flag(
-                    "allow_network_device_reassociation"
-                ),
-            ),
-            notice="Access defaults saved",
-            require_access_management=True,
-            dialog="access",
-        )
-
-    @context.route("POST", "/access/defaults/reset", "reset_access_defaults")
-    async def reset_access_defaults(request: Request) -> Response:
-        return await context.mutations.perform(
-            request,
-            context.state.reset_access_defaults,
-            notice="Access defaults reset",
+            lambda: context.state.set_approval_phrase(form.text("approval_phrase")),
+            notice="Approval phrase saved",
             require_access_management=True,
             dialog="access",
         )
@@ -1178,11 +1031,11 @@ def _register_access_routes(context: RouteContext) -> None:
     async def save_device_access(request: Request) -> Response:
         device_id: str = _path_text(request, "device_id")
         form: _FormValues = await _form_values(request)
+        if form.flag("access_allowed"):
+            raise HTTPException(400, "enrollment requires the approval phrase")
         return await context.mutations.perform(
             request,
-            lambda: context.state.set_device_access_allowed(
-                device_id, form.flag("access_allowed")
-            ),
+            lambda: context.state.set_device_access_allowed(device_id, False),
             notice="Device access saved",
             require_access_management=True,
             dialog="access",
@@ -1224,98 +1077,14 @@ def _register_access_routes(context: RouteContext) -> None:
             dialog="access",
         )
 
-    @context.route("POST", "/models/refresh", "refresh_models")
-    async def refresh_models(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
 
-        async def operation() -> None:
-            if not await context.state.refresh_runtime_status():
-                raise ValueError("Could not refresh models")
-
-        return await context.mutations.perform(
-            request,
-            operation,
-            notice="Models refreshed",
-            require_global_settings=True,
-            dialog="models",
-            dialog_tab=models_tab_from_text(form.text("tab")),
-        )
-
-    @context.route("POST", "/models/alias", "save_model_alias")
-    async def save_model_alias(request: Request) -> Response:
-        form: _FormValues = await _form_values(request)
-        return await context.mutations.perform(
-            request,
-            lambda: context.state.set_model_alias(
-                form.text("model_key"), form.text("alias")
-            ),
-            notice="Alias saved",
-            require_global_settings=True,
-            dialog="models",
-            dialog_tab="aliases",
-        )
-
-    @context.route(
-        "POST", "/models/instances/{instance_id}/unload", "unload_model_instance"
-    )
-    async def unload_model_instance(request: Request) -> Response:
-        instance_id: str = _path_text(request, "instance_id")
-        return await context.mutations.perform(
-            request,
-            lambda: context.state.unload_model_instance(instance_id),
-            notice="Model instance unloaded",
-            require_global_settings=True,
-            dialog="models",
-            dialog_tab="loaded",
-        )
-
-    @context.route("POST", "/host-stats/refresh", "refresh_host_stats")
-    async def refresh_host_stats(request: Request) -> Response:
-        async def operation() -> None:
-            _ = await context.state.refresh_host_stats_snapshot()
-
-        return await context.mutations.perform(
-            request,
-            operation,
-            notice="Host stats refreshed",
-            require_global_settings=True,
-            dialog="host",
-        )
-
-    @context.route("POST", "/app/exit", "exit_application")
-    async def exit_application(request: Request) -> Response:
-        _ = await context.access.require(
-            request,
-            require_csrf=True,
-            require_access_management=True,
-        )
-        if not context.request_exit():
-            return context.mutations.redirect(
-                error="This server cannot be stopped from the interface."
-            )
-        return context.mutations.redirect(notice="Jouzetsu is stopping")
-
-
-def _character_redirect(
-    character_id: str = "", *, notice: str = "", error: str = ""
-) -> RedirectResponse:
-    """Redirect a character form back to its library or its own editor."""
-
-    path: str = f"/characters/{character_id}" if character_id else "/characters"
-    values: dict[str, str] = {}
-    if notice:
-        values["notice"] = notice[:_NOTICE_MAXIMUM_LENGTH]
-    if error:
-        values["error"] = error[:_NOTICE_MAXIMUM_LENGTH]
-    destination: str = path if not values else f"{path}?{urlencode(values)}"
-    return RedirectResponse(destination, status_code=303)
-
-
-def _path_text(request: Request, name: str) -> str:
+def _path_text(request: Request, name: str, *, required: bool = True) -> str:
     """Return one non-empty FastHTML path parameter."""
 
     value: object = request.path_params.get(name)
     if not isinstance(value, str) or not value:
+        if not required:
+            return ""
         raise HTTPException(400, f"invalid {name}")
     return value
 
@@ -1340,3 +1109,145 @@ def _query_dialog_name(request: Request) -> _DialogName:
 
     value: str = _query_text(request, "dialog")
     return cast(_DialogName, value) if value in _DIALOG_NAMES else ""
+
+
+def _chat_id(request: Request) -> str:
+    value = _path_text(request, "chat_id", required=False) or _query_text(
+        request, "chat_id"
+    )
+    if not value:
+        raise HTTPException(400, "explicit chat_id is required")
+    return value
+
+
+def _register_backend_routes(context: RouteContext) -> None:
+    @context.route("POST", "/settings/backends/new", "new_backend")
+    async def new_backend(request: Request) -> Response:
+        form = await _form_values(request)
+
+        async def operation() -> None:
+            backend = BackendConfig.create(
+                BackendKind(form.required_text("kind")),
+                form.required_text("name").strip(),
+                form.required_text("base_url").strip(),
+            )
+            await context.state.inference.update_backend(backend)
+
+        return await context.mutations.perform(
+            request,
+            operation,
+            notice="Backend added",
+            require_global_settings=True,
+            dialog="global",
+            dialog_tab="backends",
+        )
+
+    @context.route("POST", "/settings/backends/default", "default_backend")
+    async def default_backend(request: Request) -> Response:
+        form = await _form_values(request)
+        return await context.mutations.perform(
+            request,
+            lambda: context.state.inference.set_default_backend(
+                BackendId(form.text("backend_id")) if form.text("backend_id") else None
+            ),
+            notice="Default backend saved",
+            require_global_settings=True,
+            dialog="global",
+            dialog_tab="backends",
+        )
+
+    @context.route(
+        "POST", "/settings/backends/{backend_id}/{action}", "backend_command"
+    )
+    async def backend_command(request: Request) -> Response:
+        form = await _form_values(request)
+
+        async def operation() -> None:
+            backend_id = BackendId(_path_text(request, "backend_id"))
+            runtime = context.state.inference
+            backend = context.config.backends.backend(backend_id)
+            action = _path_text(request, "action")
+            if action == "test":
+                await runtime.refresh_backend(backend_id)
+                health = runtime.health(backend_id)
+                if health.state is not BackendReachability.ONLINE:
+                    raise ValueError("backend is unavailable: " + health.state.value)
+                error = runtime.discovery_error(backend_id)
+                if error:
+                    raise error
+                return
+            if action == "remove":
+                await runtime.remove_backend(backend_id)
+                return
+            if action in {"load", "unload"}:
+                model = ModelRef(backend_id, form.required_text("model_id"))
+                if action == "load":
+                    await runtime.load_model(model)
+                else:
+                    await runtime.unload_model(model)
+                return
+            if action == "save":
+                management = (
+                    ModelManagementSettings(
+                        automatic_loading=form.flag("automatic_loading"),
+                        idle_unload_minutes=_optional_integer(
+                            form.text("idle_unload_minutes"),
+                            field_name="idle unload minutes",
+                        ),
+                    )
+                    if backend.model_management
+                    else None
+                )
+                candidate = replace(
+                    backend,
+                    name=form.required_text("name").strip(),
+                    base_url=form.required_text("base_url").strip(),
+                    enabled=form.flag("enabled"),
+                    concurrency_limit=int(form.required_text("concurrency_limit")),
+                    defaults=GenerationProfile(
+                        model_id=form.text("model") or None, parameters=_sampling(form)
+                    ),
+                    model_management=management,
+                )
+            elif action == "alias":
+                candidate = backend.set_model_alias(
+                    form.required_text("model_id"), form.text("alias").strip()
+                )
+            elif action == "register-model":
+                model_id = form.required_text("model_id").strip()
+                candidate = backend.register_model(
+                    model_id, alias=form.text("alias").strip()
+                )
+            else:
+                raise ValueError("unknown backend action")
+            await runtime.update_backend(candidate, expected=backend)
+
+        return await context.mutations.perform(
+            request,
+            operation,
+            notice="Backend updated",
+            require_global_settings=True,
+            dialog="global",
+            dialog_tab="backends",
+        )
+
+
+def _character_redirect(
+    character_id: str = "", *, notice: str = "", error: str = ""
+) -> RedirectResponse:
+    values = {
+        key: value[:240]
+        for key, value in {"notice": notice, "error": error}.items()
+        if value
+    }
+    path = f"/characters/{character_id}" if character_id else "/characters"
+    return RedirectResponse(
+        path + (f"?{urlencode(values)}" if values else ""), status_code=303
+    )
+
+
+def _existing_chat_id(state: AppState, request: Request) -> str:
+    chat_id = _chat_id(request)
+    if chat_id not in state.registry:
+        raise HTTPException(404, "chat no longer exists")
+    return chat_id

@@ -27,13 +27,10 @@ from .models import (
     ColorwaySettings,
     DeviceAccessSettings,
     GenerationSettings,
-    HostStatsDeviceSettings,
-    HostStatsSettings,
     IconColorSettings,
     LoggingSettings,
     MessageAction,
     MessageActionStyle,
-    ServerSettings,
     SpellingReplacement,
     StarterPrompt,
     ThemeSettings,
@@ -49,7 +46,7 @@ __all__ = [
     "encode_config",
 ]
 
-CONFIG_VERSION: int = 1
+CONFIG_VERSION: int = 2
 _LEGACY_UI_FIELDS: Final[frozenset[str]] = frozenset({"message_action_icon_style"})
 _OPTIONAL_UI_FIELDS: Final[frozenset[str]] = frozenset({"message_action_style"})
 _LEGACY_MESSAGE_ACTION_STYLES: Final[dict[str, MessageActionStyle]] = {
@@ -64,7 +61,7 @@ type ConfigDocument = dict[str, object]
 
 
 def decode_config(raw: object, *, paths: AppPaths) -> AppConfig:
-    """Decode a complete v1 JSON document or raise every detected validation issue."""
+    """Decode a complete v2 JSON document or raise every detected validation issue."""
 
     decoder: _Decoder = _Decoder()
     defaults: AppConfig = default_config(paths)
@@ -72,9 +69,9 @@ def decode_config(raw: object, *, paths: AppPaths) -> AppConfig:
         raw,
         path="config",
         required=frozenset(
-            {"version", "server", "generation", "ui", "logging", "host_stats", "access"}
+            {"version", "generation", "ui", "logging", "access", "backends"}
         ),
-        optional=frozenset({"theme", "backends"}),
+        optional=frozenset({"theme"}),
     )
     version: int = decoder.integer(
         root.get("version"), path="config.version", default=CONFIG_VERSION
@@ -84,16 +81,12 @@ def decode_config(raw: object, *, paths: AppPaths) -> AppConfig:
 
     config: AppConfig = AppConfig(
         paths=paths,
-        server=_decode_server(decoder, root.get("server"), defaults.server),
         generation=_decode_generation(
             decoder, root.get("generation"), defaults.generation
         ),
         ui=_decode_ui(decoder, root.get("ui"), defaults.ui),
         theme=_decode_theme(decoder, root.get("theme"), defaults.theme),
         logging=_decode_logging(decoder, root.get("logging"), defaults.logging, paths),
-        host_stats=_decode_host_stats(
-            decoder, root.get("host_stats"), defaults.host_stats
-        ),
         access=_decode_access(decoder, root.get("access"), defaults.access),
         backends=decode_backends(root["backends"])
         if "backends" in root
@@ -109,26 +102,18 @@ def decode_config(raw: object, *, paths: AppPaths) -> AppConfig:
 
 
 def encode_config(config: AppConfig) -> ConfigDocument:
-    """Encode one validated persisted configuration as the canonical v1 document."""
+    """Encode one validated persisted configuration as the canonical v2 document."""
 
     config.validate()
     document: ConfigDocument = {
         "version": CONFIG_VERSION,
         "backends": encode_backends(config.backends),
-        "server": {
-            "base_url": config.server.base_url,
-            "api_key": config.server.api_key,
-            "default_model": config.server.default_model,
-            "model_aliases": dict(config.server.model_aliases),
-            "auto_unload_minutes": config.server.auto_unload_minutes,
-        },
         "generation": _encode_generation(config.generation),
         "ui": {
             "host": config.ui.host,
             "port": config.ui.port,
             "dark_mode": config.ui.dark_mode,
             "auto_open_browser": config.ui.auto_open_browser,
-            "active_chat_id": config.ui.active_chat_id,
             "message_action_style": config.ui.message_action_style.value,
             "icon_colors": {
                 "linework_color": config.ui.icon_colors.linework_color,
@@ -146,21 +131,7 @@ def encode_config(config: AppConfig) -> ConfigDocument:
                 config.log_directory, paths=config.paths
             ),
         },
-        "host_stats": {
-            "system": config.host_stats.system,
-            "cpu": config.host_stats.cpu,
-            "gpu": config.host_stats.gpu,
-            "network": config.host_stats.network,
-            "gpus": _encode_host_devices(config.host_stats.gpus),
-            "interfaces": _encode_host_devices(config.host_stats.interfaces),
-            "activity_start_color": config.host_stats.activity_start_color,
-            "activity_end_color": config.host_stats.activity_end_color,
-        },
         "access": {
-            "default_private": config.access.default_private,
-            "allow_localhost_without_approval": config.access.allow_localhost_without_approval,
-            "global_settings_for_approved": config.access.global_settings_for_approved,
-            "allow_network_device_reassociation": config.access.allow_network_device_reassociation,
             "approval_phrase": config.access.approval_phrase,
             "devices": {
                 device_id: {
@@ -180,49 +151,6 @@ def encode_config(config: AppConfig) -> ConfigDocument:
     return document
 
 
-def _decode_server(
-    decoder: _Decoder, raw: object, defaults: ServerSettings
-) -> ServerSettings:
-    values: dict[str, object] = decoder.object(
-        raw,
-        path="config.server",
-        required=frozenset(
-            {
-                "base_url",
-                "api_key",
-                "default_model",
-                "model_aliases",
-                "auto_unload_minutes",
-            }
-        ),
-    )
-    return ServerSettings(
-        base_url=decoder.string(
-            values.get("base_url"),
-            path="config.server.base_url",
-            default=defaults.base_url,
-        ),
-        api_key=decoder.string(
-            values.get("api_key"),
-            path="config.server.api_key",
-            default=defaults.api_key,
-        ),
-        default_model=decoder.string(
-            values.get("default_model"),
-            path="config.server.default_model",
-            default=defaults.default_model,
-        ),
-        model_aliases=_decode_string_mapping(
-            decoder, values.get("model_aliases"), path="config.server.model_aliases"
-        ),
-        auto_unload_minutes=decoder.optional_integer(
-            values.get("auto_unload_minutes"),
-            path="config.server.auto_unload_minutes",
-            default=defaults.auto_unload_minutes,
-        ),
-    )
-
-
 def _decode_generation(
     decoder: _Decoder, raw: object, defaults: GenerationSettings
 ) -> GenerationSettings:
@@ -235,7 +163,6 @@ def _decode_generation(
                 "top_p",
                 "max_tokens",
                 "system_prompt",
-                "continuity_review",
                 "british_english",
             }
         ),
@@ -269,11 +196,6 @@ def _decode_generation(
             path="config.generation.system_prompt",
             default=defaults.system_prompt,
         ),
-        continuity_review=decoder.boolean(
-            values.get("continuity_review"),
-            path="config.generation.continuity_review",
-            default=defaults.continuity_review,
-        ),
         british_english=decoder.boolean(
             values.get("british_english"),
             path="config.generation.british_english",
@@ -293,7 +215,6 @@ def _decode_ui(decoder: _Decoder, raw: object, defaults: UiSettings) -> UiSettin
                 "port",
                 "dark_mode",
                 "auto_open_browser",
-                "active_chat_id",
                 "icon_colors",
                 "starter_prompts",
             }
@@ -322,11 +243,6 @@ def _decode_ui(decoder: _Decoder, raw: object, defaults: UiSettings) -> UiSettin
             values.get("auto_open_browser"),
             path="config.ui.auto_open_browser",
             default=defaults.auto_open_browser,
-        ),
-        active_chat_id=decoder.string(
-            values.get("active_chat_id"),
-            path="config.ui.active_chat_id",
-            default=defaults.active_chat_id,
         ),
         message_action_style=_decode_message_action_style(
             decoder, values, defaults.message_action_style
@@ -512,63 +428,6 @@ def _decode_logging(
     )
 
 
-def _decode_host_stats(
-    decoder: _Decoder, raw: object, defaults: HostStatsSettings
-) -> HostStatsSettings:
-    values: dict[str, object] = decoder.object(
-        raw,
-        path="config.host_stats",
-        required=frozenset(
-            {
-                "system",
-                "cpu",
-                "gpu",
-                "network",
-                "gpus",
-                "interfaces",
-                "activity_start_color",
-                "activity_end_color",
-            }
-        ),
-    )
-    return HostStatsSettings(
-        system=decoder.boolean(
-            values.get("system"),
-            path="config.host_stats.system",
-            default=defaults.system,
-        ),
-        cpu=decoder.boolean(
-            values.get("cpu"), path="config.host_stats.cpu", default=defaults.cpu
-        ),
-        gpu=decoder.boolean(
-            values.get("gpu"), path="config.host_stats.gpu", default=defaults.gpu
-        ),
-        network=decoder.boolean(
-            values.get("network"),
-            path="config.host_stats.network",
-            default=defaults.network,
-        ),
-        gpus=_decode_host_devices(
-            decoder, values.get("gpus"), path="config.host_stats.gpus"
-        ),
-        interfaces=_decode_host_devices(
-            decoder, values.get("interfaces"), path="config.host_stats.interfaces"
-        ),
-        activity_start_color=_decode_hex(
-            decoder,
-            values.get("activity_start_color"),
-            path="config.host_stats.activity_start_color",
-            default=defaults.activity_start_color,
-        ),
-        activity_end_color=_decode_hex(
-            decoder,
-            values.get("activity_end_color"),
-            path="config.host_stats.activity_end_color",
-            default=defaults.activity_end_color,
-        ),
-    )
-
-
 def _decode_access(
     decoder: _Decoder, raw: object, defaults: AccessSettings
 ) -> AccessSettings:
@@ -577,10 +436,6 @@ def _decode_access(
         path="config.access",
         required=frozenset(
             {
-                "default_private",
-                "allow_localhost_without_approval",
-                "global_settings_for_approved",
-                "allow_network_device_reassociation",
                 "approval_phrase",
                 "devices",
             }
@@ -639,26 +494,6 @@ def _decode_access(
             ),
         )
     return AccessSettings(
-        default_private=decoder.boolean(
-            values.get("default_private"),
-            path="config.access.default_private",
-            default=defaults.default_private,
-        ),
-        allow_localhost_without_approval=decoder.boolean(
-            values.get("allow_localhost_without_approval"),
-            path="config.access.allow_localhost_without_approval",
-            default=defaults.allow_localhost_without_approval,
-        ),
-        global_settings_for_approved=decoder.boolean(
-            values.get("global_settings_for_approved"),
-            path="config.access.global_settings_for_approved",
-            default=defaults.global_settings_for_approved,
-        ),
-        allow_network_device_reassociation=decoder.boolean(
-            values.get("allow_network_device_reassociation"),
-            path="config.access.allow_network_device_reassociation",
-            default=defaults.allow_network_device_reassociation,
-        ),
         approval_phrase=decoder.string(
             values.get("approval_phrase"),
             path="config.access.approval_phrase",
@@ -666,16 +501,6 @@ def _decode_access(
         ),
         devices=devices,
     )
-
-
-def _decode_string_mapping(
-    decoder: _Decoder, raw: object, *, path: str
-) -> dict[str, str]:
-    values: dict[str, object] = decoder.mapping(raw, path=path)
-    return {
-        key: decoder.string(value, path=f"{path}.{key}", default="")
-        for key, value in values.items()
-    }
 
 
 def _decode_replacements(
@@ -730,28 +555,6 @@ def _decode_starter_prompts(
     return prompts if raw is not None else list(defaults)
 
 
-def _decode_host_devices(
-    decoder: _Decoder, raw: object, *, path: str
-) -> dict[str, HostStatsDeviceSettings]:
-    raw_values: dict[str, object] = decoder.mapping(raw, path=path)
-    devices: dict[str, HostStatsDeviceSettings] = {}
-    for device_id, device_raw in raw_values.items():
-        values: dict[str, object] = decoder.object(
-            device_raw,
-            path=f"{path}.{device_id}",
-            required=frozenset({"visible", "label"}),
-        )
-        devices[device_id] = HostStatsDeviceSettings(
-            visible=decoder.boolean(
-                values.get("visible"), path=f"{path}.{device_id}.visible", default=True
-            ),
-            label=decoder.string(
-                values.get("label"), path=f"{path}.{device_id}.label", default=""
-            ),
-        )
-    return devices
-
-
 def _decode_hex(decoder: _Decoder, raw: object, *, path: str, default: str) -> str:
     value: str = decoder.string(raw, path=path, default=default)
     if not HEX_COLOR_PATTERN.fullmatch(value):
@@ -766,7 +569,6 @@ def _encode_generation(settings: GenerationSettings) -> dict[str, object]:
         "top_p": settings.top_p,
         "max_tokens": settings.max_tokens,
         "system_prompt": settings.system_prompt,
-        "continuity_review": settings.continuity_review,
         "british_english": settings.british_english,
     }
     if tuple(settings.british_spelling_replacements) != builtin_spelling_replacements():
@@ -775,15 +577,6 @@ def _encode_generation(settings: GenerationSettings) -> dict[str, object]:
             for item in settings.british_spelling_replacements
         ]
     return values
-
-
-def _encode_host_devices(
-    devices: dict[str, HostStatsDeviceSettings],
-) -> dict[str, dict[str, object]]:
-    return {
-        device_id: {"visible": settings.visible, "label": settings.label}
-        for device_id, settings in devices.items()
-    }
 
 
 def _path_to_config_string(path: Path, *, paths: AppPaths) -> str:

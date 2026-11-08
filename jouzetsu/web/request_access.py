@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
+import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Final
 
@@ -43,6 +45,7 @@ class RequestAccess:
         self._config: AppConfig = config
         self._state: AppState = state
         self._device_registration_lock: asyncio.Lock = asyncio.Lock()
+        self._phrase_failures: OrderedDict[str, tuple[int, float]] = OrderedDict()
 
     async def context(
         self, request: Request, *, register_device: bool
@@ -58,11 +61,7 @@ class RequestAccess:
             client_ip=client_ip,
             raw_device_id=raw_device_id,
         )
-        if (
-            register_device
-            and self._config.access.default_private
-            and decision.device_id
-        ):
+        if register_device and decision.device_id:
             await self._record_device_activity(
                 decision.device_id,
                 client_ip=client_ip,
@@ -108,12 +107,50 @@ class RequestAccess:
             raise HTTPException(403, "access management is localhost-only")
         return context
 
+    def allowed(self, request: Request) -> bool:
+        """Re-evaluate the current policy when delivering every SSE frame."""
+        return access_decision(
+            self._config,
+            client_ip=request.client.host if request.client else "",
+            raw_device_id=request.cookies.get(DEVICE_ID_COOKIE_NAME, ""),
+        ).access_allowed
+
+    async def approve_with_phrase(
+        self, request: Request, phrase: str, *, label: str = ""
+    ) -> None:
+        """Bound failed attempts per socket peer; cookies cannot bypass the cooldown."""
+        from ..access import is_device_access_approval_phrase
+
+        peer = request.client.host if request.client else ""
+        now = time.monotonic()
+        attempts, expires = self._phrase_failures.get(peer, (0, now + 60.0))
+        if now >= expires:
+            attempts, expires = 0, now + 60.0
+        if attempts >= 5:
+            raise HTTPException(429, "Too many attempts; try again after the cooldown")
+        if not is_device_access_approval_phrase(
+            phrase, required_phrase=self._config.access.approval_phrase
+        ):
+            self._phrase_failures[peer] = (attempts + 1, expires)
+            self._phrase_failures.move_to_end(peer)
+            if len(self._phrase_failures) > 1024:
+                self._phrase_failures.popitem(last=False)
+            raise HTTPException(403, "Approval phrase did not match")
+        context = await self.context(request, register_device=False)
+        if not context.page.decision.device_id:
+            raise HTTPException(400, "browser device identifier required")
+        await self._state.register_access_device(
+            context.page.decision.device_id,
+            label,
+            last_ip=context.client_ip,
+            approved=True,
+        )
+        self._phrase_failures.pop(peer, None)
+
     async def record_current_device_activity(self, request: Request) -> None:
         """Record a visible browser's activity without granting it any access."""
 
         context: RequestContext = await self.context(request, register_device=False)
-        if not self._config.access.default_private:
-            return
         device_id: str = context.page.decision.device_id
         if not device_id:
             return

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import re
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from logging import Logger
@@ -52,7 +53,11 @@ def normalise_device_id(raw: object) -> str:
 
 def is_device_access_approval_phrase(raw: object, *, required_phrase: str) -> bool:
     """Return whether a user-entered phrase grants access to the current device."""
-    return bool(required_phrase) and raw == required_phrase
+    return (
+        bool(required_phrase)
+        and isinstance(raw, str)
+        and secrets.compare_digest(raw.encode("utf-8"), required_phrase.encode("utf-8"))
+    )
 
 
 def is_localhost_ip(raw_ip: str) -> bool:
@@ -60,7 +65,10 @@ def is_localhost_ip(raw_ip: str) -> bool:
     if raw_ip in {"localhost", "ip6-localhost"}:
         return True
     try:
-        return ipaddress.ip_address(raw_ip).is_loopback
+        address = ipaddress.ip_address(raw_ip)
+        if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+            address = address.ipv4_mapped
+        return address.is_loopback
     except ValueError:
         return False
 
@@ -86,70 +94,6 @@ def _label_conflict(config: AppConfig, *, device_id: str, label: str) -> str:
     return ""
 
 
-def _normalised_hostname(hostname: str) -> str:
-    return hostname.strip().casefold()
-
-
-def _network_identity_device_id(
-    config: AppConfig,
-    *,
-    device_id: str,
-    last_ip: str,
-    hostname: str,
-) -> str:
-    clean_last_ip: str = last_ip.strip()
-    clean_hostname: str = _normalised_hostname(hostname)
-    if not clean_last_ip or not clean_hostname:
-        return ""
-
-    matching_device_ids: list[str] = [
-        other_device_id
-        for other_device_id, device in config.access.devices.items()
-        if other_device_id != device_id
-        and device.last_ip.strip() == clean_last_ip
-        and _normalised_hostname(device.hostname) == clean_hostname
-    ]
-    if len(matching_device_ids) > 1:
-        matching_device_id_list: str = ", ".join(matching_device_ids)
-        raise ValueError(
-            f"multiple device records share hostname {hostname!r} and last_ip {last_ip!r}: {matching_device_id_list}"
-        )
-    return matching_device_ids[0] if matching_device_ids else ""
-
-
-def _known_device_for_registration(
-    config: AppConfig,
-    *,
-    device_id: str,
-    last_ip: str,
-    hostname: str,
-) -> tuple[str, DeviceAccessSettings | None, bool]:
-    device: DeviceAccessSettings | None = config.access.devices.get(device_id)
-    if device is not None:
-        return device_id, device, False
-
-    if not config.access.allow_network_device_reassociation:
-        return device_id, None, False
-
-    matching_device_id: str = _network_identity_device_id(
-        config,
-        device_id=device_id,
-        last_ip=last_ip,
-        hostname=hostname,
-    )
-    if not matching_device_id:
-        return device_id, None, False
-
-    matched_device: DeviceAccessSettings = config.access.devices.pop(matching_device_id)
-    config.access.devices[device_id] = matched_device
-    log.info(
-        "re-associated access device device_id=%s previous_device_id=%s",
-        device_id,
-        matching_device_id,
-    )
-    return device_id, matched_device, True
-
-
 def access_decision(
     config: AppConfig, *, client_ip: str, raw_device_id: object
 ) -> AccessDecision:
@@ -159,25 +103,8 @@ def access_decision(
     can_manage_access: bool = is_localhost
     can_use_localhost_settings: bool = can_manage_access
 
-    if not config.access.default_private:
-        return AccessDecision(
-            access_allowed=True,
-            can_use_global_settings=can_use_localhost_settings,
-            can_manage_access=can_manage_access,
-            is_localhost=is_localhost,
-            device_id=device_id,
-            reason="public",
-        )
-
-    if is_localhost and config.access.allow_localhost_without_approval:
-        return AccessDecision(
-            access_allowed=True,
-            can_use_global_settings=True,
-            can_manage_access=can_manage_access,
-            is_localhost=True,
-            device_id=device_id,
-            reason="localhost",
-        )
+    if is_localhost:
+        return AccessDecision(True, True, True, True, device_id, "localhost")
 
     if not device_id:
         return AccessDecision(
@@ -193,8 +120,7 @@ def access_decision(
     is_approved_device: bool = device is not None and device.access_allowed
     return AccessDecision(
         access_allowed=is_approved_device,
-        can_use_global_settings=can_use_localhost_settings
-        or (is_approved_device and config.access.global_settings_for_approved),
+        can_use_global_settings=can_use_localhost_settings or is_approved_device,
         can_manage_access=can_manage_access,
         is_localhost=is_localhost,
         device_id=device_id,
@@ -264,19 +190,11 @@ def _record_seen_device(
     clean_label: str = label.strip()
     clean_last_ip: str = last_ip.strip()
     clean_hostname: str = hostname.strip()
-    if register_missing:
-        canonical_device_id, device, changed = _known_device_for_registration(
-            config,
-            device_id=normalised_device_id,
-            last_ip=clean_last_ip,
-            hostname=clean_hostname,
-        )
-    else:
-        canonical_device_id = normalised_device_id
-        device = config.access.devices.get(canonical_device_id)
-        changed = False
-        if device is None:
-            return False
+    canonical_device_id = normalised_device_id
+    device = config.access.devices.get(canonical_device_id)
+    changed = False
+    if device is None and not register_missing:
+        return False
     should_apply_label: bool = device is None or (
         bool(clean_label)
         and device.label != clean_label
@@ -286,8 +204,7 @@ def _record_seen_device(
         config, device_id=canonical_device_id, label=clean_label
     ):
         log.warning(
-            "device label %r already belongs to another device; keeping existing label",
-            clean_label,
+            "device label already belongs to another device; keeping existing label",
         )
         clean_label = ""
     if device is None:
@@ -300,9 +217,8 @@ def _record_seen_device(
             last_seen_at=now,
         )
         log.info(
-            "registered pending access device device_id=%s label=%s",
+            "registered access device device_id=%s",
             canonical_device_id,
-            clean_label,
         )
         return True
 

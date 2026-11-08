@@ -44,7 +44,7 @@ class ConfigStoreTests(unittest.TestCase):
             )
             self.assertEqual(config.log_directory, home / "data" / "logs")
             content = config.config_file.read_text(encoding="utf-8")
-            self.assertIn('\n    "version": 1,', content)
+            self.assertIn('\n    "version": 2,', content)
             self.assertEqual(json.loads(content), encode_config(config))
 
     def test_custom_config_file_name_is_preserved(self) -> None:
@@ -280,19 +280,6 @@ class ConfigStoreTests(unittest.TestCase):
             ):
                 ConfigStore.for_home(paths.home).load()
 
-    def test_config_rejects_invalid_model_aliases_without_auto_unload(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            paths = AppPaths.for_home(Path(tmp_dir))
-            document = encode_config(default_config(paths))
-            server = cast(dict[str, object], document["server"])
-            server["model_aliases"] = {"": "Demo model"}
-            paths.config_file.write_text(json.dumps(document), encoding="utf-8")
-
-            with self.assertRaisesRegex(
-                ConfigValidationError, "model aliases must use non-empty"
-            ):
-                ConfigStore.for_home(paths.home).load()
-
     def test_config_requires_current_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             paths = AppPaths.for_home(Path(tmp_dir))
@@ -301,7 +288,7 @@ class ConfigStoreTests(unittest.TestCase):
             paths.config_file.write_text(json.dumps(document), encoding="utf-8")
 
             with self.assertRaisesRegex(
-                ConfigValidationError, "config.version: must be 1"
+                ConfigValidationError, "config.version: must be 2"
             ):
                 ConfigStore.for_home(paths.home).load()
 

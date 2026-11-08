@@ -64,4 +64,5 @@ class ShutdownMarkerTests(unittest.TestCase):
             server_config.timeout_graceful_shutdown,
             app_module._UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,  # pyright: ignore[reportPrivateUsage]
         )
-        self.assertTrue(web_application.exit_callback_set)
+        self.assertFalse(web_application.exit_callback_set)
+        self.assertFalse(server_config.proxy_headers)

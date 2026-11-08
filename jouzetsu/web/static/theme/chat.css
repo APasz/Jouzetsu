@@ -493,3 +493,22 @@
     color: var(--jouzetsu-app-text-muted);
     font-size: 12px;
 }
+
+.jouzetsu-generation-error {
+    border-top: 3px solid var(--jouzetsu-system-accent);
+    background: var(--jouzetsu-system-subtle);
+    color: var(--jouzetsu-system-body);
+}
+
+.jouzetsu-bulk-delete-icon {
+    display: inline-flex;
+    position: relative;
+}
+
+.jouzetsu-bulk-delete-badge {
+    position: absolute;
+    top: -5px;
+    right: -4px;
+    font-size: 10px;
+    font-weight: 700;
+}

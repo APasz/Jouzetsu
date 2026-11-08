@@ -15,7 +15,7 @@ export const currentComposerDraft = () => {
     const input = form?.querySelector('[data-draft-sync="true"]');
     if (!(form instanceof HTMLFormElement) || !(input instanceof HTMLTextAreaElement)) return null;
     const chatId = form.dataset.chatId || '';
-    return chatId ? { chatId, value: input.value } : null;
+    return chatId ? { chatId, value: input.value, revision: Number(form.elements.namedItem("draft_revision")?.value || "0") } : null;
 };
 
 export class ComposerController {
@@ -118,6 +118,8 @@ export class ComposerController {
             primary.disabled = !isGenerating && (
                 this.#isUploadingImages() || form.dataset.generationBlocked === 'true' || (!input.value.trim() && !hasImages)
             );
+            const sendOnly = form.querySelector('[data-send-only]');
+            if (sendOnly instanceof HTMLButtonElement) sendOnly.disabled = primary.disabled;
         }
         if (form.dataset.composerMode === 'edit') this.#syncEditValidation(form, input);
     }

@@ -66,7 +66,7 @@ class ImageLimits:
 
 
 class ImageStorage:
-    """Keep originals shared safely by drafts, messages, forks, undo, and trash."""
+    """Keep originals shared safely by drafts, messages, forks, and trash."""
 
     def __init__(self, directory: Path, limits: ImageLimits | None = None) -> None:
         self.directory: Path = directory
@@ -140,6 +140,22 @@ class ImageStorage:
             "preview.jpg" if thumbnail else image.media_type.value.split("/")[1]
         )
         return self.directory / f"{image.id}.{suffix}"
+
+    def available_path(
+        self, image: ImageAttachment, *, thumbnail: bool = False
+    ) -> Path:
+        """Repair a missing preview only from its verified original."""
+        original = self.path_for(image)
+        if not original.is_file():
+            raise ValueError(f"original image is missing: {image.name}")
+        path = self.path_for(image, thumbnail=thumbnail)
+        if thumbnail:
+            try:
+                with Image.open(path) as preview:
+                    preview.verify()
+            except OSError, UnidentifiedImageError:
+                self.store(self._read_original(image), image.name)
+        return path
 
     def validate_available(self, images: Sequence[ImageAttachment]) -> None:
         """Reject missing originals before mutating a transcript for generation."""

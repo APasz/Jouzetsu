@@ -1,7 +1,12 @@
-"""Read-model builders for the web views."""
+"""Explicit chat read models; navigation belongs to each browser URL."""
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+from ..backend_models import GenerationProfile
+from ..backend_protocol import BackendReachability
+from ..runtime import RuntimePhase
 from ..state import AppState
 from .icon import app_icon_url
 from .views.chat import ChatSettingsView, ChatView, NavigationView
@@ -9,52 +14,99 @@ from .views.context import PageContext
 from .views.model_controls import model_choices
 
 
-def chat_view(state: AppState) -> ChatView:
-    """Capture the current chat data required by the pure chat renderers."""
-
+def chat_view(state: AppState, chat_id: str) -> ChatView:
+    session = state.session(chat_id)
+    job = state.inference.job(chat_id)
+    status = session.runtime_status
+    selected = session.chat.inference.selected_backend_id
+    if not session.is_generating and session.latest_error is None:
+        if selected is None or session.chat.inference.selected_model is None:
+            status = replace(
+                status,
+                phase=RuntimePhase.NO_MODEL_SELECTED,
+                detail="Select a backend" if selected is None else "Select a model",
+            )
+        else:
+            configured = next(
+                (
+                    backend
+                    for backend in state.config.backends.backends
+                    if backend.id == selected
+                ),
+                None,
+            )
+            if configured is None:
+                status = replace(
+                    status,
+                    phase=RuntimePhase.ERROR,
+                    detail="Selected backend was removed",
+                )
+            elif (
+                not configured.enabled
+                or state.inference.health(selected).state is BackendReachability.OFFLINE
+            ):
+                status = replace(
+                    status,
+                    phase=RuntimePhase.OFFLINE,
+                    detail=configured.name + " unavailable",
+                )
     return ChatView(
-        chat=state.active_chat,
-        generating=state.is_generating(),
-        runtime_status=state.runtime_status,
-        generation_reasoning=state.active_generation_reasoning,
-        empty_state_message=state.active_empty_state_message,
+        chat=session.chat,
+        generating=session.is_generating,
+        runtime_status=status,
+        generation_reasoning=session.live_reasoning,
+        empty_state_message=session.empty_state_message,
         starter_prompts=tuple(state.config.ui.starter_prompts),
         message_action_style=state.config.ui.message_action_style,
-        generation_block_reason=state.generation_block_reason(state.active_chat),
-        history_generation_block_reason=state.generation_block_reason(
-            state.active_chat, include_draft_images=False
-        ),
+        live_response=session.live_response,
+        replacement_id=job.replacement_id if job else None,
+        latest_error=session.latest_error,
+        save_failed=job is not None and job.save_error is not None,
+        draft_write_error=state.persistence.chat_write_error is not None,
     )
 
 
-def chat_settings_view(state: AppState) -> ChatSettingsView:
-    """Capture the active chat's independently refreshable settings data."""
-
-    chat = state.active_chat
+def chat_settings_view(state: AppState, chat_id: str) -> ChatSettingsView:
+    chat = state.session(chat_id).chat
+    backend_id = chat.inference.selected_backend_id
+    backend = next(
+        (
+            backend
+            for backend in state.config.backends.backends
+            if backend.id == backend_id
+        ),
+        None,
+    )
+    profile = chat.inference.selected_profile or GenerationProfile()
+    support = backend.support_for_model(profile.model_id) if backend else None
+    inactive = tuple(
+        name
+        for name in ("temperature", "top_p", "max_tokens")
+        if support is None or getattr(support, name) is not True
+    )
     return ChatSettingsView(
         chat=chat,
-        generating=state.is_generating(),
-        generation_defaults=state.config.generation,
-        model_choices=model_choices(state, chat.model),
+        generating=state.is_generating(chat_id),
+        model_choices=model_choices(backend, profile.model_id),
+        backends=state.config.backends,
+        profile=profile,
+        inactive_parameters=inactive,
     )
 
 
-def navigation_view(state: AppState, context: PageContext) -> NavigationView:
-    """Capture the request-aware data required by the navigation drawer."""
-
+def navigation_view(
+    state: AppState, context: PageContext, chat_id: str = ""
+) -> NavigationView:
     device = state.config.access.devices.get(context.decision.device_id)
-    current_device_label: str | None = None
-    if device is not None:
-        current_device_label = device.label or context.client_label
     chats = tuple(state.chats)
     return NavigationView(
         chats=chats,
-        active_chat_id=state.active_chat.id,
+        selected_chat_id=chat_id,
         generating_chat_ids=frozenset(
             chat.id for chat in chats if state.is_generating(chat.id)
         ),
         app_icon_url=app_icon_url(state.config.ui.icon_colors),
         can_use_global_settings=context.decision.can_use_global_settings,
         can_manage_access=context.decision.can_manage_access,
-        current_device_label=current_device_label,
+        current_device_label=(device.label or context.client_label) if device else None,
     )

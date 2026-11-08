@@ -64,7 +64,7 @@ def test_backend_queues_are_fifo_independent_and_lock_chats(tmp_path: Path) -> N
             "Second",
             "Reply",
         ]
-        assert h.registry.active_chat_id == ""
+        assert not hasattr(h.registry, "active_chat_id")
         assert await h.runtime.shutdown()
 
     asyncio.run(exercise())
@@ -292,8 +292,6 @@ def test_offline_send_persists_user_and_duplicate_survives_restart_and_edits(
         _ = h2.registry.add(
             reloaded,
             runtime_status=h.registry.get(chat.id).runtime_status,
-            persist=False,
-            activate=False,
         )
         duplicate = await h2.runtime.send_message(
             chat.id, 0, "receipt", "Saved offline"

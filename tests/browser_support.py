@@ -5,21 +5,27 @@ from __future__ import annotations
 import asyncio
 import socket
 import time
-from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import Event, Thread
 from typing import Final
 
 import uvicorn
+from inference_support import FakeBackend, backend
 
+from jouzetsu.backend_models import (
+    BackendConfig,
+    BackendConfiguration,
+    ChatInferenceSettings,
+    GenerationProfile,
+    RegisteredModel,
+)
+from jouzetsu.backend_protocol import GenerationRequest, ModelDiscovery
 from jouzetsu.config import (
-    AccessSettings,
     AppConfig,
     AppPaths,
-    GenerationSettings,
     LoggingSettings,
-    ServerSettings,
     UiSettings,
 )
 from jouzetsu.models import Chat
@@ -27,6 +33,7 @@ from jouzetsu.runtime import (
     ChatStreamEvent,
     FirstToken,
     GenerationMetrics,
+    ModelCapabilities,
     ModelDescriptor,
     ModelReady,
     PredictionComplete,
@@ -40,37 +47,24 @@ _SERVER_START_TIMEOUT_SECONDS: Final[float] = 5.0
 _SERVER_STOP_TIMEOUT_SECONDS: Final[float] = 5.0
 
 
-@dataclass(slots=True)
-class BrowserTestLMStudioClient:
-    """Predictable local runtime that keeps browser tests independent of LM Studio."""
+class BrowserTestBackend(FakeBackend):
+    """Controlled inference with actual browser/server scheduling."""
 
-    response_content: str = "Browser test reply"
-    first_token_delay_seconds: float = 0.0
-    completion_gate: Event | None = None
-    requests: list[Chat] = field(default_factory=list)
+    def __init__(self, config: BackendConfig) -> None:
+        super().__init__(config)
+        self.response_content = "Browser test reply"
+        self.first_token_delay_seconds = 0.0
+        self.completion_gate: Event | None = None
+        self.descriptors = tuple(model.descriptor for model in config.models)
 
-    async def list_models(self) -> list[str]:
-        return ["browser-test-model"]
+    async def discover_models(self) -> ModelDiscovery:
+        return ModelDiscovery(True, self.descriptors)
 
-    async def list_model_inventory(self) -> tuple[ModelDescriptor, ...]:
-        return (
-            ModelDescriptor(
-                key="browser-test-model", display_name="Browser test model"
-            ),
-        )
-
-    async def unload_model_instance(self, instance_id: str) -> None:
-        _ = instance_id
-
-    async def stream_chat(
-        self,
-        chat: Chat,
-        model: str,
-        generation: GenerationSettings,
-    ) -> AsyncIterator[ChatStreamEvent]:
-        _ = (chat, model, generation)
-        self.requests.append(chat)
-        yield ModelReady("browser-test-model", "Browser test model", 4096)
+    async def stream(
+        self, request: GenerationRequest
+    ) -> AsyncGenerator[ChatStreamEvent]:
+        self.requests.append(request)
+        yield ModelReady(request.model.model_id, "Browser test model", 4096)
         if self.first_token_delay_seconds:
             await asyncio.sleep(self.first_token_delay_seconds)
         yield FirstToken()
@@ -80,9 +74,6 @@ class BrowserTestLMStudioClient:
         yield PredictionComplete(
             GenerationMetrics(output_tokens=1, tokens_per_second=20.0)
         )
-
-    async def close(self) -> None:
-        return None
 
 
 async def _noop() -> None:
@@ -95,7 +86,7 @@ class BrowserServer:
 
     base_url: str
     state: AppState
-    client: BrowserTestLMStudioClient
+    client: BrowserTestBackend
     server: uvicorn.Server
     thread: Thread
     listener: socket.socket
@@ -117,15 +108,41 @@ def create_browser_server(root: Path) -> BrowserServer:
     """Start an isolated local ASGI server suitable for one Playwright test."""
 
     paths: AppPaths = AppPaths.for_home(root)
+    configured = replace(
+        backend(),
+        defaults=GenerationProfile("browser-test-model"),
+        models=(
+            RegisteredModel(
+                ModelDescriptor(
+                    "browser-test-model",
+                    "Browser test model",
+                    capabilities=ModelCapabilities(vision=True),
+                )
+            ),
+            RegisteredModel(
+                ModelDescriptor(
+                    "text-model",
+                    "Text model",
+                    capabilities=ModelCapabilities(vision=False),
+                )
+            ),
+        ),
+    )
+    configuration = BackendConfiguration(
+        backends=(configured,), default_backend_id=configured.id
+    )
     config = AppConfig(
         paths=paths,
-        server=ServerSettings(default_model="browser-test-model"),
+        backends=configuration,
         ui=UiSettings(auto_open_browser=False),
         logging=LoggingSettings(enabled=False, directory=root / "logs"),
-        access=AccessSettings(default_private=False),
     )
-    client = BrowserTestLMStudioClient()
-    state = AppState(config, ChatStorage(paths.chats_file), client)
+    client = BrowserTestBackend(configured)
+    storage = ChatStorage(paths.chats_file)
+    storage.save_records(
+        (Chat(inference=ChatInferenceSettings.new_chat(configuration)).to_dict(),)
+    )
+    state = AppState(config, storage, backend_factory=lambda _: client)
 
     async def shutdown() -> None:
         if not await state.shutdown():
@@ -143,6 +160,7 @@ def create_browser_server(root: Path) -> BrowserServer:
             loop="asyncio",
             log_level="error",
             access_log=False,
+            proxy_headers=False,
             timeout_graceful_shutdown=1,
         )
     )

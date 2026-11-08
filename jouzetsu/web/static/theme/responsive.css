@@ -1,8 +1,5 @@
 /* Motion and narrow layouts */
 @media (prefers-reduced-motion: reduce) {
-    .jouzetsu-host-stat-meter {
-        transition: none;
-    }
 
     .jouzetsu-composer-status-progress-fill {
         transition: none;

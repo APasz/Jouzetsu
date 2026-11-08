@@ -8,6 +8,8 @@ from enum import Enum
 class StateChangeKind(Enum):
     """Scope of a state notification sent to UI listeners."""
 
+    CONFIG = "config"
+    DRAFT = "draft"
     FULL = "full"
     STREAM = "stream"
     STATUS = "status"
