@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable, Sequence
+from copy import deepcopy
 from dataclasses import replace
 from itertools import chain, pairwise
 from logging import Logger
@@ -307,14 +308,17 @@ class AppState:
         """Collect one explicit host sample without blocking the web event loop."""
 
         snapshot: HostStatsSnapshot = await self._host_stats.sample_async()
-        if self._register_host_stats_devices(snapshot):
-            await self._commit(config=True, notify=False)
+        candidate = self._register_host_stats_devices(snapshot)
+        if candidate is not None:
+            await self._commit_config(candidate, notify=False)
         return snapshot
 
-    def _register_host_stats_devices(self, snapshot: HostStatsSnapshot) -> bool:
+    def _register_host_stats_devices(
+        self, snapshot: HostStatsSnapshot
+    ) -> AppConfig | None:
         """Persist newly discovered GPU and network devices with their default visibility."""
 
-        settings = self.config.host_stats
+        settings = deepcopy(self.config.host_stats)
         changed: bool = False
         for gpu in snapshot.gpus:
             if gpu.id not in settings.gpus:
@@ -336,7 +340,7 @@ class AppState:
             elif not settings.interfaces[network.name].label:
                 settings.interfaces[network.name].label = network.name
                 changed = True
-        return changed
+        return replace(self.config, host_stats=settings) if changed else None
 
     async def unload_model(self, model_key: str) -> None:
         """Unload every currently loaded instance for one model."""
@@ -369,8 +373,11 @@ class AppState:
     async def start_host_stats_monitor(self) -> None:
         """Start the application-wide host metrics sampler."""
         await self._host_stats.start()
-        if self._register_host_stats_devices(self._host_stats.latest_snapshot()):
-            await self._commit(config=True, notify=False)
+        candidate = self._register_host_stats_devices(
+            self._host_stats.latest_snapshot()
+        )
+        if candidate is not None:
+            await self._commit_config(candidate, notify=False)
 
     async def refresh_runtime_status(self) -> bool:
         """Refresh model availability and return whether the server responded."""
@@ -842,14 +849,14 @@ class AppState:
     async def edit_message(self, message_id: str, new_content: str) -> None:
         """Edit a message in place without truncating or regenerating."""
         st: ChatSession = self._idle_active_state("edit")
-        chat: Chat = st.chat
+        chat: Chat = st.chat.copy()
         existing: Message | None = chat.find_message(message_id)
         if existing is None or not existing.images:
             new_content = require_non_empty_text(new_content, field_name="message")
         message: Message | None = chat.update_message(message_id, new_content)
         if message is None:
             return
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "message_edited chat_id=%s message_id=%s role=%s content_length=%d",
             chat.id,
@@ -865,9 +872,9 @@ class AppState:
             message_id, operation="apply continuity rewrite"
         )
         rewrite: str = message.continuity_rewrite
-        message.update_content(rewrite)
-        st.chat.touch()
-        await self._commit_chat(st.chat)
+        chat = st.chat.copy()
+        _ = chat.update_message(message_id, rewrite)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "continuity_rewrite_applied chat_id=%s message_id=%s content_length=%d",
             st.chat.id,
@@ -881,9 +888,13 @@ class AppState:
         st, message = self._continuity_rewrite_target(
             message_id, operation="discard continuity rewrite"
         )
-        message.discard_continuity_rewrite()
-        st.chat.touch()
-        await self._commit_chat(st.chat)
+        chat = st.chat.copy()
+        candidate_message = chat.find_message(message_id)
+        if candidate_message is None:
+            raise RuntimeError("continuity target is absent from its chat copy")
+        candidate_message.discard_continuity_rewrite()
+        chat.touch()
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "continuity_rewrite_discarded chat_id=%s message_id=%s",
             st.chat.id,
@@ -898,12 +909,12 @@ class AppState:
     async def delete_message_with_undo(self, message_id: str) -> ChatMessageUndo | None:
         """Delete a message and return the exact transcript state needed to undo it."""
         st: ChatSession = self._idle_active_state("delete")
-        chat: Chat = st.chat
+        chat: Chat = st.chat.copy()
         previous_messages = snapshot_messages(chat.messages)
         message: Message | None = chat.remove_message(message_id)
         if message is None:
             return None
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "message_deleted chat_id=%s message_id=%s role=%s reason=user",
             chat.id,
@@ -921,12 +932,12 @@ class AppState:
     ) -> ChatMessageUndo | None:
         """Delete a selected message plus every later transcript entry, with undo support."""
         st: ChatSession = self._idle_active_state("delete messages")
-        chat: Chat = st.chat
+        chat: Chat = st.chat.copy()
         previous_messages = snapshot_messages(chat.messages)
         removed_messages: list[Message] = chat.remove_messages_from(message_id)
         if not removed_messages:
             return None
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "messages_deleted chat_id=%s first_message_id=%s removed_count=%d reason=user_and_following",
             chat.id,
@@ -942,7 +953,7 @@ class AppState:
     async def merge_message_with_previous(self, message_id: str) -> Message:
         """Merge a message into the preceding message when both roles match."""
         st: ChatSession = self._idle_active_state("merge")
-        chat: Chat = st.chat
+        chat: Chat = st.chat.copy()
         for previous, target in pairwise(chat.messages):
             if target.id == message_id:
                 self.images.limits.validate_image_count(
@@ -950,7 +961,7 @@ class AppState:
                 )
                 break
         merged_message: Message = chat.merge_message_with_previous(message_id)
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "message_merged chat_id=%s source_message_id=%s target_message_id=%s role=%s content_length=%d",
             chat.id,
@@ -971,12 +982,12 @@ class AppState:
     ) -> ChatMessageUndo | None:
         """Truncate the active transcript and return an undo state when it changed."""
         st: ChatSession = self._idle_active_state("truncate")
-        chat: Chat = st.chat
+        chat: Chat = st.chat.copy()
         previous_messages = snapshot_messages(chat.messages)
         removed_count: int = chat.truncate_to_message(message_id)
         if removed_count <= 0:
             return None
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "chat_truncated chat_id=%s through_message_id=%s removed_count=%d",
             chat.id,
@@ -995,12 +1006,12 @@ class AppState:
         if self._chat_registry.active_chat_id != undo.chat_id:
             raise ValueError("the active chat changed before this undo action")
         st: ChatSession = self._idle_active_state("undo")
-        chat: Chat = st.chat
+        chat: Chat = st.chat.copy()
         if snapshot_messages(chat.messages) != undo.resulting_messages:
             raise ValueError("the conversation changed before this undo action")
         chat.messages = restore_messages(undo.previous_messages)
         chat.touch()
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "chat_undo_restored chat_id=%s message_count=%d",
             chat.id,
@@ -1017,11 +1028,11 @@ class AppState:
     async def set_active_chat_model(self, model: str | None) -> None:
         """Persist the selected model for the active chat."""
         st: ChatSession = self._idle_active_state("set model")
-        chat: Chat = st.chat
-        chat.model = trimmed_or_empty(model)
+        chat: Chat = replace(st.chat, model=trimmed_or_empty(model))
         chat.touch()
-        st.runtime_status = self._idle_runtime_status(chat)
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(
+            chat, runtime_status=self._idle_runtime_status(chat)
+        )
         chat_log.info("chat_model_changed chat_id=%s model=%s", chat.id, chat.model)
 
     async def set_active_chat_sampling_overrides(
@@ -1030,13 +1041,12 @@ class AppState:
         """Persist validated per-chat sampling values, leaving null fields inherited."""
 
         st: ChatSession = self._idle_active_state("set sampling overrides")
-        chat: Chat = st.chat
         _ = overrides.resolve(self.config.generation)
-        if chat.sampling_overrides == overrides:
+        if st.chat.sampling_overrides == overrides:
             return
-        chat.sampling_overrides = overrides
+        chat: Chat = replace(st.chat, sampling_overrides=overrides)
         chat.touch()
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "chat_sampling_overrides_updated chat_id=%s temperature=%s top_p=%s max_tokens=%s",
             chat.id,
@@ -1061,8 +1071,7 @@ class AppState:
     async def set_generation_defaults(self, settings: GenerationSettings) -> None:
         """Validate and atomically persist global generation defaults."""
         settings.validate()
-        self.config.generation = settings
-        await self._commit(config=True)
+        await self._commit_config(replace(self.config, generation=settings))
         log.info(
             "generation defaults updated max_tokens=%d temperature=%s top_p=%s",
             settings.max_tokens,
@@ -1098,14 +1107,20 @@ class AppState:
         server.validate()
         if icon_colors is not None:
             icon_colors.validate()
-        self.config.generation = generation
-        self.config.server.apply(server)
-        if icon_colors is not None:
-            self.config.ui.icon_colors = icon_colors
+        ui = replace(
+            self.config.ui,
+            icon_colors=icon_colors
+            if icon_colors is not None
+            else self.config.ui.icon_colors,
+        )
+        await self._commit_config(
+            replace(self.config, generation=generation, server=server, ui=ui),
+            notify=False,
+        )
         for session in self._chat_registry.sessions:
             if not session.is_generating and not session.chat.model:
                 session.runtime_status = self._idle_runtime_status(session.chat)
-        await self._commit(config=True)
+        await self._notify()
         log.info(
             "global settings updated default_model=%s base_url=%s",
             server.default_model,
@@ -1132,12 +1147,13 @@ class AppState:
             aliases[key] = clean_alias
         if aliases == previous_aliases:
             return
-        self.config.server.apply(replace(self.config.server, model_aliases=aliases))
-        try:
-            await self._commit(config=True, notify=False)
-        except Exception:
-            self.config.server.model_aliases = previous_aliases
-            raise
+        await self._commit_config(
+            replace(
+                self.config,
+                server=replace(self.config.server, model_aliases=aliases),
+            ),
+            notify=False,
+        )
         for session in self._chat_registry.sessions:
             if self.resolve_model_key(session.runtime_status.model_key) == key:
                 session.runtime_status = replace(
@@ -1188,13 +1204,9 @@ class AppState:
         )
         host_stats.validate()
 
-        self.config.theme = theme
-        self.config.ui.dark_mode = ui.dark_mode
-        self.config.ui.message_action_style = ui.message_action_style
-        self.config.ui.icon_colors = ui.icon_colors
-        self.config.host_stats.activity_start_color = host_stats.activity_start_color
-        self.config.host_stats.activity_end_color = host_stats.activity_end_color
-        await self._commit(config=True)
+        await self._commit_config(
+            replace(self.config, theme=theme, ui=ui, host_stats=host_stats)
+        )
         log.info("appearance settings updated")
 
     async def reset_appearance_settings(self) -> None:
@@ -1226,8 +1238,7 @@ class AppState:
             case ThemeColorway.SYSTEM:
                 theme = replace(self.config.theme, system=defaults.system)
         theme.validate()
-        self.config.theme = theme
-        await self._commit(config=True)
+        await self._commit_config(replace(self.config, theme=theme))
         log.info("theme colourway reset colourway=%s", colorway.value)
 
     async def set_access_defaults(
@@ -1333,10 +1344,9 @@ class AppState:
     async def set_active_chat_system_prompt(self, prompt: str | None) -> None:
         """Persist the system prompt override for the active chat."""
         st: ChatSession = self._idle_active_state("set system prompt")
-        chat: Chat = st.chat
-        chat.system_prompt = trimmed_or_empty(prompt)
+        chat: Chat = replace(st.chat, system_prompt=trimmed_or_empty(prompt))
         chat.touch()
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "chat_system_prompt_updated chat_id=%s content_length=%d",
             chat.id,
@@ -1350,12 +1360,11 @@ class AppState:
         st: ChatSession = self._idle_active_state(
             "set British spelling post-processing"
         )
-        chat: Chat = st.chat
-        if chat.postprocess_british_spellings == enabled:
+        if st.chat.postprocess_british_spellings == enabled:
             return
-        chat.postprocess_british_spellings = enabled
+        chat: Chat = replace(st.chat, postprocess_british_spellings=enabled)
         chat.touch()
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "chat_british_spelling_postprocess_updated chat_id=%s enabled=%s",
             chat.id,
@@ -1366,23 +1375,25 @@ class AppState:
         """Persist whether completed responses retain their transient reasoning trace."""
 
         st: ChatSession = self._idle_active_state("set reasoning persistence")
-        chat: Chat = st.chat
-        if chat.save_reasoning == enabled:
+        if st.chat.save_reasoning == enabled:
             return
-        chat.save_reasoning = enabled
+        chat: Chat = replace(st.chat, save_reasoning=enabled)
         chat.touch()
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "chat_reasoning_persistence_updated chat_id=%s enabled=%s", chat.id, enabled
         )
 
     async def rename_chat(self, chat_id: str, title: str) -> None:
         """Rename a chat explicitly."""
-        chat: Chat = self._by_id(chat_id).chat
+        session = self._by_id(chat_id)
+        if session.is_generating:
+            raise ValueError("cannot rename while generation is in progress")
+        chat: Chat = replace(session.chat)
         chat.set_manual_title(
             require_non_empty_text(trimmed_or_empty(title), field_name="chat title")
         )
-        await self._commit_chat(chat)
+        await self._commit_chat_candidate(chat)
         chat_log.info(
             "chat_renamed chat_id=%s title_length=%d", chat.id, len(chat.title)
         )
@@ -1478,13 +1489,35 @@ class AppState:
             notify=notify,
         )
 
-    async def _commit_config(self) -> None:
-        await self._commit(config=True)
+    async def _commit_chat_candidate(
+        self, candidate: Chat, *, runtime_status: RuntimeStatus | None = None
+    ) -> None:
+        """Persist an isolated committed edit before publishing it to readers."""
 
-    async def _commit_access_activity(self) -> None:
+        session = self._by_id(candidate.id)
+        if session.is_generating:
+            raise ValueError("cannot edit while generation is in progress")
+        self._persistence.save_chat_candidate(candidate)
+        session.chat.apply(candidate)
+        if runtime_status is not None:
+            session.runtime_status = runtime_status
+        self._chat_registry.mark_persisted((candidate.id,))
+        await self._notify()
+
+    async def _commit_config(
+        self, candidate: AppConfig, *, notify: bool = True
+    ) -> None:
+        """Publish configuration only after its candidate reaches durable storage."""
+
+        await self._persistence.save_config(candidate)
+        self.config.apply(candidate)
+        if notify:
+            await self._notify()
+
+    async def _commit_access_activity(self, candidate: AppConfig) -> None:
         """Save a heartbeat without prompting every connected browser to refresh."""
 
-        await self._commit(config=True, notify=False)
+        await self._commit_config(candidate, notify=False)
 
     async def _commit(
         self,
@@ -1524,12 +1557,15 @@ class AppState:
             return False
 
     async def _shutdown(self) -> bool:
-        await self._host_stats.stop()
-        await self._runtime.shutdown()
-        generation_stopped_cleanly: bool = await self._cancel_all_generations()
-        await self._commit(changed_chats=(), notify=False)
-        await self.client.close()
-        return generation_stopped_cleanly
+        try:
+            await self._host_stats.stop()
+            await self._runtime.shutdown()
+            generation_stopped_cleanly: bool = await self._cancel_all_generations()
+            await self._commit(changed_chats=(), notify=False)
+            await self._persistence.flush_chats()
+            return generation_stopped_cleanly
+        finally:
+            await self.client.close()
 
     async def _cancel_all_generations(self) -> bool:
         """Stop every live chat task concurrently before closing the client."""

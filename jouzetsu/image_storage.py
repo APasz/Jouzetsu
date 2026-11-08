@@ -13,7 +13,7 @@ from typing import Final
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from .atomic_write import atomic_write_bytes
+from .atomic_write import DurableWriteGuard, atomic_write_bytes
 from .models import ImageAttachment, ImageMediaType
 
 _IMAGE_FORMATS: Final[dict[str, ImageMediaType]] = {
@@ -71,6 +71,7 @@ class ImageStorage:
     def __init__(self, directory: Path, limits: ImageLimits | None = None) -> None:
         self.directory: Path = directory
         self.limits: ImageLimits = limits or ImageLimits()
+        self._write_guard: DurableWriteGuard = DurableWriteGuard()
 
     def store(self, data: bytes, name: str) -> ImageAttachment:
         """Decode and validate an image before publishing its original and preview."""
@@ -127,8 +128,9 @@ class ImageStorage:
         )
         original_path: Path = self.path_for(image)
         preview_path: Path = self.path_for(image, thumbnail=True)
-        _write_if_changed(original_path, data)
-        _write_if_changed(preview_path, preview_data.getvalue())
+        with self._write_guard.protect(original_path, preview_path):
+            _write_if_changed(original_path, data)
+            _write_if_changed(preview_path, preview_data.getvalue())
         return image
 
     def path_for(self, image: ImageAttachment, *, thumbnail: bool = False) -> Path:

@@ -7,6 +7,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final
 
+from ..atomic_write import ensure_directory
+
 APP_HOME_ENVIRONMENT_VARIABLE: Final[str] = "JOUZETSU_HOME"
 CHARACTER_NAME_SUGGESTIONS_FILE_NAME: Final[str] = "character-names.json"
 _SOURCE_CHECKOUT_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
@@ -87,11 +89,14 @@ class AppPaths:
     def ensure_runtime_directories(self, *, log_directory: Path) -> None:
         """Create the mutable directories needed by one configured application."""
 
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.chats_file.parent.mkdir(parents=True, exist_ok=True)
-        self.characters_directory.mkdir(parents=True, exist_ok=True)
-        self.character_presets_directory.mkdir(parents=True, exist_ok=True)
-        log_directory.mkdir(parents=True, exist_ok=True)
+        for directory in (
+            self.data_dir,
+            self.chats_file.parent,
+            self.characters_directory,
+            self.character_presets_directory,
+            log_directory,
+        ):
+            ensure_directory(directory)
 
 
 def default_paths() -> AppPaths:

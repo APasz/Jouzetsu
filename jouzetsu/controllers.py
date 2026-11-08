@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import dataclass, field
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
 from logging import Logger
 from typing import Protocol
 
@@ -110,10 +111,18 @@ class PersistenceController:
         if self._chat_write_error is not None:
             raise self._chat_write_error
 
-    async def save_config(self) -> None:
+    def save_chat_candidate(self, chat: Chat) -> None:
+        """Save an unpublished edit without retaining rejected candidates for retry."""
+
+        self.storage.save_records((chat.to_dict(),))
+        _ = self._pending_chat_records.pop(chat.id, None)
+        if not self._pending_chat_records and not self._pending_deleted_chat_ids:
+            self._chat_write_error = None
+
+    async def save_config(self, candidate: AppConfig | None = None) -> None:
         """Write configuration at the explicit state-commit boundary."""
 
-        self.config_store.save(self.config)
+        self.config_store.save(candidate if candidate is not None else self.config)
 
     async def _write_pending_chats(self) -> None:
         """Persist queued changes after a short debounce, retaining only the latest per chat."""
@@ -152,8 +161,11 @@ class AccessController:
     """Persist access configuration changes through the owning application."""
 
     config: AppConfig
-    persist_config: Callable[[], Awaitable[None]]
-    persist_activity: Callable[[], Awaitable[None]]
+    persist_config: Callable[[AppConfig], Awaitable[None]]
+    persist_activity: Callable[[AppConfig], Awaitable[None]]
+
+    def _candidate(self) -> AppConfig:
+        return replace(self.config, access=deepcopy(self.config.access))
 
     async def set_defaults(
         self,
@@ -163,22 +175,24 @@ class AccessController:
         global_settings_for_approved: bool,
         allow_network_device_reassociation: bool,
     ) -> None:
-        access = self.config.access
-        access.default_private = default_private
-        access.allow_localhost_without_approval = allow_localhost_without_approval
-        access.global_settings_for_approved = global_settings_for_approved
-        access.allow_network_device_reassociation = allow_network_device_reassociation
-        await self.persist_config()
+        access = replace(
+            self.config.access,
+            default_private=default_private,
+            allow_localhost_without_approval=allow_localhost_without_approval,
+            global_settings_for_approved=global_settings_for_approved,
+            allow_network_device_reassociation=allow_network_device_reassociation,
+        )
+        await self.persist_config(replace(self.config, access=access))
 
     async def set_device_access(self, device_id: str, access_allowed: bool) -> None:
-        set_device_access(
-            self.config, device_id=device_id, access_allowed=access_allowed
-        )
-        await self.persist_config()
+        candidate = self._candidate()
+        set_device_access(candidate, device_id=device_id, access_allowed=access_allowed)
+        await self.persist_config(candidate)
 
     async def forget_pending_device(self, device_id: str) -> None:
-        forget_pending_device(self.config, device_id=device_id)
-        await self.persist_config()
+        candidate = self._candidate()
+        forget_pending_device(candidate, device_id=device_id)
+        await self.persist_config(candidate)
 
     async def register_device(
         self,
@@ -188,15 +202,16 @@ class AccessController:
         last_ip: str,
         hostname: str,
     ) -> bool:
+        candidate = self._candidate()
         if not register_seen_device(
-            self.config,
+            candidate,
             device_id=device_id,
             label=label,
             last_ip=last_ip,
             hostname=hostname,
         ):
             return False
-        await self.persist_config()
+        await self.persist_config(candidate)
         return True
 
     async def refresh_device_activity(
@@ -210,8 +225,9 @@ class AccessController:
     ) -> None:
         """Persist an existing browser's activity without notifying every client."""
 
+        candidate = self._candidate()
         if not refresh_seen_device(
-            self.config,
+            candidate,
             device_id=device_id,
             label=label,
             last_ip=last_ip,
@@ -219,11 +235,12 @@ class AccessController:
             hostname_observed=hostname_observed,
         ):
             return
-        await self.persist_activity()
+        await self.persist_activity(candidate)
 
     async def set_device_label(self, device_id: str, label: str) -> None:
-        set_device_label(self.config, device_id=device_id, label=label)
-        await self.persist_config()
+        candidate = self._candidate()
+        set_device_label(candidate, device_id=device_id, label=label)
+        await self.persist_config(candidate)
 
 
 class RuntimeController:

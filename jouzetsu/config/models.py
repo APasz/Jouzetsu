@@ -488,6 +488,31 @@ class AppConfig:
     host_stats: HostStatsSettings = field(default_factory=HostStatsSettings)
     access: AccessSettings = field(default_factory=AccessSettings)
 
+    def apply(self, settings: AppConfig) -> None:
+        """Publish saved settings while retaining shared connection/access objects."""
+
+        if self.paths != settings.paths:
+            raise ValueError("cannot change application paths at runtime")
+        settings.validate()
+        self.server.apply(settings.server)
+        self.generation = settings.generation
+        self.ui = settings.ui
+        self.theme = settings.theme
+        self.logging = settings.logging
+        self.host_stats = settings.host_stats
+        self.access.default_private = settings.access.default_private
+        self.access.allow_localhost_without_approval = (
+            settings.access.allow_localhost_without_approval
+        )
+        self.access.global_settings_for_approved = (
+            settings.access.global_settings_for_approved
+        )
+        self.access.allow_network_device_reassociation = (
+            settings.access.allow_network_device_reassociation
+        )
+        self.access.approval_phrase = settings.access.approval_phrase
+        self.access.devices = settings.access.devices
+
     @property
     def config_file(self) -> Path:
         return self.paths.config_file

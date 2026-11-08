@@ -5,10 +5,56 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager
 from logging import Logger
 from pathlib import Path
+from threading import RLock
 
 log: Logger = logging.getLogger(__name__)
+
+
+class CommitUncertainError(OSError):
+    """A file changed, but its directory entry could not be durably confirmed."""
+
+
+class DurableWriteGuard:
+    """Prevent writes from silently continuing after an uncertain commit."""
+
+    def __init__(self) -> None:
+        self._failures: dict[Path, CommitUncertainError] = {}
+        self._lock: RLock = RLock()
+
+    @contextmanager
+    def protect(self, *paths: Path) -> Generator[None]:
+        """Block affected paths until the store is reopened after recovery."""
+
+        resolved_paths = tuple(path.resolve() for path in paths)
+        with self._lock:
+            for path in resolved_paths:
+                if path in self._failures:
+                    raise CommitUncertainError(
+                        f"storage requires recovery before another write: {path}"
+                    ) from self._failures[path]
+            try:
+                yield
+            except CommitUncertainError as exc:
+                for path in resolved_paths:
+                    self._failures[path] = exc
+                raise
+
+
+def ensure_directory(directory: Path) -> None:
+    """Create directories and durably record each new parent entry."""
+
+    if directory.is_dir():
+        _sync_directory(directory.parent)
+        return
+    parent = directory.parent
+    if parent != directory:
+        ensure_directory(parent)
+    directory.mkdir(exist_ok=True)
+    _sync_directory(parent)
 
 
 def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
@@ -21,10 +67,10 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
     """Replace ``path`` with fully written bytes without exposing a partial file.
 
     The temporary file is created beside the destination so ``os.replace`` is
-    atomic on the target filesystem. Best-effort fsync calls reduce the chance
-    that an acknowledged write is lost during a sudden power failure.
+    atomic on the target filesystem. Both file and directory fsync must succeed
+    before the write is acknowledged.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_directory(path.parent)
     descriptor, temporary_path = tempfile.mkstemp(
         prefix=f"{path.name}.",
         suffix=".tmp",
@@ -36,7 +82,7 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
             file.flush()
             _sync_file(file.fileno())
         os.replace(temporary_path, path)
-        _sync_directory(path.parent)
+        _confirm_directories(path.parent)
     except Exception:
         log.exception("atomic write failed path=%s", path)
         try:
@@ -49,25 +95,37 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
 def move_path(source: Path, destination: Path) -> None:
     """Atomically move a file and durably record both affected directories."""
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    ensure_directory(destination.parent)
     os.replace(source, destination)
-    _sync_directory(destination.parent)
-    if source.parent != destination.parent:
-        _sync_directory(source.parent)
+    _confirm_directories(destination.parent, source.parent)
+
+
+def remove_path(path: Path) -> None:
+    """Remove a file and durably confirm its directory entry changed."""
+
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    _confirm_directories(path.parent)
+
+
+def _confirm_directories(*directories: Path) -> None:
+    try:
+        for directory in dict.fromkeys(directories):
+            _sync_directory(directory)
+    except OSError as exc:
+        raise CommitUncertainError(
+            "file changed but directory durability could not be confirmed"
+        ) from exc
 
 
 def _sync_file(descriptor: int) -> None:
-    try:
-        os.fsync(descriptor)
-    except OSError:
-        pass
+    os.fsync(descriptor)
 
 
 def _sync_directory(directory: Path) -> None:
-    try:
-        descriptor: int = os.open(directory, os.O_RDONLY)
-    except OSError:
-        return
+    descriptor: int = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
     try:
         _sync_file(descriptor)
     finally:

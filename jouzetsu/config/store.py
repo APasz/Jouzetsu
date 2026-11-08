@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, replace
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from ..atomic_write import atomic_write_text
+from ..atomic_write import DurableWriteGuard, atomic_write_text
 from .codec import ConfigIssue, ConfigValidationError, decode_config, encode_config
 from .defaults import default_config
 from .models import AppConfig, UiSettings
@@ -83,6 +84,9 @@ class ConfigStore:
     paths: AppPaths
     overrides: EnvironmentOverrides
     _persisted: AppConfig | None = None
+    _write_guard: DurableWriteGuard = field(
+        default_factory=DurableWriteGuard, init=False, repr=False
+    )
 
     @classmethod
     def for_home(cls, app_home: Path | None = None) -> ConfigStore:
@@ -120,7 +124,7 @@ class ConfigStore:
             return self.overrides.apply(default)
 
         persisted: AppConfig = self._read_persisted()
-        self._persisted = persisted
+        self._persisted = deepcopy(persisted)
         self._ensure_directories(persisted)
         return self.overrides.apply(persisted)
 
@@ -129,20 +133,21 @@ class ConfigStore:
 
         if effective.paths != self.paths:
             raise ValueError("cannot save configuration using a different path set")
-        if self._persisted is None:
-            self._persisted = (
+        previous: AppConfig | None = self._persisted
+        if previous is None:
+            previous = (
                 self._read_persisted()
                 if self.paths.config_file.exists()
                 else default_config(self.paths)
             )
-        persisted: AppConfig = self.overrides.remove(
-            effective, persisted=self._persisted
-        )
+        persisted: AppConfig = self.overrides.remove(effective, persisted=previous)
         encoded: dict[str, object] = encode_config(persisted)
-        self.paths.config_file.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(self.paths.config_file, json.dumps(encoded, indent=4) + "\n")
-        self._persisted = persisted
         self._ensure_directories(persisted)
+        with self._write_guard.protect(self.paths.config_file):
+            atomic_write_text(
+                self.paths.config_file, json.dumps(encoded, indent=4) + "\n"
+            )
+        self._persisted = deepcopy(persisted)
 
     def _ensure_directories(self, config: AppConfig) -> None:
         self.paths.ensure_runtime_directories(log_directory=config.log_directory)

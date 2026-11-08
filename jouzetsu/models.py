@@ -1160,6 +1160,20 @@ class Message:
         self.reasoning = ""
         self.updated_at = time.time()
 
+    def apply(self, message: Message) -> None:
+        """Publish saved message fields without invalidating existing references."""
+
+        if self.id != message.id:
+            raise ValueError("cannot change message identity")
+        self.role = message.role
+        self.content = message.content
+        self.model = message.model
+        self.continuity_rewrite = message.continuity_rewrite
+        self.reasoning = message.reasoning
+        self.images = message.images
+        self.created_at = message.created_at
+        self.updated_at = message.updated_at
+
     def set_model(self, model: str) -> None:
         """Record the model that generated this assistant response."""
 
@@ -1316,6 +1330,41 @@ class Chat:
 
     def touch(self) -> None:
         self.updated_at = time.time()
+
+    def copy(self) -> Chat:
+        """Copy mutable transcript content for an unpublished edit or request."""
+
+        return replace(self, messages=[replace(message) for message in self.messages])
+
+    def apply(self, chat: Chat) -> None:
+        """Publish a saved candidate while preserving chat and message references."""
+
+        if self.id != chat.id:
+            raise ValueError("cannot change chat identity")
+        self.title = chat.title
+        self.title_source = chat.title_source
+        self.created_at = chat.created_at
+        self.updated_at = chat.updated_at
+        self.model = chat.model
+        self.system_prompt = chat.system_prompt
+        self.prompt_mode = chat.prompt_mode
+        self.sampling_overrides = chat.sampling_overrides
+        self.postprocess_british_spellings = chat.postprocess_british_spellings
+        self.save_reasoning = chat.save_reasoning
+        self.draft = chat.draft
+        self.draft_images = chat.draft_images
+        self.character_cast = chat.character_cast
+        if self.messages is not chat.messages:
+            existing_messages = {message.id: message for message in self.messages}
+            messages: list[Message] = []
+            for candidate in chat.messages:
+                message = existing_messages.get(candidate.id)
+                if message is None:
+                    message = candidate
+                else:
+                    message.apply(candidate)
+                messages.append(message)
+            self.messages = messages
 
     @property
     def has_images(self) -> bool:

@@ -9,7 +9,12 @@ from logging import Logger
 from pathlib import Path
 from typing import cast
 
-from .atomic_write import atomic_write_text
+from .atomic_write import (
+    DurableWriteGuard,
+    atomic_write_text,
+    ensure_directory,
+    remove_path,
+)
 from .models import Character, FutureSchemaVersionError
 
 log: Logger = logging.getLogger(__name__)
@@ -21,7 +26,8 @@ class CharacterStorage:
 
     def __init__(self, directory: Path) -> None:
         self.directory: Path = Path(directory)
-        self.directory.mkdir(parents=True, exist_ok=True)
+        self._write_guard: DurableWriteGuard = DurableWriteGuard()
+        ensure_directory(self.directory)
 
     def load_all(self) -> list[Character]:
         """Load valid profiles, leaving forward-incompatible documents untouched."""
@@ -43,7 +49,8 @@ class CharacterStorage:
 
         data: str = json.dumps(character.to_dict(), ensure_ascii=False, indent=4) + "\n"
         path: Path = self.path_for(character.id)
-        atomic_write_text(path, data)
+        with self._write_guard.protect(path):
+            atomic_write_text(path, data)
         log.info(
             "saved character path=%s character_id=%s revision=%d",
             path,
@@ -55,7 +62,8 @@ class CharacterStorage:
         """Remove the known profile document after its id was resolved in application state."""
 
         path: Path = self.path_for(character_id)
-        path.unlink(missing_ok=True)
+        with self._write_guard.protect(path):
+            remove_path(path)
         log.info("deleted character path=%s character_id=%s", path, character_id)
 
     def path_for(self, character_id: str) -> Path:

@@ -63,10 +63,7 @@ def chat_with_continuation_prompt(chat: Chat) -> Chat:
 def generation_request_snapshot(chat: Chat) -> Chat:
     """Copy a transcript before its generated assistant message mutates in place."""
 
-    return replace(
-        chat,
-        messages=[replace(message) for message in chat.messages],
-    )
+    return chat.copy()
 
 
 class GenerationController:

@@ -15,7 +15,12 @@ from logging import Logger
 from pathlib import Path
 from typing import cast
 
-from .atomic_write import atomic_write_text, move_path
+from .atomic_write import (
+    DurableWriteGuard,
+    atomic_write_text,
+    ensure_directory,
+    move_path,
+)
 from .models import Chat, ChatJSON, FutureSchemaVersionError
 
 log: Logger = logging.getLogger(__name__)
@@ -33,9 +38,10 @@ class ChatStorage:
         self.directory: Path = self.path.parent / _CHAT_DIRECTORY_NAME
         self.trash_directory: Path = self.directory / _TRASH_DIRECTORY_NAME
         self._future_schema_document_ids: set[str] = set()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.directory.mkdir(parents=True, exist_ok=True)
-        self.trash_directory.mkdir(parents=True, exist_ok=True)
+        self._write_guard: DurableWriteGuard = DurableWriteGuard()
+        ensure_directory(self.path.parent)
+        ensure_directory(self.directory)
+        ensure_directory(self.trash_directory)
 
     def load_all(self) -> list[Chat]:
         """Load every chat document, migrating a legacy aggregate when present."""
@@ -97,10 +103,11 @@ class ChatStorage:
             self.delete(chat_id)
 
         for _chat_id, path, data in documents:
-            if self._document_matches(path, data):
-                continue
-            atomic_write_text(path, data)
-            written_count += 1
+            with self._write_guard.protect(path):
+                if self._document_matches(path, data):
+                    continue
+                atomic_write_text(path, data)
+                written_count += 1
         log.info(
             "saved chat records directory=%s changed_count=%d deleted_count=%d written_count=%d",
             self.directory,
@@ -118,10 +125,11 @@ class ChatStorage:
     def _move_document_to_trash(self, path: Path) -> Path | None:
         """Move one active document into the recoverable chat trash directory."""
 
-        if not path.exists():
-            return None
-        trash_path: Path = self._trash_path_for(path)
-        move_path(path, trash_path)
+        with self._write_guard.protect(path):
+            if not path.exists():
+                return None
+            trash_path: Path = self._trash_path_for(path)
+            move_path(path, trash_path)
         log.info(
             "moved chat to trash path=%s trash_path=%s chat_id=%s",
             path,
