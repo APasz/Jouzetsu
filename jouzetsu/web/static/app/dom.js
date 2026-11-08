@@ -1,5 +1,13 @@
 export const byId = (id) => document.getElementById(id);
 
+export const rememberChat = () => {
+    const preference = document.querySelector('[data-last-chat-cookie]');
+    const chatId = byId('chat-fragment')?.dataset.chatId;
+    const match = location.pathname.match(/^\/chats\/([A-Za-z0-9]+)$/);
+    if (!preference || !chatId || match?.[1] !== chatId) return;
+    document.cookie = `${preference.dataset.lastChatCookie}=${encodeURIComponent(chatId)}; Path=/; SameSite=Lax; Max-Age=${preference.dataset.lastChatCookieMaxAge}`;
+};
+
 export const parseFragment = (markup, expectedId) => {
     const template = document.createElement('template');
     template.innerHTML = markup.trim();

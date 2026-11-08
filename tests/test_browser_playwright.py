@@ -16,6 +16,7 @@ from browser_support import (
 from image_support import image_bytes
 from playwright.sync_api import Browser, Error, Page, Route, expect, sync_playwright
 
+from jouzetsu.config import ConfigStore
 from jouzetsu.models import Chat
 from jouzetsu.runtime import ModelCapabilities, ModelDescriptor
 
@@ -1484,3 +1485,238 @@ def test_appearance_changes_refresh_another_browsers_styles(
         )
     finally:
         context.close()
+
+
+def test_two_browsers_reject_stale_backend_settings_without_losing_edits(
+    browser_page: Page, browser_server: BrowserServer, chromium_browser: Browser
+) -> None:
+    configured = browser_server.state.config.backends.backends[0]
+    path = f"/settings/backends/{configured.id}/save"
+    context = chromium_browser.new_context(base_url=browser_server.base_url)
+    other = context.new_page()
+    other.set_default_timeout(_BROWSER_ACTION_TIMEOUT_MS)
+    try:
+        for page in (browser_page, other):
+            page.goto("/chats?dialog=global&tab=backends")
+            page.locator(f"#backend-{configured.id} > summary").click()
+        form_a = browser_page.locator(f'form[action="{path}"]')
+        form_b = other.locator(f'form[action="{path}"]')
+        token = form_b.locator('[name="backend_fingerprint"]').input_value()
+        form_a.locator('[name="name"]').fill("First browser saved")
+        form_b.locator('[name="name"]').fill("Second browser unsaved")
+        with browser_page.expect_response(
+            lambda response: response.url.endswith(path)
+        ) as accepted:
+            form_a.get_by_role("button", name="Save backend", exact=True).click()
+        assert accepted.value.status == 200
+        expect(other.locator(f"#backend-{configured.id} > summary")).to_contain_text(
+            "First browser saved"
+        )
+        expect(form_b.locator('[name="backend_fingerprint"]')).to_have_value(token)
+        with other.expect_response(
+            lambda response: response.url.endswith(path)
+        ) as rejected:
+            form_b.get_by_role("button", name="Save backend", exact=True).click()
+        assert rejected.value.status == 409
+        expect(other.locator("#notice-area")).to_contain_text("changed elsewhere")
+        expect(form_b.locator('[name="name"]')).to_have_value("Second browser unsaved")
+        assert (
+            browser_server.state.config.backends.backend(configured.id).name
+            == "First browser saved"
+        )
+        loaded = ConfigStore.for_paths(browser_server.state.config.paths).load()
+        assert loaded.backends.backend(configured.id).name == "First browser saved"
+        expect(form_a.locator('[name="backend_fingerprint"]')).not_to_have_value(token)
+        form_a.locator('[name="name"]').fill("Subsequent valid edit")
+        with browser_page.expect_response(
+            lambda response: response.url.endswith(path)
+        ) as valid:
+            form_a.get_by_role("button", name="Save backend", exact=True).click()
+        assert valid.value.status == 200
+        expect(form_b.locator('[name="name"]')).to_have_value("Second browser unsaved")
+        assert (
+            browser_server.state.config.backends.backend(configured.id).name
+            == "Subsequent valid edit"
+        )
+    finally:
+        context.close()
+
+
+def test_chats_workspace_restores_independent_browser_selections(
+    browser_page: Page, browser_server: BrowserServer, chromium_browser: Browser
+) -> None:
+    first = browser_server.state.chats[0]
+    message = first.add_message("user", "First chat")
+    _open_chat_page(browser_page)
+    first_url = browser_page.url
+    context = chromium_browser.new_context(base_url=browser_server.base_url)
+    other = context.new_page()
+    other.set_default_timeout(_BROWSER_ACTION_TIMEOUT_MS)
+    try:
+        _open_chat_page(other)
+        _create_chat_in_background(browser_page)
+        second = browser_server.state.chats[0]
+        browser_page.get_by_test_id("open-nav-button").click()
+        browser_page.locator(f'a[href="/chats/{second.id}"]').click()
+        browser_page.wait_for_function(
+            "id => document.getElementById('chat-fragment').dataset.chatId === id",
+            arg=second.id,
+        )
+        second_url = browser_page.url
+        _edit_message_in_background(
+            other, message.id, "Make the first chat globally newest"
+        )
+        assert browser_server.state.chats[0] is first
+        for page, expected in ((browser_page, second_url), (other, first_url)):
+            page.goto("/characters")
+            page.goto("/")
+            page.get_by_test_id("launch-chats-link").click()
+            expect(page).to_have_url(expected)
+            page.reload()
+            expect(page).to_have_url(expected)
+            page.goto("/chats")
+            expect(page).to_have_url(expected)
+        assert (
+            browser_page.evaluate("""async () => {
+            const token = document.querySelector('[data-csrf-token]').dataset.csrfToken;
+            const shell = document.getElementById('chat-fragment');
+            const response = await fetch(`/chats/${shell.dataset.chatId}/delete`, {method: 'POST',
+                headers: {'X-Jouzetsu-CSRF': token, 'HX-Request': 'true'},
+                body: new URLSearchParams({chat_id: shell.dataset.chatId, revision: shell.dataset.revision})});
+            return response.status;
+        }""")
+            == 200
+        )
+        browser_page.goto("/chats")
+        expect(browser_page).to_have_url(first_url)
+        expect(other).to_have_url(first_url)
+    finally:
+        context.close()
+
+
+def test_long_transcript_draft_updates_only_refresh_composers(
+    browser_page: Page, browser_server: BrowserServer, chromium_browser: Browser
+) -> None:
+    _seed_transcript(browser_server, 80, _LONG_MESSAGE)
+    _open_chat_page(browser_page)
+    context = chromium_browser.new_context(base_url=browser_server.base_url)
+    other = context.new_page()
+    other.set_default_timeout(_BROWSER_ACTION_TIMEOUT_MS)
+    try:
+        _open_chat_page(other)
+        for page in (browser_page, other):
+            page.evaluate("""() => {
+                performance.clearResourceTimings();
+                window.transcriptMutations = 0;
+                new MutationObserver((changes) => { window.transcriptMutations += changes.length; })
+                    .observe(document.getElementById('message-list'), {subtree: true, childList: true, attributes: true, characterData: true});
+            }""")
+        for index in range(3):
+            value = f"Composer-only draft {index}"
+            browser_page.get_by_test_id("message-input").fill(value)
+            expect(other.get_by_test_id("message-input")).to_have_value(value)
+        expect(browser_page.get_by_test_id("message-input")).to_be_focused()
+        other.get_by_test_id("image-upload-input").set_input_files(
+            {"name": "shared.png", "mimeType": "image/png", "buffer": image_bytes()}
+        )
+        for page in (browser_page, other):
+            expect(page.get_by_test_id("remove-draft-image")).to_have_count(1)
+        browser_page.route("**/chat/draft", lambda route: route.fulfill(status=503))
+        browser_page.get_by_test_id("message-input").fill("Keep my unsaved local text")
+        expect(browser_page.locator("#notice-area")).to_contain_text("Could not save")
+        other.get_by_test_id("message-input").fill("Newer shared text")
+        browser_page.wait_for_function(
+            "() => document.getElementById('chat-fragment').dataset.draftRevision === '5'"
+        )
+        expect(browser_page.get_by_test_id("message-input")).to_have_value(
+            "Keep my unsaved local text"
+        )
+        browser_page.unroute("**/chat/draft")
+        browser_page.get_by_test_id("message-input").fill("Keep my rejected correction")
+        expect(browser_page.locator("#notice-area")).to_contain_text(
+            "changed elsewhere"
+        )
+        expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1)
+        for page in (browser_page, other):
+            assert page.evaluate("window.transcriptMutations") == 0
+            assert (
+                page.evaluate(
+                    "performance.getEntriesByType('resource').filter(e => new URL(e.name).pathname === '/fragments/chat').length"
+                )
+                == 0
+            )
+            assert (
+                page.evaluate(
+                    "performance.getEntriesByType('resource').filter(e => new URL(e.name).pathname === '/fragments/chat/composer').length"
+                )
+                > 0
+            )
+        assert len(browser_server.state.chats[0].messages) == 160
+    finally:
+        context.close()
+
+
+def test_focused_draft_refresh_preserves_running_generation_status(
+    browser_page: Page, browser_server: BrowserServer, chromium_browser: Browser
+) -> None:
+    gate = _configure_paused_streaming_response(browser_server)
+    context = chromium_browser.new_context(base_url=browser_server.base_url)
+    other = context.new_page()
+    other.set_default_timeout(_BROWSER_ACTION_TIMEOUT_MS)
+    try:
+        _open_chat_page(browser_page)
+        browser_page.get_by_test_id("message-input").fill("Generate while drafting")
+        browser_page.get_by_test_id("send-message-button").click()
+        expect(browser_page.locator("article.is-streaming")).to_be_visible()
+        _open_chat_page(other)
+        other.get_by_test_id("message-input").fill("Draft during held generation")
+        expect(browser_page.get_by_test_id("message-input")).to_have_value(
+            "Draft during held generation"
+        )
+        for page in (browser_page, other):
+            expect(page.get_by_test_id("stop-generation-button")).to_be_enabled()
+            expect(page.locator("article.is-streaming")).to_contain_text(
+                "deliberately long"
+            )
+        gate.set()
+        for page in (browser_page, other):
+            expect(page.get_by_test_id("send-message-button")).to_be_visible()
+            expect(page.get_by_test_id("message-input")).to_have_value(
+                "Draft during held generation"
+            )
+        assert len(browser_server.client.requests) == 1
+    finally:
+        gate.set()
+        context.close()
+
+
+def test_delayed_composer_response_cannot_replace_a_newly_selected_chat(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    _open_chat_page(browser_page)
+    _create_chat_in_background(browser_page)
+    second = browser_server.state.chats[0]
+    browser_page.evaluate("""() => {
+        const original = fetch.bind(window);
+        window.fetch = async (url, options) => {
+            const response = await original(url, options);
+            if (new URL(url, location.href).pathname === '/fragments/chat/composer' && !window.heldComposer) {
+                window.heldComposer = true;
+                await new Promise((resolve) => { window.releaseComposer = resolve; });
+                window.composerReleased = true;
+            }
+            return response;
+        };
+    }""")
+    browser_page.get_by_test_id("message-input").fill("First-chat draft")
+    browser_page.wait_for_function("() => typeof window.releaseComposer === 'function'")
+    browser_page.get_by_test_id("open-nav-button").click()
+    browser_page.locator(f'a[href="/chats/{second.id}"]').click()
+    browser_page.wait_for_function(
+        "id => document.getElementById('chat-fragment').dataset.chatId === id",
+        arg=second.id,
+    )
+    browser_page.evaluate("window.releaseComposer()")
+    browser_page.wait_for_function("() => window.composerReleased === true")
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("")
+    expect(browser_page).to_have_url(f"{browser_server.base_url}/chats/{second.id}")

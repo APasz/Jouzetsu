@@ -827,6 +827,26 @@ def render_chat_fragment(
     )
 
 
+def render_chat_composer_fragment(view: ChatView, *, edit_message_id: str = "") -> HTML:
+    """Refresh the shared draft without rendering committed transcript messages."""
+    chat = view.chat
+    editing = _safe_edit_message(chat, edit_message_id)
+    return scope_chat_forms(
+        Div(
+            render_composer(
+                view,
+                edit_message_id=editing.id if editing else "",
+                editing_message=editing,
+            ),
+            id="chat-composer-fragment",
+            data_chat_id=chat.id,
+            data_revision=chat.revision,
+            data_draft_revision=chat.draft_revision,
+        ),
+        chat,
+    )
+
+
 def render_chat_live_fragment(
     view: ChatView,
     *,

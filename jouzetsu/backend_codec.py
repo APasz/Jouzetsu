@@ -5,6 +5,8 @@ These codecs do not migrate or rewrite the current application's documents.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Final
 
 from .backend_models import (
@@ -34,6 +36,17 @@ from .sampling import DEFAULT_SAMPLING, ParameterSupport, SamplingParameters
 BACKEND_SCHEMA_VERSION: Final[int] = 1
 INFERENCE_SCHEMA_VERSION: Final[int] = 1
 type JsonObject = dict[str, object]
+
+
+def backend_fingerprint(backend: BackendConfig | BackendConfiguration) -> str:
+    """Identify the exact configuration snapshot rendered by a browser form."""
+    document = (
+        _encode_backend(backend)
+        if isinstance(backend, BackendConfig)
+        else encode_backends(backend)
+    )
+    encoded = json.dumps(document, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def encode_backends(config: BackendConfiguration) -> JsonObject:

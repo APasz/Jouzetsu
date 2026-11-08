@@ -393,7 +393,7 @@ def test_chat_client_preserves_message_scroll_when_generation_completion_replace
         "const messageScrollTop = sameChat ? currentMessages.scrollTop : null;"
     )
     composer_replacement: int = script.index(
-        "currentComposer.replaceWith(nextComposer);"
+        "this.#reconcileComposer(currentComposer, nextComposer, next.dataset.draftRevision);"
     )
     scroll_restore: int = script.index("this.#messages.restoreScroll(")
 

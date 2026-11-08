@@ -74,6 +74,7 @@ from .mutations import (
     DialogName as _DialogName,
     Mutations,
 )
+from .navigation import LAST_CHAT_COOKIE_NAME
 from .request_access import (
     RequestAccess,
     RequestContext as _RequestContext,
@@ -91,6 +92,7 @@ from .views.chat import (
     ChatSettingsView,
     ChatView,
     NavigationView,
+    render_chat_composer_fragment,
     render_chat_fragment,
     render_chat_live_fragment,
     render_navigation_panel,
@@ -270,8 +272,14 @@ def _register_page_routes(context: RouteContext) -> None:
                 approval_phrase_enabled=bool(context.config.access.approval_phrase),
             )
         if context.state.chats:
+            remembered = request.cookies.get(LAST_CHAT_COOKIE_NAME, "")
+            chat_id = (
+                remembered
+                if remembered in context.state.registry
+                else context.state.chats[0].id
+            )
             return RedirectResponse(
-                f"/chats/{context.state.chats[0].id}"
+                f"/chats/{chat_id}"
                 + (f"?{request.url.query}" if request.url.query else ""),
                 status_code=303,
             )
@@ -361,6 +369,14 @@ def _register_page_routes(context: RouteContext) -> None:
     async def chat_live_fragment(request: Request) -> FT:
         _ = await context.access.require(request)
         return render_chat_live_fragment(
+            context.chat_view(_existing_chat_id(context.state, request)),
+            edit_message_id=_query_text(request, "edit"),
+        )
+
+    @context.route("GET", "/fragments/chat/composer", "chat_composer_fragment")
+    async def chat_composer_fragment(request: Request) -> FT:
+        _ = await context.access.require(request)
+        return render_chat_composer_fragment(
             context.chat_view(_existing_chat_id(context.state, request)),
             edit_message_id=_query_text(request, "edit"),
         )
@@ -1148,7 +1164,8 @@ def _register_backend_routes(context: RouteContext) -> None:
         return await context.mutations.perform(
             request,
             lambda: context.state.inference.set_default_backend(
-                BackendId(form.text("backend_id")) if form.text("backend_id") else None
+                BackendId(form.text("backend_id")) if form.text("backend_id") else None,
+                expected_fingerprint=form.required_text("backend_fingerprint"),
             ),
             notice="Default backend saved",
             require_global_settings=True,
@@ -1165,7 +1182,12 @@ def _register_backend_routes(context: RouteContext) -> None:
         async def operation() -> None:
             backend_id = BackendId(_path_text(request, "backend_id"))
             runtime = context.state.inference
-            backend = context.config.backends.backend(backend_id)
+            try:
+                backend = context.config.backends.backend(backend_id)
+            except KeyError as exc:
+                raise RevisionConflict(
+                    "This backend was removed. Your edits are preserved; copy them before reloading."
+                ) from exc
             action = _path_text(request, "action")
             if action == "test":
                 await runtime.refresh_backend(backend_id)
@@ -1177,7 +1199,10 @@ def _register_backend_routes(context: RouteContext) -> None:
                     raise error
                 return
             if action == "remove":
-                await runtime.remove_backend(backend_id)
+                await runtime.remove_backend(
+                    backend_id,
+                    expected_fingerprint=form.required_text("backend_fingerprint"),
+                )
                 return
             if action in {"load", "unload"}:
                 model = ModelRef(backend_id, form.required_text("model_id"))
@@ -1186,6 +1211,9 @@ def _register_backend_routes(context: RouteContext) -> None:
                 else:
                     await runtime.unload_model(model)
                 return
+            runtime.validate_backend_snapshot(
+                backend, form.required_text("backend_fingerprint")
+            )
             if action == "save":
                 management = (
                     ModelManagementSettings(
@@ -1220,7 +1248,11 @@ def _register_backend_routes(context: RouteContext) -> None:
                 )
             else:
                 raise ValueError("unknown backend action")
-            await runtime.update_backend(candidate, expected=backend)
+            await runtime.update_backend(
+                candidate,
+                expected=backend,
+                expected_fingerprint=form.required_text("backend_fingerprint"),
+            )
 
         return await context.mutations.perform(
             request,

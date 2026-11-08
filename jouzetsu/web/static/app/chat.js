@@ -3,11 +3,13 @@ import {
     chatFragmentUrl,
     localizeMessageUpdatedTimes,
     parseFragment,
+    rememberChat,
     syncElementAttributes,
 } from './dom.js';
 import { addCsrfToken, liveFormBody, randomIdentifier } from './forms.js';
 
 const FULL_REFRESH = 'full';
+const COMPOSER_REFRESH = 'composer';
 const LIVE_REFRESH = 'live';
 const STREAM_REFRESH_DELAY_MS = 75;
 const LATEST_MESSAGE_ACTION_PATTERN = /^\/messages\/[^/]+\/(?:continue|regenerate|resend)$/;
@@ -43,7 +45,7 @@ const matchesServerMessageMarkup = (current, next) => {
     return true;
 };
 
-const formKey = (form) => `${form.action}|${form.elements.namedItem('chat_id')?.value || ''}|${form.elements.namedItem('model_id')?.value || ''}`;
+const formKey = (form) => `${new URL(form.getAttribute('action') || location.href, location.origin).href}|${form.elements.namedItem('chat_id')?.value || ''}|${form.elements.namedItem('model_id')?.value || ''}`;
 
 const reconcileSurface = (current, next) => {
     const focus = current.contains(document.activeElement) ? document.activeElement : null;
@@ -121,6 +123,7 @@ export class ChatController {
                 next.setAttribute('aria-hidden', 'true');
             }
             this.#reconcileFragment(current, next, followLatest);
+            rememberChat();
             this.#images.synchronize();
             this.#messages.watchScrollContainer();
             localizeMessageUpdatedTimes();
@@ -327,6 +330,7 @@ export class ChatController {
             if (revision && form.elements.namedItem('revision')) form.elements.namedItem('revision').value = revision;
             if (!resubmit) delete form.dataset.localDirty;
             await Promise.all([this.replaceFragment(), this.refreshPanels()]);
+            if (new URL(form.action).pathname.startsWith('/settings/backends/')) await this.refreshDialogs();
             this.#notices.announce(submitter?.dataset.liveNotice || form.dataset.liveNotice || 'Saved');
         } catch {
             this.#notices.announce('Could not save this change', true);
@@ -392,6 +396,10 @@ export class ChatController {
         this.scheduleRefresh(LIVE_REFRESH);
     }
 
+    scheduleComposerRefresh() {
+        this.scheduleRefresh(COMPOSER_REFRESH);
+    }
+
     #reconcileFragment(current, next, followLatest) {
         const currentTopbar = current.querySelector(':scope > .jouzetsu-topbar');
         const nextTopbar = next.querySelector(':scope > .jouzetsu-topbar');
@@ -410,12 +418,44 @@ export class ChatController {
             current.replaceWith(next);
             return;
         }
+        const sameChat = current.dataset.chatId === next.dataset.chatId;
+        if (!sameChat) this.#messages.saveScrollForNavigation();
+        const messageScrollTop = sameChat ? currentMessages.scrollTop : null;
+        const nextStreaming = nextMessages.querySelector('article.is-streaming[data-message-id]');
+        const firstPreview = sameChat && nextStreaming instanceof HTMLElement && !Array.from(currentMessages.querySelectorAll('article.is-streaming[data-message-id]')).some((message) => message.dataset.messageId === nextStreaming.dataset.messageId);
+        const streamingMessageAnchor = sameChat
+            ? this.#messages.captureStreamingMessageAnchor(currentMessages)
+            : null;
+        const stickToBottom = (
+            sameChat
+            && !streamingMessageAnchor
+            && this.#messages.isNearBottom(currentMessages)
+        );
+        syncElementAttributes(current, next);
+        if (currentTopbar.outerHTML !== nextTopbar.outerHTML) currentTopbar.replaceWith(nextTopbar);
+        this.#reconcileMessageList(currentMessages, nextMessages);
+        this.#reconcileComposer(currentComposer, nextComposer, next.dataset.draftRevision);
+        if (firstPreview && (followLatest || stickToBottom)) {
+            this.#messages.restoreScroll(currentMessages, messageScrollTop);
+            window.requestAnimationFrame(() => this.#messages.scrollStreamingMessageUntilTop(currentMessages, currentMessages.querySelector('article.is-streaming')));
+        } else if (!sameChat) {
+            if (!this.#messages.restoreScrollAfterNavigation()) this.#messages.snapListToBottom(currentMessages);
+        } else if (followLatest || stickToBottom) this.#messages.snapListToBottom(currentMessages);
+        else {
+            this.#messages.restoreScroll(
+                currentMessages,
+                messageScrollTop,
+                streamingMessageAnchor,
+            );
+        }
+    }
+
+    #reconcileComposer(currentComposer, nextComposer, draftRevision) {
         const currentForm = currentComposer.querySelector('.jouzetsu-composer-form');
         const nextForm = nextComposer.querySelector('.jouzetsu-composer-form');
         const currentChatId = currentForm instanceof HTMLFormElement ? currentForm.dataset.chatId || '' : '';
         const nextChatId = nextForm instanceof HTMLFormElement ? nextForm.dataset.chatId || '' : '';
         const sameChat = Boolean(currentChatId && currentChatId === nextChatId);
-        if (!sameChat) this.#messages.saveScrollForNavigation();
         const sameComposerMode = (
             currentForm instanceof HTMLFormElement
             && nextForm instanceof HTMLFormElement
@@ -431,17 +471,6 @@ export class ChatController {
             && currentForm.dataset.composerMode === 'compose'
             && nextForm.dataset.composerMode === 'edit'
         );
-        const messageScrollTop = sameChat ? currentMessages.scrollTop : null;
-        const nextStreaming = nextMessages.querySelector('article.is-streaming[data-message-id]');
-        const firstPreview = sameChat && nextStreaming instanceof HTMLElement && !Array.from(currentMessages.querySelectorAll('article.is-streaming[data-message-id]')).some((message) => message.dataset.messageId === nextStreaming.dataset.messageId);
-        const streamingMessageAnchor = sameChat
-            ? this.#messages.captureStreamingMessageAnchor(currentMessages)
-            : null;
-        const stickToBottom = (
-            sameChat
-            && !streamingMessageAnchor
-            && this.#messages.isNearBottom(currentMessages)
-        );
         const preserveComposerDraft = sameChat && (sameComposerMode || missingEditedMessage) && (
             this.#drafts.isDirty || this.#submissions.has(submissionKey(currentChatId))
             || currentForm?.dataset.composerMode === 'edit'
@@ -453,13 +482,10 @@ export class ChatController {
             images: currentForm.elements.namedItem('images')?.value,
             hasImages: currentForm.dataset.hasImages,
         } : null;
-        const preserveImages = liveDraft && Number(next.dataset.draftRevision) > liveDraft.revision;
+        const preserveImages = liveDraft && Number(draftRevision) > liveDraft.revision;
         const imageUpload = preserveImages ? currentComposer.querySelector('[data-image-upload-form]') : null;
         const editRevision = currentForm?.dataset.composerMode === 'edit' ? currentForm.elements.namedItem('revision')?.value : null;
-        const selection = preserveComposerDraft ? this.#composer.focusedSelection() : null;
-        syncElementAttributes(current, next);
-        if (currentTopbar.outerHTML !== nextTopbar.outerHTML) currentTopbar.replaceWith(nextTopbar);
-        this.#reconcileMessageList(currentMessages, nextMessages);
+        const selection = sameChat && sameComposerMode ? this.#composer.focusedSelection() : null;
         let renderedComposer = currentComposer;
         if (!missingEditedMessage && stableMarkup(currentComposer) !== stableMarkup(nextComposer)) {
             currentComposer.replaceWith(nextComposer);
@@ -492,24 +518,11 @@ export class ChatController {
                 if (imageUpload && nextUpload) nextUpload.replaceWith(imageUpload);
             }
         }
-        this.#drafts.acceptRevision(nextChatId, next.dataset.draftRevision);
+        this.#drafts.acceptRevision(nextChatId, draftRevision);
         if (missingEditedMessage) this.#notices.announce('This message was deleted. Your local edit is preserved; copy it before cancelling.', true);
         this.#composer.reconcileViewport();
         this.#composer.restoreHeight();
         this.#composer.autoSizeInput(renderedInput);
-        if (firstPreview && (followLatest || stickToBottom)) {
-            this.#messages.restoreScroll(currentMessages, messageScrollTop);
-            window.requestAnimationFrame(() => this.#messages.scrollStreamingMessageUntilTop(currentMessages, currentMessages.querySelector('article.is-streaming')));
-        } else if (!sameChat) {
-            if (!this.#messages.restoreScrollAfterNavigation()) this.#messages.snapListToBottom(currentMessages);
-        } else if (followLatest || stickToBottom) this.#messages.snapListToBottom(currentMessages);
-        else {
-            this.#messages.restoreScroll(
-                currentMessages,
-                messageScrollTop,
-                streamingMessageAnchor,
-            );
-        }
         this.#composer.syncPrimary();
         this.#composer.syncStatusElapsedTimer();
     }
@@ -555,6 +568,35 @@ export class ChatController {
             insertionPoint.remove();
             insertionPoint = nextSibling;
         }
+    }
+
+    async replaceComposerFragment() {
+        const current = byId('chat-fragment');
+        if (!(current instanceof HTMLElement)) return;
+        const fullRefresh = this.#latestFullRefreshRequest;
+        try {
+            const response = await fetch(chatFragmentUrl('/fragments/chat/composer'), {
+                headers: {'HX-Request': 'true'}, cache: 'no-store',
+            });
+            if (!response.ok) {
+                if (response.status === 403) window.location.reload();
+                else if (response.status === 404) this.scheduleFullRefresh();
+                return;
+            }
+            const next = parseFragment(await response.text(), 'chat-composer-fragment');
+            if (!next || !current.isConnected || fullRefresh !== this.#latestFullRefreshRequest) return;
+            if (current.dataset.chatId !== next.dataset.chatId || current.dataset.revision !== next.dataset.revision) {
+                this.scheduleFullRefresh();
+                return;
+            }
+            if (Number(next.dataset.draftRevision) < Number(current.dataset.draftRevision)) return;
+            const composer = current.querySelector(':scope > .jouzetsu-composer');
+            const nextComposer = next.querySelector(':scope > .jouzetsu-composer');
+            if (!(composer instanceof HTMLElement) || !(nextComposer instanceof HTMLElement)) return;
+            current.dataset.draftRevision = next.dataset.draftRevision;
+            this.#reconcileComposer(composer, nextComposer, next.dataset.draftRevision);
+            this.#images.synchronize();
+        } catch { /* A later notification or reconnect refreshes the shared draft. */ }
     }
 
     async #replaceLiveFragment() {
@@ -629,6 +671,11 @@ export class ChatController {
         this.#refreshInFlight = true;
         try {
             if (kind === FULL_REFRESH) await this.replaceFragment();
+            else if (kind === COMPOSER_REFRESH) {
+                await this.replaceComposerFragment();
+                // A draft event can coalesce with tokens; update both without a transcript render.
+                if (document.querySelector('.jouzetsu-composer-form')?.dataset.composerGenerating === 'true') await this.#replaceLiveFragment();
+            }
             else await this.#replaceLiveFragment();
         } finally {
             this.#refreshInFlight = false;
@@ -640,7 +687,9 @@ export class ChatController {
     }
 
     #preferredRefresh(currentKind, nextKind) {
-        return currentKind === FULL_REFRESH || nextKind === FULL_REFRESH ? FULL_REFRESH : LIVE_REFRESH;
+        if (currentKind === FULL_REFRESH || nextKind === FULL_REFRESH) return FULL_REFRESH;
+        if (currentKind === COMPOSER_REFRESH || nextKind === COMPOSER_REFRESH) return COMPOSER_REFRESH;
+        return LIVE_REFRESH;
     }
 
     #setHistoryUrl(url, replace) {

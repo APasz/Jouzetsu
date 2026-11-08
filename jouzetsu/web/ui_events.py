@@ -120,14 +120,15 @@ async def stream_events(
 def _coalesce(previous: UiEvent, current: UiEvent) -> UiEvent:
     """Keep structural refreshes when a browser queue drops intermediate events."""
 
-    kind: StateChangeKind = (
-        StateChangeKind.FULL
-        if previous.kind
-        in {StateChangeKind.FULL, StateChangeKind.DRAFT, StateChangeKind.CONFIG}
-        or current.kind
-        in {StateChangeKind.FULL, StateChangeKind.DRAFT, StateChangeKind.CONFIG}
-        else current.kind
-    )
+    kinds = {previous.kind, current.kind}
+    if kinds & {StateChangeKind.FULL, StateChangeKind.CONFIG}:
+        kind = StateChangeKind.FULL
+    elif StateChangeKind.DRAFT in kinds:
+        kind = StateChangeKind.DRAFT
+    elif StateChangeKind.STREAM in kinds:
+        kind = StateChangeKind.STREAM
+    else:
+        kind = current.kind
     return UiEvent(
         revision=current.revision,
         kind=kind,

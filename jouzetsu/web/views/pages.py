@@ -19,6 +19,7 @@ from ..html import (
     Span,
 )
 from ..icon import app_icon_url
+from ..navigation import LAST_CHAT_COOKIE_MAX_AGE, LAST_CHAT_COOKIE_NAME
 from .access import render_access_dialog
 from .chat import (
     ChatSettingsView,
@@ -87,6 +88,8 @@ def render_main_page(
         *dialogs,
         cls="jouzetsu-app",
         data_open_dialog=open_dialog,
+        data_last_chat_cookie=LAST_CHAT_COOKIE_NAME,
+        data_last_chat_cookie_max_age=LAST_CHAT_COOKIE_MAX_AGE,
     )
 
 

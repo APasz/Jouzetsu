@@ -16,9 +16,12 @@ from inference_support import Plan, backend
 from web_support import csrf_headers, transport
 
 from jouzetsu.access import DEVICE_ID_COOKIE_NAME
+from jouzetsu.backend_codec import backend_fingerprint
 from jouzetsu.config import ConfigStore, DeviceAccessSettings, encode_config
+from jouzetsu.inference import RevisionConflict
 from jouzetsu.models import Chat
 from jouzetsu.runtime import ModelCapabilities
+from jouzetsu.web.navigation import LAST_CHAT_COOKIE_NAME
 from jouzetsu.web.ui_events import stream_events
 
 
@@ -437,13 +440,20 @@ def test_backend_management_snapshots_defaults_and_retains_missing_selection(
             configured = h.state.config.backends.backends[0]
             registered = await c.post(
                 f"/settings/backends/{configured.id}/register-model",
-                data={"model_id": "manual", "alias": "Friendly"},
+                data={
+                    "model_id": "manual",
+                    "alias": "Friendly",
+                    "backend_fingerprint": backend_fingerprint(configured),
+                },
                 headers=headers,
             )
             assert registered.status_code == 303
             saved = await c.post(
                 f"/settings/backends/{configured.id}/save",
                 data={
+                    "backend_fingerprint": backend_fingerprint(
+                        h.state.config.backends.backend(configured.id)
+                    ),
                     "name": "Local",
                     "base_url": configured.base_url,
                     "enabled": "true",
@@ -459,7 +469,12 @@ def test_backend_management_snapshots_defaults_and_retains_missing_selection(
             assert (
                 await c.post(
                     "/settings/backends/default",
-                    data={"backend_id": configured.id},
+                    data={
+                        "backend_id": configured.id,
+                        "backend_fingerprint": backend_fingerprint(
+                            h.state.config.backends
+                        ),
+                    },
                     headers=headers,
                 )
             ).status_code == 303
@@ -471,13 +486,24 @@ def test_backend_management_snapshots_defaults_and_retains_missing_selection(
             assert (
                 await c.post(
                     "/settings/backends/default",
-                    data={"backend_id": ""},
+                    data={
+                        "backend_id": "",
+                        "backend_fingerprint": backend_fingerprint(
+                            h.state.config.backends
+                        ),
+                    },
                     headers=headers,
                 )
             ).status_code == 303
             assert (
                 await c.post(
-                    f"/settings/backends/{configured.id}/remove", headers=headers
+                    f"/settings/backends/{configured.id}/remove",
+                    headers=headers,
+                    data={
+                        "backend_fingerprint": backend_fingerprint(
+                            h.state.config.backends.backend(configured.id)
+                        )
+                    },
                 )
             ).status_code == 303
             assert chat.inference.profiles[configured.id] == profile
@@ -582,7 +608,7 @@ def test_coalescing_cannot_drop_draft_refresh_during_generation(
         queue = broker.subscribe()
         await broker._on_state_change(StateChangeKind.DRAFT)  # pyright: ignore[reportPrivateUsage]
         await broker._on_state_change(StateChangeKind(current))  # pyright: ignore[reportPrivateUsage]
-        assert queue.get_nowait().kind is StateChangeKind.FULL
+        assert queue.get_nowait().kind is StateChangeKind.DRAFT
         await h.close()
 
     asyncio.run(exercise())
@@ -620,5 +646,145 @@ def test_isolated_documents_are_visible_without_changing_their_files(
         await h.close()
         for path in (damaged_chat, damaged_character):
             assert path.read_bytes() == b"{damaged JSON"
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    "action", ("save", "alias", "register-model", "remove", "default")
+)
+def test_backend_forms_reject_stale_rendered_fingerprints(
+    tmp_path: Path, action: str
+) -> None:
+    async def exercise() -> None:
+        configured = backend()
+        h = WebHarness(tmp_path, (configured,))
+        token = backend_fingerprint(
+            h.state.config.backends if action == "default" else configured
+        )
+        async with client(h) as c:
+            page = await c.get("/chats?dialog=global&tab=backends")
+            assert token in page.text
+            await h.state.inference.update_backend(
+                replace(configured, name="Newer configuration")
+            )
+            saved = h.state.config.config_file.read_bytes()
+            queue = h.web._event_broker.subscribe()  # pyright: ignore[reportPrivateUsage]
+            path = (
+                "/settings/backends/default"
+                if action == "default"
+                else f"/settings/backends/{configured.id}/{action}"
+            )
+            result = await c.post(
+                path,
+                headers=csrf_headers(page),
+                data={
+                    "backend_fingerprint": token,
+                    "backend_id": configured.id,
+                    "model_id": configured.models[0].descriptor.key,
+                    "alias": "Rejected alias",
+                    "name": "Rejected name",
+                    "base_url": configured.base_url,
+                    "enabled": "true",
+                    "concurrency_limit": "1",
+                    "model": "",
+                    "temperature": "0.5",
+                    "top_p": "0.9",
+                    "max_tokens": "100",
+                },
+            )
+            assert result.status_code == 409
+            assert "changed elsewhere" in result.text
+            assert h.state.config.config_file.read_bytes() == saved
+            assert (
+                h.state.config.backends.backend(configured.id).name
+                == "Newer configuration"
+            )
+            assert queue.empty()
+        await h.close()
+
+    asyncio.run(exercise())
+
+
+def test_backend_fingerprint_is_checked_under_the_configuration_lock(
+    tmp_path: Path,
+) -> None:
+    async def exercise() -> None:
+        configured = backend()
+        h = WebHarness(tmp_path, (configured,))
+        token = backend_fingerprint(configured)
+        results = await asyncio.gather(
+            *(
+                h.state.inference.update_backend(
+                    replace(configured, name=name), expected_fingerprint=token
+                )
+                for name in ("First", "Second")
+            ),
+            return_exceptions=True,
+        )
+        assert results[0] is None
+        assert isinstance(results[1], RevisionConflict)
+        assert h.state.config.backends.backend(configured.id).name == "First"
+        loaded = ConfigStore.for_paths(h.state.config.paths).load()
+        assert loaded.backends.backend(configured.id).name == "First"
+        await h.close()
+
+    asyncio.run(exercise())
+
+
+def test_chats_workspace_uses_browser_cookie_and_recovers_deleted_selection(
+    tmp_path: Path,
+) -> None:
+    async def exercise() -> None:
+        h = WebHarness(tmp_path)
+        first, second = await h.state.new_chat(), await h.state.new_chat()
+        async with client(h) as a, client(h) as b:
+            a.cookies.set(LAST_CHAT_COOKIE_NAME, first.id)
+            b.cookies.set(LAST_CHAT_COOKIE_NAME, second.id)
+            for _ in range(2):
+                assert (await a.get("/chats")).headers[
+                    "location"
+                ] == f"/chats/{first.id}"
+                assert (await b.get("/chats")).headers[
+                    "location"
+                ] == f"/chats/{second.id}"
+            await h.state.inference.delete_chat(second.id, second.revision)
+            assert (await b.get("/chats")).headers["location"] == f"/chats/{first.id}"
+            a.cookies.set(LAST_CHAT_COOKIE_NAME, "missing-or-invalid")
+            assert (await a.get("/chats")).headers["location"] == f"/chats/{first.id}"
+            await h.state.inference.delete_chat(first.id, first.revision)
+            assert (await a.get("/chats")).status_code == 200
+            assert "active_chat_id" not in json.dumps(encode_config(h.state.config))
+        await h.close()
+
+    asyncio.run(exercise())
+
+
+def test_composer_fragment_excludes_transcript_and_checks_access(
+    tmp_path: Path,
+) -> None:
+    async def exercise() -> None:
+        h = WebHarness(tmp_path)
+        chat = await h.state.new_chat()
+        await h.state.inference.send_message(
+            chat.id, 0, "one", "Transcript sentinel", generate=False
+        )
+        await h.state.inference.update_draft(chat.id, 0, "Shared draft")
+        async with client(h) as c, client(h, "192.0.2.80") as remote:
+            url = f"/fragments/chat/composer?chat_id={chat.id}"
+            page = await c.get(url, headers={"HX-Request": "true"})
+            assert page.status_code == 200
+            assert (
+                "Shared draft" in page.text and "Transcript sentinel" not in page.text
+            )
+            assert (
+                'data-revision="1"' in page.text
+                and 'data-draft-revision="1"' in page.text
+            )
+            assert (await remote.get(url)).status_code == 403
+            assert (
+                await c.get("/fragments/chat/composer?chat_id=missing")
+            ).status_code == 404
+        await h.close()
 
     asyncio.run(exercise())

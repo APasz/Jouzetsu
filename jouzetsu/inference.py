@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from .async_workers import complete_before_cancelling
 from .atomic_write import CommitUncertainError
+from .backend_codec import backend_fingerprint
 from .backend_models import (
     BackendConfig,
     BackendConfiguration,
@@ -1027,12 +1028,21 @@ class InferenceRuntime:
 
     @_command
     async def update_backend(
-        self, candidate: BackendConfig, *, expected: BackendConfig | None = None
+        self,
+        candidate: BackendConfig,
+        *,
+        expected: BackendConfig | None = None,
+        expected_fingerprint: str | None = None,
     ) -> None:
-        await complete_before_cancelling(self._update_backend(candidate, expected))
+        await complete_before_cancelling(
+            self._update_backend(candidate, expected, expected_fingerprint)
+        )
 
     async def _update_backend(
-        self, candidate: BackendConfig, expected: BackendConfig | None
+        self,
+        candidate: BackendConfig,
+        expected: BackendConfig | None,
+        expected_fingerprint: str | None,
     ) -> None:
         async with self._config_lock:
             previous = next(
@@ -1043,6 +1053,7 @@ class InferenceRuntime:
                 ),
                 None,
             )
+            self.validate_backend_snapshot(previous, expected_fingerprint)
             if expected is not None and previous != expected:
                 raise RevisionConflict("backend configuration changed while editing")
             disruptive = previous is not None and (
@@ -1082,11 +1093,28 @@ class InferenceRuntime:
             await self._notify(ChangeKind.CONFIG)
 
     @_command
-    async def remove_backend(self, backend_id: BackendId) -> None:
-        await complete_before_cancelling(self._remove_backend(backend_id))
+    async def remove_backend(
+        self, backend_id: BackendId, *, expected_fingerprint: str | None = None
+    ) -> None:
+        await complete_before_cancelling(
+            self._remove_backend(backend_id, expected_fingerprint)
+        )
 
-    async def _remove_backend(self, backend_id: BackendId) -> None:
+    async def _remove_backend(
+        self, backend_id: BackendId, expected_fingerprint: str | None
+    ) -> None:
         async with self._config_lock:
+            self.validate_backend_snapshot(
+                next(
+                    (
+                        backend
+                        for backend in self.configuration.backends
+                        if backend.id == backend_id
+                    ),
+                    None,
+                ),
+                expected_fingerprint,
+            )
             runtime = self._backends[backend_id]
             if runtime.busy:
                 raise ChatBusy("backend has queued or active work")
@@ -1097,13 +1125,32 @@ class InferenceRuntime:
             await self._notify(ChangeKind.CONFIG)
 
     @_command
-    async def set_default_backend(self, backend_id: BackendId | None) -> None:
-        await complete_before_cancelling(self._set_default_backend(backend_id))
+    async def set_default_backend(
+        self, backend_id: BackendId | None, *, expected_fingerprint: str | None = None
+    ) -> None:
+        await complete_before_cancelling(
+            self._set_default_backend(backend_id, expected_fingerprint)
+        )
 
-    async def _set_default_backend(self, backend_id: BackendId | None) -> None:
+    async def _set_default_backend(
+        self, backend_id: BackendId | None, expected_fingerprint: str | None
+    ) -> None:
         async with self._config_lock:
+            self.validate_backend_snapshot(self.configuration, expected_fingerprint)
             await self._save_configuration(
                 replace(self.configuration, default_backend_id=backend_id)
+            )
+
+    @staticmethod
+    def validate_backend_snapshot(
+        current: BackendConfig | BackendConfiguration | None, expected: str | None
+    ) -> None:
+        """Reject stale form state before validation and again under the write lock."""
+        if expected is not None and (
+            current is None or backend_fingerprint(current) != expected
+        ):
+            raise RevisionConflict(
+                "Backend settings changed elsewhere. Your edits are preserved; copy them before reloading."
             )
 
     @_command

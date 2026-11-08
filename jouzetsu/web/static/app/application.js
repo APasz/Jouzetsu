@@ -3,7 +3,7 @@ import { ChatController } from './chat.js';
 import { ComposerController, currentComposerDraft } from './composer.js';
 import { DeviceActivityController } from './device-activity.js';
 import { DraftController } from './drafts.js';
-import { byId, localizeMessageUpdatedTimes } from './dom.js';
+import { byId, localizeMessageUpdatedTimes, rememberChat } from './dom.js';
 import { addCsrfToken, randomIdentifier } from './forms.js';
 import { ImageController } from './images.js';
 import { MessageController } from './messages.js';
@@ -108,7 +108,8 @@ export const startApplication = () => {
         announce: notices.announce.bind(notices), syncPrimary: composer.syncPrimary.bind(composer), drafts,
     });
     const chat = new ChatController({ composer, messages, drafts, notices, panels, images });
-    images.setRefresh(chat.replaceFragment.bind(chat));
+    rememberChat();
+    images.setRefresh(chat.replaceComposerFragment.bind(chat));
     panels.setRefreshPanel(chat.replacePanelFragment.bind(chat));
     messages.watchScrollContainer();
 
@@ -454,6 +455,8 @@ export const startApplication = () => {
                     return;
                 } else if (payload?.kind === 'stream' || payload?.kind === 'status') {
                     chat.scheduleLiveRefresh();
+                } else if (payload?.kind === 'draft') {
+                    chat.scheduleComposerRefresh();
                 } else {
                     chat.scheduleFullRefresh();
                 }

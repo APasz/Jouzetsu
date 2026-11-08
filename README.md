@@ -82,8 +82,30 @@ browser for manual resolution. There is no automatic merge.
 
 Each chat has a stable `/chats/<id>` URL. Selection, history, scroll position and
 open panels belong to the browser, and browsing never writes a global selection.
+Returning to `/chats` restores that browser's last-opened chat using a persistent
+navigation cookie. Missing/deleted selections fall back to an available chat;
+explicit bookmarked chat URLs take precedence. This cookie grants no access.
 The shared transcript, draft, generation status and ordinary settings synchronise
 through SSE. Reconnecting refreshes state without submitting a generation.
+Draft notifications refresh only the composer. A committed-revision mismatch
+falls back to a full refresh; streamed output and status continue to update.
+
+Backend forms carry a fingerprint of the configuration they displayed. Conflicting
+saves return HTTP 409 and keep locally edited values for manual resolution.
+
+The Gate 3 corrective profile used 160 messages (163,890 transcript characters),
+two Chromium browsers and eight shared draft updates on desktop loopback:
+
+| Draft refresh measurement | Before | After |
+| --- | ---: | ---: |
+| Full transcript renders | 16 | 0 |
+| Combined fragment response bytes | 12,621,696 | 92,080 |
+| Mean request duration, browser 1 / 2 | 176 / 125 ms | 3.4 / 2.7 ms |
+
+The new path used 16 composer renders. Resource Timing response bytes fell by
+99.3%; these are desktop measurements, not Raspberry Pi performance guarantees.
+Browser regressions check unchanged transcript nodes and draft conflict/attachment
+preservation without timing thresholds.
 
 Fresh installs have no backend. Add one in **Global settings → Backends**, register
 or discover models, choose its default profile, and optionally select it as the

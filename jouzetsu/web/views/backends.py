@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ...backend_codec import backend_fingerprint
 from ...backend_models import BackendConfig, BackendKind
 from ...backend_protocol import BackendReachability
 from ...state import AppState
@@ -26,11 +27,19 @@ def _action(
     label: str, backend: BackendConfig, action: str, *, confirm: str = ""
 ) -> HTML:
     return Form(
+        _snapshot(backend),
         Button(
             label, type="submit", cls="jouzetsu-button", data_confirm=confirm or None
         ),
         action=f"/settings/backends/{backend.id}/{action}",
         method="post",
+        data_live_submit="true",
+    )
+
+
+def _snapshot(backend: BackendConfig) -> HTML:
+    return Input(
+        type="hidden", name="backend_fingerprint", value=backend_fingerprint(backend)
     )
 
 
@@ -41,6 +50,11 @@ def render_backends(state: AppState) -> HTML:
             "Backend defaults are copied when a chat is created or its profile is reset."
         ),
         Form(
+            Input(
+                type="hidden",
+                name="backend_fingerprint",
+                value=backend_fingerprint(configuration),
+            ),
             field(
                 "Default backend",
                 Select(
@@ -63,6 +77,7 @@ def render_backends(state: AppState) -> HTML:
             Button("Save default", type="submit", cls="jouzetsu-button"),
             action="/settings/backends/default",
             method="post",
+            data_live_submit="true",
         ),
         *(_backend_editor(state, backend) for backend in configuration.backends),
         H3("Add backend", cls="jouzetsu-section-title"),
@@ -110,6 +125,7 @@ def _backend_editor(state: AppState, backend: BackendConfig) -> HTML:
         Small(backend.id, cls="jouzetsu-mono"),
         P(str(discovery_error), role="status") if discovery_error else None,
         Form(
+            _snapshot(backend),
             field("Name", Input(name="name", value=backend.name, required=True)),
             field(
                 "API base URL",
@@ -202,6 +218,7 @@ def _backend_editor(state: AppState, backend: BackendConfig) -> HTML:
             Button("Save backend", type="submit", cls="jouzetsu-button"),
             action=f"/settings/backends/{backend.id}/save",
             method="post",
+            data_live_submit="true",
         ),
         Div(
             _action("Test / refresh models", backend, "test"),
@@ -229,11 +246,13 @@ def _backend_editor(state: AppState, backend: BackendConfig) -> HTML:
         ),
         H3("Register model manually", cls="jouzetsu-section-title"),
         Form(
+            _snapshot(backend),
             field("Model identifier", Input(name="model_id", required=True)),
             field("Alias", Input(name="alias")),
             Button("Register model", type="submit", cls="jouzetsu-button"),
             action=f"/settings/backends/{backend.id}/register-model",
             method="post",
+            data_live_submit="true",
         ),
         id=f"backend-{backend.id}",
         cls="jouzetsu-dialog-section",
@@ -248,6 +267,7 @@ def _model_editor(
     instances: tuple[str, ...] | None,
 ) -> HTML:
     return Form(
+        _snapshot(backend),
         Small(model_id),
         Input(type="hidden", name="model_id", value=model_id),
         field("Alias", Input(name="alias", value=alias)),
@@ -283,4 +303,5 @@ def _model_editor(
         ),
         action=f"/settings/backends/{backend.id}/alias",
         method="post",
+        data_live_submit="true",
     )
