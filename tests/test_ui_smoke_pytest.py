@@ -505,13 +505,10 @@ def test_composer_layout_uses_shared_rails_and_reserves_progress_space() -> None
     assert "--jouzetsu-composer-status-side-rail: clamp(88px, 16vw, 160px);" in styles
     assert "min-height: 38px;" in styles
     assert "max-width: var(--jouzetsu-composer-status-side-rail);" in styles
-    assert ".jouzetsu-composer-footer-has-multiple-actions" in styles
     assert "grid-template-rows: auto 2px;" in styles
     assert "grid-column: 1 / -1;" in styles
     assert "--jouzetsu-composer-status-side-rail: 72px;" in styles
     assert "position: static;" in styles
-    assert "scroll-padding-inline-end: 16px;" in styles
-    assert "-webkit-mask-image: linear-gradient(" in styles
 
 
 def test_generation_panels_use_assistant_accents_and_app_surfaces() -> None:

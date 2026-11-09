@@ -32,7 +32,7 @@ const stableMarkup = (element) => {
 const COMPOSER_INPUT_PATH = ['.jouzetsu-composer-form', '.jouzetsu-composer-input-row', '.jouzetsu-message-input'];
 const IMAGE_PICKER_PATH = ['.jouzetsu-composer-menu-options', '[data-image-upload-control]', 'input[type="file"]'];
 
-const reconcileComposerMarkup = (current, next, retainedPath = COMPOSER_INPUT_PATH) => {
+const reconcileComposerMarkup = (current, next, composer, retainedPath = COMPOSER_INPUT_PATH) => {
     const branches = [[current, next]];
     for (const selector of retainedPath) {
         const [parent, nextParent] = branches.at(-1);
@@ -68,8 +68,11 @@ const reconcileComposerMarkup = (current, next, retainedPath = COMPOSER_INPUT_PA
                 if (stableMarkup(existing) !== stableMarkup(child)) {
                     const retainedMenu = existing.matches('[data-composer-menu]')
                         && child.matches('[data-composer-menu]')
-                        && reconcileComposerMarkup(existing, child, IMAGE_PICKER_PATH);
-                    if (!retainedMenu) existing.replaceWith(child);
+                        && reconcileComposerMarkup(existing, child, composer, IMAGE_PICKER_PATH);
+                    const retainedReasoning = existing.matches('[data-generation-reasoning]')
+                        && child.matches('[data-generation-reasoning]')
+                        && composer.syncGenerationReasoning(existing, child);
+                    if (!retainedMenu && !retainedReasoning) existing.replaceWith(child);
                 }
                 existing = following;
             }
@@ -550,7 +553,7 @@ export class ChatController {
             const nextInput = nextForm?.querySelector('.jouzetsu-message-input');
             if (sameChat && sameComposerMode
                 && currentInput instanceof HTMLTextAreaElement && nextInput instanceof HTMLTextAreaElement
-                && reconcileComposerMarkup(currentComposer, nextComposer)) {
+                && reconcileComposerMarkup(currentComposer, nextComposer, this.#composer)) {
                 if (!liveDraft && currentInput.value !== nextInput.value) currentInput.value = nextInput.value;
             } else {
                 currentComposer.replaceWith(nextComposer);

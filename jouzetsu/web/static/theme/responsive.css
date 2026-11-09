@@ -230,28 +230,6 @@
         width: auto;
     }
 
-    .jouzetsu-composer-actions {
-        width: 100%;
-        padding-inline-end: 16px;
-        scroll-padding-inline-end: 16px;
-        mask-image: linear-gradient(
-            to right,
-            currentColor 0,
-            currentColor calc(100% - 16px),
-            transparent 100%
-        );
-        mask-repeat: no-repeat;
-        mask-size: 100% 100%;
-        -webkit-mask-image: linear-gradient(
-            to right,
-            currentColor 0,
-            currentColor calc(100% - 16px),
-            transparent 100%
-        );
-        -webkit-mask-repeat: no-repeat;
-        -webkit-mask-size: 100% 100%;
-    }
-
     .jouzetsu-composer-footer:not(.jouzetsu-generation-strip)
         .jouzetsu-composer-actions {
         position: static;

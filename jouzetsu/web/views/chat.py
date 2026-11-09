@@ -1228,19 +1228,6 @@ def render_composer(
         data_draft_sync="true" if not editing else None,
         data_testid="message-input",
     )
-    suggestion_buttons: list[HTML] = []
-    if not generating and not editing:
-        suggestion_buttons = [
-            Button(
-                prompt.label,
-                type="button",
-                cls="jouzetsu-suggestion-button",
-                data_suggestion=prompt.content,
-                data_testid=f"composer-suggestion-{index}",
-            )
-            for index, prompt in enumerate(view.starter_prompts)
-        ]
-
     hidden_edit: HTML | None = (
         Input(type="hidden", name="message_id", value=edit_message_id)
         if editing
@@ -1255,10 +1242,6 @@ def render_composer(
             data_testid="cancel-edit-button",
             data_chat_navigation="true",
         )
-
-    footer_actions: list[HTML] = [*suggestion_buttons]
-    if cancel_control is not None:
-        footer_actions.append(cancel_control)
 
     status_classes: str = "jouzetsu-composer-status"
     if generating:
@@ -1294,17 +1277,16 @@ def render_composer(
                 hidden=True,
                 data_composer_validation="true",
             )
-        footer_classes: str = "jouzetsu-composer-footer"
-        if len(footer_actions) > 1:
-            footer_classes += " jouzetsu-composer-footer-has-multiple-actions"
         footer = Div(
             Div(
                 status_display,
                 edit_validation,
                 cls="jouzetsu-composer-status-stack",
             ),
-            Div(*footer_actions, cls="jouzetsu-composer-actions"),
-            cls=footer_classes,
+            Div(cancel_control, cls="jouzetsu-composer-actions")
+            if cancel_control is not None
+            else None,
+            cls="jouzetsu-composer-footer",
         )
 
     return Footer(
@@ -1334,7 +1316,9 @@ def render_composer(
         Form(
             Div(
                 _render_composer_menu(
-                    generating=generating, send_disabled=primary_disabled
+                    generating=generating,
+                    send_disabled=primary_disabled,
+                    starter_prompts=view.starter_prompts,
                 )
                 if not editing
                 else None,
@@ -1374,7 +1358,12 @@ def render_composer(
     )
 
 
-def _render_composer_menu(*, generating: bool, send_disabled: bool) -> HTML:
+def _render_composer_menu(
+    *,
+    generating: bool,
+    send_disabled: bool,
+    starter_prompts: tuple[StarterPrompt, ...],
+) -> HTML:
     """Group secondary actions behind one compact, keyboard-accessible disclosure."""
 
     return Details(
@@ -1399,6 +1388,24 @@ def _render_composer_menu(*, generating: bool, send_disabled: bool) -> HTML:
                 data_testid="send-only-button",
                 cls="jouzetsu-button jouzetsu-composer-menu-item",
             ),
+            Div(
+                Small("Quick templates", cls="jouzetsu-composer-menu-label"),
+                *(
+                    Button(
+                        prompt.label,
+                        type="button",
+                        cls="jouzetsu-button jouzetsu-composer-menu-item",
+                        data_suggestion=prompt.content,
+                        data_testid=f"composer-suggestion-{index}",
+                    )
+                    for index, prompt in enumerate(starter_prompts)
+                ),
+                cls="jouzetsu-composer-templates",
+                role="group",
+                aria_label="Quick templates",
+            )
+            if starter_prompts and not generating
+            else None,
             role="group",
             aria_label="Message actions",
             cls="jouzetsu-composer-menu-options",

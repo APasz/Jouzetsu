@@ -94,6 +94,9 @@
     bottom: calc(100% + 6px);
     left: 0;
     min-width: 160px;
+    max-height: min(420px, var(--jouzetsu-composer-menu-max-height, 60dvh));
+    overflow-y: auto;
+    overscroll-behavior: contain;
     max-width: calc(100vw - 16px);
     padding: 4px;
     border: 1px solid var(--jouzetsu-app-border-strong);
@@ -109,12 +112,26 @@
     min-height: 44px;
     border-color: transparent;
     text-align: left;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .jouzetsu-composer-menu-item .jouzetsu-svg-icon {
     width: 18px;
     height: 18px;
+}
+
+.jouzetsu-composer-templates {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--jouzetsu-app-border);
+}
+
+.jouzetsu-composer-menu-label {
+    display: block;
+    padding: 4px 10px;
+    color: var(--jouzetsu-app-text-muted);
+    font-size: 11px;
 }
 
 .jouzetsu-image-gallery {
@@ -257,18 +274,6 @@
     right: 0;
     width: auto;
     max-width: var(--jouzetsu-composer-status-side-rail);
-}
-
-.jouzetsu-composer-footer-has-multiple-actions {
-    align-items: stretch;
-    flex-direction: column;
-}
-
-.jouzetsu-composer-footer.jouzetsu-composer-footer-has-multiple-actions
-    .jouzetsu-composer-actions {
-    position: static;
-    width: 100%;
-    max-width: none;
 }
 
 .jouzetsu-composer-status {
@@ -427,13 +432,6 @@
     align-items: center;
     gap: 6px;
     min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-    white-space: nowrap;
-}
-
-.jouzetsu-composer-actions .jouzetsu-suggestion-button {
-    flex: 0 0 auto;
     white-space: nowrap;
 }
 
@@ -445,12 +443,7 @@
     min-width: 58px;
 }
 
-.jouzetsu-composer-actions::-webkit-scrollbar {
-    display: none;
-}
-
-.jouzetsu-button,
-.jouzetsu-suggestion-button {
+.jouzetsu-button {
     min-height: 32px;
     padding: 6px 10px;
     border: 1px solid var(--jouzetsu-app-border-strong);
@@ -461,9 +454,7 @@
 }
 
 .jouzetsu-button:hover,
-.jouzetsu-button:focus-visible,
-.jouzetsu-suggestion-button:hover,
-.jouzetsu-suggestion-button:focus-visible {
+.jouzetsu-button:focus-visible {
     border-color: var(--jouzetsu-control-accent);
     background: var(--jouzetsu-control-subtle);
     color: var(--jouzetsu-app-text);
@@ -492,9 +483,4 @@
 
 .jouzetsu-button-muted {
     color: var(--jouzetsu-app-text-muted);
-}
-
-.jouzetsu-suggestion-button {
-    border-color: var(--jouzetsu-control-muted);
-    color: var(--jouzetsu-control-foreground);
 }

@@ -59,11 +59,17 @@ export class ComposerController {
         }
         if (!composer.classList.contains('is-resized')) {
             this.autoSizeInput(input);
-            return;
+        } else {
+            delete composer.dataset.composerMinimumHeight;
+            const requestedHeight = Number.parseFloat(composer.dataset.composerRequestedHeight || '');
+            if (Number.isFinite(requestedHeight)) this.#applyHeight(composer, requestedHeight);
         }
-        delete composer.dataset.composerMinimumHeight;
-        const requestedHeight = Number.parseFloat(composer.dataset.composerRequestedHeight || '');
-        if (Number.isFinite(requestedHeight)) this.#applyHeight(composer, requestedHeight);
+        const menu = composer.querySelector('[data-composer-menu]');
+        const options = menu?.querySelector('.jouzetsu-composer-menu-options');
+        if (menu instanceof HTMLDetailsElement && menu.open && options instanceof HTMLElement) {
+            const availableHeight = options.getBoundingClientRect().bottom - (window.visualViewport?.offsetTop || 0) - 8;
+            menu.style.setProperty('--jouzetsu-composer-menu-max-height', `${Math.max(0, Math.floor(availableHeight))}px`);
+        }
     }
 
     scheduleViewportReconciliation() {
@@ -106,7 +112,7 @@ export class ComposerController {
     handleMenuClick(target) {
         const menu = document.querySelector('[data-composer-menu]');
         if (!(menu instanceof HTMLDetailsElement)) return;
-        if (!menu.contains(target) || target.closest('[data-image-picker], [data-send-only]')) menu.open = false;
+        if (!menu.contains(target) || target.closest('[data-image-picker], [data-send-only], [data-suggestion]')) menu.open = false;
     }
 
     handleMenuKeyDown(event) {
@@ -192,7 +198,10 @@ export class ComposerController {
         if (!(currentReasoning instanceof HTMLDetailsElement) || !(nextReasoning instanceof HTMLElement)) return false;
         const content = currentReasoning.querySelector('.jouzetsu-generation-reasoning-content');
         if (!(content instanceof HTMLElement)) return false;
-        const reasoning = nextReasoning.dataset.liveGenerationReasoningText || '';
+        const nextContent = nextReasoning instanceof HTMLDetailsElement
+            ? nextReasoning.querySelector('.jouzetsu-generation-reasoning-content') : null;
+        if (nextReasoning instanceof HTMLDetailsElement && !(nextContent instanceof HTMLElement)) return false;
+        const reasoning = nextContent ? nextContent.textContent : nextReasoning.dataset.liveGenerationReasoningText || '';
         const visibilityChanged = currentReasoning.hidden === Boolean(reasoning);
         if (content.textContent !== reasoning) content.textContent = reasoning;
         currentReasoning.hidden = !reasoning;
@@ -248,15 +257,15 @@ export class ComposerController {
         const styles = window.getComputedStyle(composer);
         const verticalPadding = Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom);
         const footerHeight = footer instanceof HTMLElement ? footer.getBoundingClientRect().height : 0;
-        const imageRowsHeight = Array.from(composer.querySelectorAll(
-            ':scope > .jouzetsu-image-upload-form, :scope > .jouzetsu-image-gallery, :scope > .jouzetsu-image-model-notice',
+        const auxiliaryRowsHeight = Array.from(composer.querySelectorAll(
+            ':scope > .jouzetsu-generation-reasoning:not([hidden]), :scope > .jouzetsu-image-upload-form, :scope > .jouzetsu-image-gallery, :scope > .jouzetsu-image-model-notice',
         )).reduce((height, row) => {
             const rowStyles = window.getComputedStyle(row);
             return height + row.getBoundingClientRect().height
                 + Number.parseFloat(rowStyles.marginTop) + Number.parseFloat(rowStyles.marginBottom);
         }, 0);
         const minimumHeight = Number.parseFloat(window.getComputedStyle(input).minHeight);
-        return Math.max(minimumHeight, Math.floor(this.#maximumHeight() - verticalPadding - footerHeight - imageRowsHeight));
+        return Math.max(minimumHeight, Math.floor(this.#maximumHeight() - verticalPadding - footerHeight - auxiliaryRowsHeight));
     }
 
     #minimumHeight(composer) {

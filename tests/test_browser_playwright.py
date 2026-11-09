@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from threading import Event
 from typing import Final, Literal, TypedDict, cast
@@ -15,7 +15,15 @@ from browser_support import (
     create_browser_server,
 )
 from image_support import image_bytes
-from playwright.sync_api import Browser, Error, Page, Route, expect, sync_playwright
+from playwright.sync_api import (
+    Browser,
+    CDPSession,
+    Error,
+    Page,
+    Route,
+    expect,
+    sync_playwright,
+)
 
 from jouzetsu.config import (
     CONTINUE_PROMPT_CONTENT,
@@ -23,6 +31,7 @@ from jouzetsu.config import (
     DeviceAccessSettings,
     MessageAction,
     MessageActionStyle,
+    StarterPrompt,
 )
 from jouzetsu.models import Chat
 from jouzetsu.runtime import ModelCapabilities, ModelDescriptor
@@ -110,6 +119,22 @@ def browser_page(
         yield page
     finally:
         context.close()
+
+
+@pytest.fixture()
+def touch_browser_page(
+    chromium_browser: Browser, browser_server: BrowserServer
+) -> Iterator[Page]:
+    with chromium_browser.new_context(
+        base_url=browser_server.base_url,
+        viewport={"width": 390, "height": 844},
+        is_mobile=True,
+        has_touch=True,
+        reduced_motion="reduce",
+    ) as context:
+        page = context.new_page()
+        page.set_default_timeout(_BROWSER_ACTION_TIMEOUT_MS)
+        yield page
 
 
 def test_character_onboarding_randomizes_each_name_part(
@@ -563,6 +588,135 @@ def test_message_context_menu_copies_and_forks_at_the_selected_message(
         browser_page.get_by_text("Copy this selected reply", exact=True)
     ).to_be_visible()
     expect(browser_page.get_by_text("Excluded after fork")).to_have_count(0)
+
+
+@pytest.mark.parametrize("viewport_width", [390, 960])
+@pytest.mark.parametrize("resized", [False, True])
+def test_thinking_disclosure_stays_open_through_reasoning_and_draft_refreshes(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    viewport_width: int,
+    resized: bool,
+) -> None:
+    browser_page.set_viewport_size({"width": viewport_width, "height": 844})
+    gate = Event()
+    initial_reasoning = "\n".join(f"Reasoning step {index}" for index in range(20))
+    browser_server.client.response_reasoning = initial_reasoning
+    browser_server.client.response_content = ""
+    browser_server.client.completion_gate = gate
+    try:
+        _open_chat_page(browser_page)
+        browser_page.get_by_test_id("message-input").fill("Think about this")
+        browser_page.get_by_test_id("send-message-button").click()
+        reasoning = browser_page.get_by_test_id("generation-reasoning")
+        expect(reasoning).to_be_visible()
+        if resized:
+            browser_page.get_by_test_id("composer-resize-handle").press("ArrowUp")
+        reasoning.locator("summary").click()
+        expect(reasoning).to_have_js_property("open", True)
+        expect(reasoning.locator("pre")).to_have_text(initial_reasoning)
+        expect(reasoning.locator("pre")).to_be_visible()
+        _wait_for_animation_frames(browser_page)
+        reasoning_bounds = reasoning.bounding_box()
+        input_bounds = browser_page.get_by_test_id("message-input").bounding_box()
+        assert reasoning_bounds and input_bounds
+        assert (
+            reasoning_bounds["y"] + reasoning_bounds["height"] <= input_bounds["y"] + 1
+        )
+        _ = reasoning.evaluate("element => { window.reasoningElement = element; }")
+        browser_page.get_by_test_id("message-input").fill("My next message")
+        browser_page.wait_for_function(
+            "() => document.querySelector('.jouzetsu-composer-form input[name=draft_revision]').value === '2'"
+        )
+        expect(reasoning).to_have_js_property("open", True)
+        assert browser_page.evaluate(
+            "window.reasoningElement === document.getElementById('generation-reasoning')"
+        )
+        chat_id = browser_server.state.chats[0].id
+        browser_server.state.session(chat_id).live_reasoning = "A later reasoning step"
+        _create_chat_in_background(browser_page)
+        expect(reasoning.locator("pre")).to_have_text("A later reasoning step")
+        expect(reasoning).to_have_js_property("open", True)
+        assert browser_page.evaluate(
+            "window.reasoningElement === document.getElementById('generation-reasoning')"
+        )
+        reasoning.locator("summary").click()
+        expect(reasoning).to_have_js_property("open", False)
+    finally:
+        gate.set()
+
+
+def _dispatch_touch(
+    session: CDPSession,
+    phase: Literal["touchStart", "touchMove", "touchEnd", "touchCancel"],
+    x: float = 0,
+    y: float = 0,
+) -> None:
+    send = cast(Callable[[str, dict[str, object]], object], session.send)
+    _ = send(
+        "Input.dispatchTouchEvent",
+        {
+            "type": phase,
+            "touchPoints": [{"x": x, "y": y}]
+            if phase in {"touchStart", "touchMove"}
+            else [],
+        },
+    )
+
+
+def test_mobile_long_press_opens_message_menu_and_details(
+    touch_browser_page: Page, browser_server: BrowserServer
+) -> None:
+    message = browser_server.state.chats[0].add_message("assistant", "Touch this reply")
+    message.set_reasoning("Saved reasoning")
+    page = touch_browser_page
+    _open_chat_page(page)
+    page.clock.install()
+    session = page.context.new_cdp_session(page)
+    bounds = page.locator(
+        _message_selector(message.id) + " .jouzetsu-message-text"
+    ).bounding_box()
+    assert bounds
+    _dispatch_touch(session, "touchStart", bounds["x"] + 20, bounds["y"] + 10)
+    page.clock.run_for(600)
+    _dispatch_touch(session, "touchEnd")
+    menu = page.get_by_test_id("message-context-menu")
+    expect(menu).to_be_visible()
+    page.get_by_role("menuitem", name="Message details", exact=True).tap()
+    expect(page.get_by_test_id("message-details-reasoning")).to_have_text(
+        "Saved reasoning"
+    )
+
+
+@pytest.mark.parametrize("gesture", ["tap", "move", "cancel"])
+def test_mobile_message_long_press_cancels_without_blocking_the_next_hold(
+    touch_browser_page: Page,
+    browser_server: BrowserServer,
+    gesture: Literal["tap", "move", "cancel"],
+) -> None:
+    message = browser_server.state.chats[0].add_message("user", "Touch this prompt")
+    page = touch_browser_page
+    _open_chat_page(page)
+    page.clock.install()
+    session = page.context.new_cdp_session(page)
+    bounds = page.locator(
+        _message_selector(message.id) + " .jouzetsu-message-text"
+    ).bounding_box()
+    assert bounds
+    x, y = bounds["x"] + 20, bounds["y"] + 10
+    _dispatch_touch(session, "touchStart", x, y)
+    if gesture == "move":
+        _dispatch_touch(session, "touchMove", x, y + 30)
+        page.clock.run_for(600)
+    _dispatch_touch(session, "touchCancel" if gesture == "cancel" else "touchEnd")
+    page.clock.run_for(600)
+    menu = page.get_by_test_id("message-context-menu")
+    expect(menu).not_to_be_visible()
+    _dispatch_touch(session, "touchStart", x, y)
+    page.clock.run_for(600)
+    _dispatch_touch(session, "touchEnd")
+    expect(menu).to_be_visible()
+    assert not browser_server.client.requests
 
 
 def test_fragment_replacement_reconciles_unchanged_messages(
@@ -1149,6 +1303,59 @@ def test_composer_menu_supports_keyboard_images_and_send_only(
     assert message.content == "Save this with an image"
     assert len(message.images) == 1
     assert not browser_server.client.requests
+
+
+@pytest.mark.parametrize("viewport_width", [390, 960])
+@pytest.mark.parametrize("existing", ["", "Existing draft", "Existing draft\n"])
+def test_quick_templates_insert_from_the_message_actions_menu(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    viewport_width: int,
+    existing: str,
+) -> None:
+    browser_page.set_viewport_size({"width": viewport_width, "height": 844})
+    _open_chat_page(browser_page)
+    prompt = browser_server.state.config.ui.starter_prompts[0]
+    input_field = browser_page.get_by_test_id("message-input")
+    input_field.fill(existing)
+    browser_page.get_by_test_id("composer-menu-toggle").press("Enter")
+    templates = browser_page.get_by_role("group", name="Quick templates", exact=True)
+    expect(templates).to_be_visible()
+    expect(
+        browser_page.locator(".jouzetsu-composer-footer [data-suggestion]")
+    ).to_have_count(0)
+    templates.get_by_role("button", name=prompt.label, exact=True).press("Enter")
+    separator = "\n" if existing and not existing.endswith("\n") else ""
+    expect(input_field).to_have_value(existing + separator + prompt.content)
+    expect(input_field).to_be_focused()
+    expect(browser_page.locator("[data-composer-menu]")).to_have_js_property(
+        "open", False
+    )
+    assert not browser_server.state.chats[0].messages
+    assert not browser_server.client.requests
+
+
+def test_quick_template_menu_scrolls_within_a_short_mobile_viewport(
+    touch_browser_page: Page, browser_server: BrowserServer
+) -> None:
+    browser_server.state.config.ui.starter_prompts = [
+        StarterPrompt(f"Template {index}", f"Content {index}") for index in range(20)
+    ]
+    page = touch_browser_page
+    page.set_viewport_size({"width": 390, "height": 360})
+    _open_chat_page(page)
+    page.get_by_test_id("composer-menu-toggle").tap()
+    _wait_for_animation_frames(page)
+    options = page.locator(".jouzetsu-composer-menu-options")
+    bounds = options.bounding_box()
+    assert bounds
+    assert bounds["y"] >= 0
+    assert bounds["y"] + bounds["height"] <= 360
+    assert options.evaluate("element => element.scrollHeight > element.clientHeight")
+    last = page.get_by_test_id("composer-suggestion-19")
+    last.scroll_into_view_if_needed()
+    last.tap()
+    expect(page.get_by_test_id("message-input")).to_have_value("Content 19")
 
 
 @pytest.mark.parametrize("viewport_width", [960, 390])

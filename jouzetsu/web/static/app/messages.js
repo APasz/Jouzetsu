@@ -2,6 +2,8 @@ import { scopeChatForm } from './forms.js';
 import { byId, chatFragmentUrl, localizeMessageDetailsTimes, parseFragment } from './dom.js';
 
 const DOUBLE_TAP_DELAY_MS = 350;
+const LONG_PRESS_DELAY_MS = 550;
+const LONG_PRESS_MOVE_TOLERANCE_PX = 12;
 const DOUBLE_SWIPE_DELAY_MS = 1000;
 const SWIPE_MIN_DISTANCE_PX = 40;
 const SWIPE_MAX_HORIZONTAL_DISTANCE_PX = 72;
@@ -13,6 +15,9 @@ export class MessageController {
     #lastTouchedId = '';
     #lastTouchAt = 0;
     #touchCount = 0;
+    #longPressTimer = 0;
+    #longPressTouch = null;
+    #longPressOpened = false;
     #pendingScrollTimer = 0;
     #pendingScrollTarget = null;
     #swipeStartId = '';
@@ -169,6 +174,7 @@ export class MessageController {
     }
 
     closeContextMenu() {
+        this.#cancelLongPress();
         const menu = byId('message-context-menu');
         if (!(menu instanceof HTMLElement) || menu.hidden) return false;
         menu.hidden = true;
@@ -235,6 +241,8 @@ export class MessageController {
         const message = this.#messageForTarget(event.target);
         if (!message) return;
         event.preventDefault();
+        if (this.#longPressTouch) this.#longPressOpened = true;
+        this.#cancelLongPress();
         this.openContextMenu(message, event.clientX, event.clientY);
     }
 
@@ -260,6 +268,8 @@ export class MessageController {
     }
 
     handleTouchStart(event) {
+        this.#cancelLongPress();
+        this.#longPressOpened = false;
         if (event.touches.length !== 1) {
             this.#clearSwipeStart();
             this.#clearSwipeSequence();
@@ -274,6 +284,22 @@ export class MessageController {
             return;
         }
         const messageId = message.dataset.messageId || '';
+        this.#longPressTouch = {
+            identifier: touch.identifier, messageId, x: touch.clientX, y: touch.clientY,
+        };
+        this.#longPressTimer = window.setTimeout(() => {
+            this.#longPressTimer = 0;
+            const held = this.#longPressTouch;
+            const currentMessage = held && this.#messageById(held.messageId);
+            if (!currentMessage) return;
+            this.#longPressOpened = true;
+            this.#lastTouchedId = '';
+            this.#touchCount = 0;
+            this.#cancelPendingScroll();
+            this.#clearSwipeStart();
+            this.#clearSwipeSequence();
+            this.openContextMenu(currentMessage, held.x, held.y);
+        }, LONG_PRESS_DELAY_MS);
         const now = performance.now();
         const continuingSwipe = messageId === this.#lastSwipedId && now - this.#lastSwipeAt <= DOUBLE_SWIPE_DELAY_MS;
         if (
@@ -291,11 +317,29 @@ export class MessageController {
         this.#swipeStartY = touch.clientY;
     }
 
+    handleTouchMove(event) {
+        const held = this.#longPressTouch;
+        if (!held) return;
+        const touch = event.touches.length === 1 ? event.touches.item(0) : null;
+        if (!touch || touch.identifier !== held.identifier
+            || Math.hypot(touch.clientX - held.x, touch.clientY - held.y) > LONG_PRESS_MOVE_TOLERANCE_PX) {
+            this.#cancelLongPress();
+        }
+    }
+
     handleTouchCancel() {
+        this.#cancelLongPress();
+        this.#longPressOpened = false;
         this.#clearSwipeStart();
     }
 
     handleTouchEnd(event) {
+        this.#cancelLongPress();
+        if (this.#longPressOpened) {
+            this.#longPressOpened = false;
+            event.preventDefault();
+            return;
+        }
         if (event.touches.length) return;
         const message = this.#messageForTarget(event.target);
         const touch = event.changedTouches.item(0);
@@ -467,6 +511,12 @@ export class MessageController {
         this.#swipeStartId = '';
         this.#swipeStartX = 0;
         this.#swipeStartY = 0;
+    }
+
+    #cancelLongPress() {
+        if (this.#longPressTimer) window.clearTimeout(this.#longPressTimer);
+        this.#longPressTimer = 0;
+        this.#longPressTouch = null;
     }
 
     #clearContinueArm() {

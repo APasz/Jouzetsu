@@ -657,7 +657,7 @@ def test_loading_composer_status_renders_numeric_progress_bar() -> None:
     assert 'aria-valuenow="50.000"' in live_markup
 
 
-def test_composer_moves_multiple_shortcuts_to_an_action_tray() -> None:
+def test_composer_groups_quick_templates_in_the_message_actions_menu() -> None:
     view: ChatView = _chat_view(
         Chat(id="chat-shortcuts"),
         starter_prompts=(
@@ -668,9 +668,12 @@ def test_composer_moves_multiple_shortcuts_to_an_action_tray() -> None:
 
     markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
 
-    assert "jouzetsu-composer-footer-has-multiple-actions" in markup
+    assert 'aria-label="Quick templates"' in markup
     assert 'data-testid="composer-suggestion-0"' in markup
     assert 'data-testid="composer-suggestion-1"' in markup
+    assert markup.index('data-testid="composer-suggestion-1"') < markup.index(
+        'class="jouzetsu-composer-footer"'
+    )
 
 
 def test_ready_composer_status_omits_model_name_but_keeps_completion_metrics() -> None:

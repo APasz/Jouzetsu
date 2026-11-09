@@ -43,7 +43,7 @@ jouzetsu --home /path/to/Jouzetsu
 - Character profiles and JSON preset packs; start immutable single-character or
   multi-character chats in Roleplay, Assistant, Story, or Custom prompt modes.
 - Shared drafts and live SSE updates, explicit chat URLs and browser-local
-  navigation. The composer's **+** menu groups Add images and Send only;
+  navigation. The composer's **+** menu groups Add images, Send only and quick templates;
   Shift-click on Send also saves without generating.
 - Phrase-based browser enrollment; actual localhost connections always have
   administrative access. Approved remote browsers share ordinary settings.
@@ -90,6 +90,10 @@ The shared transcript, draft, generation status and ordinary settings synchronis
 through SSE. Reconnecting refreshes state without submitting a generation.
 Draft notifications refresh only the composer. A committed-revision mismatch
 falls back to a full refresh; streamed output and status continue to update.
+The Thinking disclosure keeps its open/closed state while reasoning updates.
+Right-click a message on desktop, or press and hold it on a touchscreen, to open
+Copy, Message details, and Fork chat. Moving a touch cancels the long press so
+scrolling remains available.
 
 Backend forms carry a fingerprint of the configuration they displayed. Conflicting
 saves return HTTP 409 and keep locally edited values for manual resolution.

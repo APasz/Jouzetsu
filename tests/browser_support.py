@@ -54,6 +54,7 @@ class BrowserTestBackend(FakeBackend):
     def __init__(self, config: BackendConfig) -> None:
         super().__init__(config)
         self.response_content = "Browser test reply"
+        self.response_reasoning = ""
         self.first_token_delay_seconds = 0.0
         self.completion_gate: Event | None = None
         self.descriptors = tuple(model.descriptor for model in config.models)
@@ -69,6 +70,8 @@ class BrowserTestBackend(FakeBackend):
         if self.first_token_delay_seconds:
             await asyncio.sleep(self.first_token_delay_seconds)
         yield FirstToken()
+        if self.response_reasoning:
+            yield PredictionFragment(self.response_reasoning, None, True)
         yield PredictionFragment(self.response_content, 1, False)
         if self.completion_gate is not None:
             await asyncio.to_thread(self.completion_gate.wait)

@@ -321,8 +321,14 @@ export const startApplication = () => {
         composer.resetHeight(handle?.closest('.jouzetsu-composer'));
     });
     document.addEventListener('touchstart', (event) => messages.handleTouchStart(event));
+    document.addEventListener('touchmove', (event) => messages.handleTouchMove(event), { passive: true });
     document.addEventListener('touchcancel', () => messages.handleTouchCancel());
-    document.addEventListener('touchend', (event) => messages.handleTouchEnd(event));
+    document.addEventListener('touchend', (event) => messages.handleTouchEnd(event), { passive: false });
+    document.addEventListener('toggle', (event) => {
+        if (event.target instanceof HTMLDetailsElement && event.target.matches('[data-generation-reasoning], [data-composer-menu]')) {
+            composer.scheduleViewportReconciliation();
+        }
+    }, true);
     document.addEventListener('contextmenu', (event) => messages.handleContextMenu(event));
     window.addEventListener('resize', () => messages.closeContextMenu());
     document.addEventListener('scroll', () => messages.closeContextMenu(), true);
