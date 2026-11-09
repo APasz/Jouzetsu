@@ -28,6 +28,7 @@ from jouzetsu.web.views.chat import (
 )
 from jouzetsu.web.views.context import PageContext
 from jouzetsu.web.views.feedback import render_notice_area
+from jouzetsu.web.views.icons import icon_sprite_url
 from jouzetsu.web.views.model_controls import ModelChoice, render_model_options
 
 
@@ -383,7 +384,7 @@ def test_composer_places_the_message_input_before_actions_for_keyboard_navigatio
     assert 'title="Send (Shift+Enter / Cmd+Enter)"' in markup
     assert 'aria-label="Send"' in markup
     assert "jouzetsu-composer-primary is-icon" in markup
-    assert "M22 2 11 13" in markup
+    assert f'href="{icon_sprite_url()}#send"' in markup
     assert 'data-chat-mutation="true"' in markup
 
 

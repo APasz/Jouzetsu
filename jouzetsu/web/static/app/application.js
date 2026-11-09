@@ -4,7 +4,7 @@ import { ComposerController, currentComposerDraft } from './composer.js';
 import { DeviceActivityController } from './device-activity.js';
 import { DraftController } from './drafts.js';
 import { byId, localizeMessageUpdatedTimes, rememberChat } from './dom.js';
-import { addCsrfToken, randomIdentifier } from './forms.js';
+import { addCsrfToken, randomIdentifier, togglePasswordVisibility } from './forms.js';
 import { ImageController } from './images.js';
 import { MessageController } from './messages.js';
 import { NoticeController, RETRY_DRAFT_NOTICE_ACTION } from './notices.js';
@@ -121,6 +121,16 @@ export const startApplication = () => {
     document.addEventListener('click', (event) => {
         const target = event.target instanceof Element ? event.target : null;
         if (!target) return;
+        const passwordToggle = target.closest('[data-password-toggle]');
+        if (passwordToggle instanceof HTMLButtonElement) {
+            togglePasswordVisibility(passwordToggle);
+            return;
+        }
+        composer.handleMenuClick(target);
+        if (images.handleClick(target)) {
+            event.preventDefault();
+            return;
+        }
         const send = target.closest('[data-testid="send-message-button"]');
         if (send instanceof HTMLButtonElement && send.form) send.form.dataset.sendOnly = event.shiftKey ? 'true' : 'false';
         const tab = target.closest('[data-tab-target]');
@@ -318,6 +328,7 @@ export const startApplication = () => {
     document.addEventListener('scroll', () => messages.closeContextMenu(), true);
 
     document.addEventListener('keydown', (event) => {
+        if (composer.handleMenuKeyDown(event)) return;
         if (characters.handleKeyDown(event)) return;
         if (event.key === 'Escape' && messages.closeContextMenu()) {
             event.preventDefault();

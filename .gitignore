@@ -8,6 +8,7 @@ wheels/
 .venv
 data/*
 config.json
+/archives/
 .pytest_cache/
 .vscode/settings.json
 

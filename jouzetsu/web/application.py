@@ -48,6 +48,7 @@ from .views.chat import (
     NavigationView,
 )
 from .views.context import PageContext
+from .views.icons import ICON_VIEW_BOX, icon_sprite_url
 
 _ASSET_DIRECTORY: Path = Path(__file__).resolve().parent / "static"
 _THEME_STYLESHEETS: Final[tuple[str, ...]] = (
@@ -132,6 +133,11 @@ class WebApplication:
             hdrs=(
                 Meta(charset="utf-8"),
                 Meta(
+                    name="jouzetsu-icons",
+                    content=icon_sprite_url(),
+                    data_view_box=ICON_VIEW_BOX,
+                ),
+                Meta(
                     name="viewport",
                     content="width=device-width, initial-scale=1, viewport-fit=cover",
                 ),
@@ -187,13 +193,18 @@ class WebApplication:
         try:
             await self._on_startup()
         except Exception:
-            self._event_broker.close()
+            self.close_event_streams()
             raise
         try:
             yield
         finally:
-            self._event_broker.close()
+            self.close_event_streams()
             await self._on_shutdown()
+
+    def close_event_streams(self) -> None:
+        """Let outstanding SSE responses finish before ASGI lifespan shutdown."""
+
+        self._event_broker.close()
 
     def _route(
         self, method: HttpMethod, path: str, name: str

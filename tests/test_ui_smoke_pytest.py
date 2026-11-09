@@ -565,16 +565,6 @@ def test_composer_primary_icon_has_a_centred_layout() -> None:
     assert ".jouzetsu-composer-primary.is-icon .jouzetsu-svg-icon" in styles
 
 
-def test_armed_continue_gesture_emboldens_its_icon() -> None:
-    styles: str = _theme_styles()
-
-    assert (
-        ".jouzetsu-message-action.is-continue.is-swipe-armed .jouzetsu-svg-icon"
-        in styles
-    )
-    assert "stroke-width: 2.5;" in styles
-
-
 def test_streaming_feedback_uses_a_rail_scan_and_pending_indicator() -> None:
     script: str = _chat_client_source()
     styles: str = _theme_styles()

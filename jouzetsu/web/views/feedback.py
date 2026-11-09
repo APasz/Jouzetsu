@@ -6,6 +6,7 @@ from fastcore.xml import FT  # pyright: ignore[reportMissingTypeStubs]
 
 from ...state import AppState
 from ..html import Div, Span
+from .icons import render_icon
 
 type HTML = FT
 
@@ -32,6 +33,9 @@ def render_notice_area(*, notice: str, error: str, warning: str = "") -> HTML:
     )
     return Div(
         Div(
+            render_icon("warning", classes="jouzetsu-svg-icon jouzetsu-error-icon")
+            if error
+            else None,
             Span(message, cls="jouzetsu-notice-message"),
             cls=classes,
             role="alert" if error else "status",
@@ -62,4 +66,11 @@ def dialog_feedback(*, notice: str, error: str) -> HTML | None:
     classes: str = (
         "jouzetsu-dialog-feedback is-error" if error else "jouzetsu-dialog-feedback"
     )
-    return Div(message, cls=classes, role="alert" if error else "status")
+    return Div(
+        render_icon("warning", classes="jouzetsu-svg-icon jouzetsu-error-icon")
+        if error
+        else None,
+        message,
+        cls=classes,
+        role="alert" if error else "status",
+    )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 from ...models import Chat, ImageAttachment, ImageMediaType
-from ..html import HTML, A, Button, Div, Form, Img, Input, Label, Noscript, Small
+from ..html import HTML, A, Button, Div, Form, Img, Input, Noscript, Small
 from .icons import render_icon
 
 _IMAGE_UPLOAD_FORM_ID: Final[str] = "composer-image-upload"
@@ -79,10 +79,18 @@ def render_image_upload(chat: Chat) -> HTML:
 
 
 def render_image_upload_control() -> HTML:
-    """Attach an inline file picker to the separate multipart upload form."""
+    """Open the separate multipart upload form's picker from the composer menu."""
 
-    return Label(
-        render_icon("image"),
+    return Div(
+        Button(
+            render_icon("image"),
+            "Add images",
+            type="button",
+            title="Add images (or paste/drop)",
+            cls="jouzetsu-button jouzetsu-composer-menu-item",
+            data_image_picker="true",
+            data_testid="add-images-button",
+        ),
         Input(
             type="file",
             name="images",
@@ -90,10 +98,8 @@ def render_image_upload_control() -> HTML:
             accept=",".join(media.value for media in ImageMediaType),
             form=_IMAGE_UPLOAD_FORM_ID,
             aria_label="Add images",
-            cls="jouzetsu-image-file-input",
+            hidden=True,
             data_testid="image-upload-input",
         ),
-        title="Add images (or paste/drop)",
-        cls="jouzetsu-button jouzetsu-composer-attachment",
-        data_testid="add-images-button",
+        data_image_upload_control="true",
     )

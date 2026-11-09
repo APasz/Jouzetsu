@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from threading import Event
-from typing import Final, TypedDict, cast
+from typing import Final, Literal, TypedDict, cast
 
 import pytest
 from browser_support import (
@@ -16,7 +17,13 @@ from browser_support import (
 from image_support import image_bytes
 from playwright.sync_api import Browser, Error, Page, Route, expect, sync_playwright
 
-from jouzetsu.config import ConfigStore
+from jouzetsu.config import (
+    CONTINUE_PROMPT_CONTENT,
+    ConfigStore,
+    DeviceAccessSettings,
+    MessageAction,
+    MessageActionStyle,
+)
 from jouzetsu.models import Chat
 from jouzetsu.runtime import ModelCapabilities, ModelDescriptor
 
@@ -289,6 +296,8 @@ def test_regenerate_button_replaces_its_reply_using_only_the_previous_history(
         ("system", state.config.generation.system_prompt),
         *history,
     ]
+    if continuation:
+        expected_history.append(("user", CONTINUE_PROMPT_CONTENT))
     assert [
         (message.role, message.content) for message in requests[0].messages
     ] == expected_history
@@ -296,6 +305,47 @@ def test_regenerate_button_replaces_its_reply_using_only_the_previous_history(
     assert chat.messages[-1].id == target.id
     assert chat.messages[-1].content == "Regenerated answer"
     assert chat.draft == "Keep this unsent draft"
+
+
+def test_continue_streams_a_new_message_and_preserves_the_original_on_reload(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    chat = browser_server.state.chats[0]
+    _ = chat.add_message("user", "Tell me a story")
+    original = chat.add_message("assistant", "An unfinished story")
+    original_record = original.to_dict()
+    gate = Event()
+    browser_server.client.completion_gate = gate
+    browser_server.client.response_content = "The next part"
+    try:
+        _open_chat_page(browser_page)
+        browser_page.get_by_test_id(f"continue-message-{original.id}").click()
+        expect(browser_page.locator("article.is-streaming")).to_contain_text(
+            "The next part"
+        )
+        expect(browser_page.locator(_MESSAGE_SELECTOR)).to_have_count(3)
+        expect(browser_page.locator(_message_selector(original.id))).to_contain_text(
+            "An unfinished story"
+        )
+        assert original.to_dict() == original_record
+        assert len(chat.messages) == 2
+        gate.set()
+        browser_page.wait_for_function(
+            "() => !document.querySelector('article.is-streaming')"
+        )
+        assert len(chat.messages) == 3
+        assert chat.messages[-2] is original
+        assert chat.messages[-1].id != original.id
+        assert chat.messages[-1].content == "The next part"
+        assert original.to_dict() == original_record
+        browser_page.reload()
+        expect(browser_page.locator(_MESSAGE_SELECTOR)).to_have_count(3)
+        expect(
+            browser_page.get_by_text("An unfinished story", exact=True)
+        ).to_be_visible()
+        expect(browser_page.get_by_text("The next part", exact=True)).to_be_visible()
+    finally:
+        gate.set()
 
 
 def _use_vision_inventory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -565,9 +615,14 @@ def _open_chat_page(page: Page) -> None:
     ) as initial_fragment:
         page.goto("/chats")
     assert initial_fragment.value.ok
-    initial_fragment.value.finished()
+    _ = initial_fragment.value.body()
     expect(page.get_by_test_id("message-list")).to_be_visible()
     _wait_for_animation_frames(page)
+
+
+def _send_only(page: Page) -> None:
+    page.get_by_test_id("composer-menu-toggle").click()
+    page.get_by_test_id("send-only-button").click()
 
 
 @pytest.mark.parametrize("viewport_width", [960, 390])
@@ -672,16 +727,18 @@ def _rendered_colourways(page: Page) -> dict[str, str]:
         ),
         ("system", ".jouzetsu-dialog-feedback", "border-left-color"),
     )
-    return {
-        owner: cast(
-            str,
-            page.locator(selector).evaluate(
-                "(element, property) => getComputedStyle(element).getPropertyValue(property)",
-                property,
-            ),
-        )
-        for owner, selector, property in targets
-    }
+    # Sample connected elements together; an SSE refresh can replace the dialog between calls.
+    return cast(
+        dict[str, str],
+        page.evaluate(
+            """targets => Object.fromEntries(targets.map(([owner, selector, property]) => {
+            const element = document.querySelector(selector);
+            if (!(element instanceof HTMLElement)) throw new Error(`Missing colour target: ${selector}`);
+            return [owner, getComputedStyle(element).getPropertyValue(property)];
+        }))""",
+            targets,
+        ),
+    )
 
 
 def _seed_scrollable_transcript(server: BrowserServer) -> str:
@@ -1032,12 +1089,371 @@ def test_incoming_deletion_preserves_the_local_message_editor(
     expect(browser_page.get_by_test_id("message-input")).to_have_value("")
 
 
+@pytest.mark.parametrize("viewport_width", [960, 390])
+def test_composer_menu_supports_keyboard_images_and_send_only(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    tmp_path: Path,
+    viewport_width: int,
+) -> None:
+    browser_page.set_viewport_size({"width": viewport_width, "height": 844})
+    _open_chat_page(browser_page)
+    toggle = browser_page.get_by_test_id("composer-menu-toggle")
+    menu = browser_page.locator("[data-composer-menu]")
+    send_only = browser_page.get_by_test_id("send-only-button")
+    expect(send_only).not_to_be_visible()
+    toggle.press("Enter")
+    expect(send_only).to_be_visible()
+    expect(send_only).to_be_disabled()
+    browser_page.keyboard.press("Tab")
+    expect(browser_page.get_by_test_id("add-images-button")).to_be_focused()
+    browser_page.keyboard.press("Escape")
+    expect(send_only).not_to_be_visible()
+    expect(toggle).to_be_focused()
+    toggle.click()
+    browser_page.get_by_test_id("message-input").click()
+    expect(send_only).not_to_be_visible()
+    toggle.click()
+    browser_page.evaluate(
+        "window.openComposerMenu = document.querySelector('[data-composer-menu]')"
+    )
+    browser_page.get_by_test_id("message-input").fill("Save this with an image")
+    browser_page.wait_for_function(
+        "() => document.getElementById('chat-fragment').dataset.draftRevision === '1'"
+    )
+    expect(menu).to_have_js_property("open", True)
+    assert browser_page.evaluate(
+        "openComposerMenu === document.querySelector('[data-composer-menu]')"
+    )
+    expect(send_only).to_be_enabled()
+    assert browser_page.locator(".jouzetsu-composer-menu-options").evaluate("""menu => {
+        const bounds = menu.getBoundingClientRect();
+        return bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 0 && bounds.bottom <= innerHeight;
+    }""")
+    _ = browser_page.screenshot(path=str(tmp_path / "composer-menu.png"))
+    with browser_page.expect_file_chooser() as picker:
+        browser_page.get_by_test_id("add-images-button").click()
+    picker.value.set_files(
+        {"name": "menu.png", "mimeType": "image/png", "buffer": image_bytes()}
+    )
+    expect(menu).to_have_js_property("open", False)
+    expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1)
+    expect(browser_page.get_by_test_id("message-input")).to_have_value(
+        "Save this with an image"
+    )
+    _send_only(browser_page)
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("")
+    expect(menu).to_have_js_property("open", False)
+    expect(browser_page.locator(_MESSAGE_SELECTOR)).to_have_count(1)
+    message = browser_server.state.chats[0].messages[0]
+    assert message.content == "Save this with an image"
+    assert len(message.images) == 1
+    assert not browser_server.client.requests
+
+
+@pytest.mark.parametrize("viewport_width", [960, 390])
+def test_saved_approval_phrase_can_be_revealed_edited_and_cleared(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    tmp_path: Path,
+    viewport_width: int,
+) -> None:
+    original = 'Test phrase with & "quotes"'
+    browser_server.state.config.access.approval_phrase = original
+    browser_page.set_viewport_size({"width": viewport_width, "height": 844})
+    _open_chat_page(browser_page)
+    browser_page.get_by_test_id("open-nav-button").click()
+    browser_page.get_by_test_id("access-settings-button").click()
+    phrase = browser_page.get_by_label("Approval phrase", exact=True)
+    expect(phrase).to_have_value(original)
+    expect(phrase).to_have_attribute("type", "password")
+    show = browser_page.get_by_role("button", name="Show approval phrase", exact=True)
+    assert show.evaluate("""button => {
+        const input = document.getElementById(button.getAttribute('aria-controls'));
+        const field = input.getBoundingClientRect();
+        const toggle = button.getBoundingClientRect();
+        return toggle.left >= field.left && toggle.right <= field.right
+            && toggle.top >= field.top && toggle.bottom <= field.bottom;
+    }""")
+    _ = browser_page.screenshot(path=str(tmp_path / "approval-phrase-control.png"))
+    show.click()
+    expect(phrase).to_have_attribute("type", "text")
+    expect(phrase).to_have_value(original)
+    replacement = "Changed approval phrase"
+    phrase.fill(replacement)
+    browser_page.keyboard.press("Tab")
+    hide = browser_page.get_by_role("button", name="Hide approval phrase", exact=True)
+    expect(hide).to_be_focused()
+    hide.press("Enter")
+    expect(phrase).to_have_attribute("type", "password")
+    expect(phrase).to_have_value(replacement)
+    assert browser_server.state.config.access.approval_phrase == original
+    with browser_page.expect_navigation(wait_until="load"):
+        browser_page.get_by_role("button", name="Save phrase", exact=True).click()
+    expect(phrase).to_have_value(replacement)
+    expect(phrase).to_have_attribute("type", "password")
+    store = ConfigStore.for_paths(browser_server.state.config.paths)
+    assert store.load().access.approval_phrase == replacement
+    with browser_page.expect_navigation(wait_until="load"):
+        browser_page.get_by_role("button", name="Save phrase", exact=True).click()
+    expect(phrase).to_have_value(replacement)
+    assert browser_server.state.config.access.approval_phrase == replacement
+    phrase.fill("")
+    with browser_page.expect_navigation(wait_until="load"):
+        browser_page.get_by_role("button", name="Save phrase", exact=True).click()
+    expect(phrase).to_have_value("")
+    assert store.load().access.approval_phrase == ""
+
+
+def test_composer_menu_keeps_image_upload_available_during_generation(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    gate = _configure_paused_streaming_response(browser_server)
+    try:
+        _open_chat_page(browser_page)
+        browser_page.get_by_test_id("message-input").fill("Generate a reply")
+        browser_page.get_by_test_id("send-message-button").click()
+        expect(browser_page.locator("article.is-streaming")).to_be_visible()
+        browser_page.get_by_test_id("composer-menu-toggle").click()
+        expect(browser_page.get_by_test_id("send-only-button")).not_to_be_visible()
+        with browser_page.expect_file_chooser() as picker:
+            browser_page.get_by_test_id("add-images-button").click()
+        picker.value.set_files(
+            {"name": "next.png", "mimeType": "image/png", "buffer": image_bytes()}
+        )
+        expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1)
+        expect(browser_page.get_by_test_id("stop-generation-button")).to_be_enabled()
+        assert len(browser_server.client.requests) == 1
+        assert not browser_server.client.requests[0].messages[-1].images
+    finally:
+        gate.set()
+
+
+def test_image_picker_survives_generation_finishing(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    gate = _configure_paused_streaming_response(browser_server)
+    try:
+        _open_chat_page(browser_page)
+        browser_page.get_by_test_id("message-input").fill("Generate a reply")
+        browser_page.get_by_test_id("send-message-button").click()
+        expect(browser_page.locator("article.is-streaming")).to_be_visible()
+        browser_page.get_by_test_id("composer-menu-toggle").click()
+        with browser_page.expect_file_chooser() as picker:
+            browser_page.get_by_test_id("add-images-button").click()
+        gate.set()
+        expect(browser_page.get_by_test_id("send-message-button")).to_be_visible()
+        picker.value.set_files(
+            {"name": "next.png", "mimeType": "image/png", "buffer": image_bytes()}
+        )
+        expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1)
+        assert len(browser_server.client.requests) == 1
+        assert not browser_server.client.requests[0].messages[-1].images
+    finally:
+        gate.set()
+
+
+def _expect_message_action_colour(
+    page: Page, marker: str, action: MessageAction, style: MessageActionStyle
+) -> None:
+    field = (
+        action.color_field.replace("_", "-")
+        if style is MessageActionStyle.SEMANTIC
+        else "message-actions"
+    )
+    expected = cast(
+        str,
+        page.evaluate(
+            """variable => {
+            const reference = document.createElement('span');
+            reference.style.color = `var(${variable})`;
+            document.body.append(reference);
+            const colour = getComputedStyle(reference).color;
+            reference.remove();
+            return colour;
+        }""",
+            f"--jouzetsu-app-{field}",
+        ),
+    )
+    button = page.get_by_test_id(marker)
+    expect(button).to_have_css("color", expected)
+    icons = button.locator("svg").all()
+    assert icons
+    for icon in icons:
+        expect(icon).to_have_css("fill", expected)
+    button.hover()
+    for icon in icons:
+        expect(icon).to_have_css("fill", expected)
+    button.focus()
+    for icon in icons:
+        expect(icon).to_have_css("fill", expected)
+
+
+def _expect_icons_painted(page: Page) -> None:
+    """Wait for actual external SVG artwork, rather than just its empty container."""
+
+    _ = page.wait_for_function("""() => {
+        const icons = [...document.querySelectorAll('.jouzetsu-svg-icon')]
+            .filter(icon => icon.getClientRects().length);
+        return icons.length > 0 && icons.every(icon => {
+            const bounds = icon.getBBox();
+            return bounds.width > 0 && bounds.height > 0;
+        });
+    }""")
+
+
+@pytest.mark.parametrize("viewport_width", [390, 1280])
+def test_phosphor_icons_render_and_continue_keeps_its_armed_variant(
+    browser_page: Page, browser_server: BrowserServer, viewport_width: int
+) -> None:
+    browser_page.set_viewport_size({"width": viewport_width, "height": 844})
+    chat = browser_server.state.chats[0]
+    _ = chat.add_message("user", "Hello")
+    reply = chat.add_message("assistant", "An example reply.")
+    _open_chat_page(browser_page)
+    sprite_url = browser_page.locator('meta[name="jouzetsu-icons"]').get_attribute(
+        "content"
+    )
+    assert sprite_url and sprite_url.startswith("/static/icons/phosphor.svg?v=")
+    sprite = browser_page.request.get(sprite_url)
+    assert sprite.status == 200
+    assert sprite.headers["content-type"] == "image/svg+xml"
+    _expect_icons_painted(browser_page)
+    control = browser_page.get_by_test_id(f"continue-message-{reply.id}")
+    regular = control.locator(".jouzetsu-icon-regular")
+    armed = control.locator(".jouzetsu-icon-armed")
+    expect(regular).to_have_css("display", "inline")
+    expect(armed).to_have_css("display", "none")
+    _ = control.evaluate("control => control.classList.add('is-swipe-armed')")
+    expect(regular).to_have_css("display", "none")
+    expect(armed).to_have_css("display", "inline")
+    _expect_icons_painted(browser_page)
+    _ = control.evaluate("control => control.classList.remove('is-swipe-armed')")
+    browser_page.get_by_test_id("composer-menu-toggle").click()
+    _expect_icons_painted(browser_page)
+    _ = browser_page.screenshot(path=f"/tmp/jouzetsu-phosphor-{viewport_width}.png")
+
+
+def test_dynamically_added_controls_use_the_same_phosphor_sprite(
+    browser_page: Page,
+) -> None:
+    browser_page.goto("/chats?dialog=global")
+    details = browser_page.get_by_test_id("spelling-replacements-details")
+    details.locator("summary").click()
+    original = details.locator(".jouzetsu-spelling-arrow use").first.get_attribute(
+        "href"
+    )
+    assert original and original.endswith("#arrow-right")
+    details.get_by_role("button", name="Add replacement", exact=True).click()
+    expect(details.locator(".jouzetsu-spelling-arrow use").last).to_have_attribute(
+        "href", original
+    )
+    _expect_icons_painted(browser_page)
+    browser_page.goto("/characters")
+    with browser_page.expect_navigation(wait_until="load"):
+        browser_page.get_by_role("button", name="New character", exact=True).click()
+    browser_page.get_by_role("button", name="Add custom field", exact=True).click()
+    field_icon = browser_page.locator("[data-character-field-menu-toggle] svg use").last
+    expect(field_icon).to_have_attribute(
+        "href", original.replace("#arrow-right", "#more")
+    )
+    _expect_icons_painted(browser_page)
+
+
+def test_phosphor_access_and_error_icons_preserve_their_behaviour(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    browser_server.state.config.access.devices["dvc_phosphor-test-0001"] = (
+        DeviceAccessSettings(label="Example phone")
+    )
+    browser_page.goto("/access/denied")
+    expect(browser_page.locator(".jouzetsu-access-icon use")).to_have_attribute(
+        "href", re.compile(r"#lock$")
+    )
+    _expect_icons_painted(browser_page)
+    browser_page.goto("/chats?dialog=access&error=Example%20error")
+    _expect_icons_painted(browser_page)
+    expect(
+        browser_page.locator(".jouzetsu-dialog-feedback .jouzetsu-error-icon")
+    ).to_be_visible()
+    card = browser_page.locator(".jouzetsu-device-card").first
+    expect(card.locator(".jouzetsu-device-expand-icon")).to_be_visible()
+    expect(card.locator(".jouzetsu-device-collapse-icon")).not_to_be_visible()
+    card.locator("summary").click()
+    expect(card.locator(".jouzetsu-device-expand-icon")).not_to_be_visible()
+    expect(card.locator(".jouzetsu-device-collapse-icon")).to_be_visible()
+    _expect_icons_painted(browser_page)
+    _ = browser_page.evaluate("""async () => {
+        const { NoticeController } = await import('/static/app/notices.js');
+        new NoticeController().announce('Client error', true);
+    }""")
+    expect(browser_page.locator("#notice-area .jouzetsu-error-icon")).to_be_visible()
+    _expect_icons_painted(browser_page)
+
+
+@pytest.mark.parametrize("dark_mode", [False, True])
+@pytest.mark.parametrize("style", list(MessageActionStyle))
+def test_every_message_action_icon_uses_its_configured_colour(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    tmp_path: Path,
+    dark_mode: bool,
+    style: MessageActionStyle,
+) -> None:
+    state = browser_server.state
+    state.config.ui.dark_mode = dark_mode
+    state.config.ui.message_action_style = style
+    chat = state.chats[0]
+    first = chat.add_message("user", "First prompt")
+    _ = chat.add_message("user", "Additional prompt")
+    _ = chat.add_message("assistant", "Initial reply")
+    last = chat.add_message("assistant", "Continued reply")
+    _open_chat_page(browser_page)
+    for marker, action in (
+        (f"delete-message-{first.id}", MessageAction.DELETE),
+        (f"delete-following-{first.id}", MessageAction.DELETE),
+        (f"truncate-{first.id}", MessageAction.DELETE),
+        (f"edit-message-{first.id}", MessageAction.EDIT),
+        (f"regenerate-message-{last.id}", MessageAction.REGENERATE),
+        (f"merge-message-{last.id}", MessageAction.MERGE),
+        (f"continue-message-{last.id}", MessageAction.CONTINUE),
+    ):
+        _expect_message_action_colour(browser_page, marker, action, style)
+    _ = browser_page.screenshot(path=str(tmp_path / "message-action-colours.png"))
+    browser_page.get_by_test_id("message-input").fill("Next prompt")
+    _send_only(browser_page)
+    expect(browser_page.get_by_text("Next prompt", exact=True)).to_be_visible()
+    _expect_message_action_colour(
+        browser_page,
+        f"resend-message-{chat.messages[-1].id}",
+        MessageAction.CONTINUE,
+        style,
+    )
+    assert (
+        browser_page.evaluate("""async () => {
+        const response = await fetch('/settings/global/appearance/reset', {
+            method: 'POST',
+            headers: {'HX-Request': 'true', 'X-Jouzetsu-CSRF': document.querySelector('[data-csrf-token]').dataset.csrfToken},
+        });
+        return response.status;
+    }""")
+        == 200
+    )
+    assert state.config.ui.message_action_style is MessageActionStyle.SEMANTIC
+    browser_page.get_by_test_id("open-nav-button").click()
+    browser_page.get_by_test_id("global-settings-button").click()
+    browser_page.get_by_test_id("global-settings-dialog-appearance-tab").click()
+    expect(browser_page.get_by_test_id("message-action-style")).to_have_value(
+        "semantic"
+    )
+
+
 def test_send_only_and_shift_click_save_without_generating(
     browser_page: Page, browser_server: BrowserServer
 ) -> None:
     _open_chat_page(browser_page)
     browser_page.get_by_test_id("message-input").fill("Send only")
-    browser_page.get_by_test_id("send-only-button").click()
+    _send_only(browser_page)
     expect(
         browser_page.get_by_test_id("message-list").get_by_text("Send only", exact=True)
     ).to_be_visible()
@@ -1100,7 +1516,7 @@ def test_typing_during_send_keeps_the_next_draft_ordered(
         };
     }""")
     browser_page.get_by_test_id("message-input").fill("First submission")
-    browser_page.get_by_test_id("send-only-button").click()
+    _send_only(browser_page)
     browser_page.wait_for_function("() => typeof window.releaseSend === 'function'")
     browser_page.get_by_test_id("message-input").fill("The next unsent draft")
     browser_page.evaluate("window.releaseSend()")
@@ -1244,6 +1660,104 @@ def test_slow_draft_requests_coalesce_continued_typing(
     assert browser_page.evaluate("window.draftRequests") == 2
 
 
+@pytest.mark.parametrize("resized", [False, True])
+@pytest.mark.parametrize("interaction", ["echo", "typing", "composition", "backspace"])
+def test_delayed_draft_echo_keeps_mobile_keyboard_input_connected(
+    chromium_browser: Browser,
+    browser_server: BrowserServer,
+    interaction: Literal["echo", "typing", "composition", "backspace"],
+    resized: bool,
+) -> None:
+    with chromium_browser.new_context(
+        base_url=browser_server.base_url,
+        viewport={"width": 412, "height": 915},
+        is_mobile=True,
+        has_touch=True,
+    ) as context:
+        page = context.new_page()
+        page.set_default_timeout(_BROWSER_ACTION_TIMEOUT_MS)
+        _open_chat_page(page)
+        if resized:
+            page.get_by_test_id("composer-resize-handle").press("ArrowUp")
+        page.evaluate("""() => {
+            const original = fetch.bind(window);
+            window.fetch = async (url, options) => {
+                const response = await original(url, options);
+                if (new URL(url, location.href).pathname === '/fragments/chat/composer' && !window.heldComposer) {
+                    window.heldComposer = true;
+                    const markup = await response.text();
+                    await new Promise(resolve => { window.releaseComposer = resolve; });
+                    return new Response(markup, {status: response.status});
+                }
+                return response;
+            };
+        }""")
+        input_field = page.get_by_test_id("message-input")
+        input_field.fill("Mobile keyboard input")
+        page.wait_for_function("() => typeof window.releaseComposer === 'function'")
+        page.clock.install()
+        page.clock.pause_at("2030-01-01T00:00:00Z")
+        input_field.focus()
+        if interaction == "composition":
+            input_field.evaluate("""input => {
+                input.dispatchEvent(new CompositionEvent('compositionstart', {bubbles: true, data: ''}));
+                input.setRangeText(' composing', input.value.length, input.value.length, 'end');
+                input.dispatchEvent(new InputEvent('input', {bubbles: true, data: ' composing', isComposing: true, inputType: 'insertCompositionText'}));
+            }""")
+        elif interaction == "backspace":
+            page.keyboard.down("Backspace")
+        elif interaction == "typing":
+            page.keyboard.insert_text(" still typing")
+        value = input_field.input_value()
+        page.evaluate("""() => {
+            window.keyboardInput = document.querySelector('[data-testid=message-input]');
+            window.keyboardSelection = [keyboardInput.selectionStart, keyboardInput.selectionEnd];
+            window.keyboardBlurred = false;
+            window.inputValueWrites = 0;
+            window.selectionWrites = 0;
+            keyboardInput.addEventListener('blur', () => { window.keyboardBlurred = true; });
+            const value = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+            Object.defineProperty(keyboardInput, 'value', {
+                get() { return value.get.call(this); },
+                set(text) { window.inputValueWrites += 1; value.set.call(this, text); },
+            });
+            const setSelection = keyboardInput.setSelectionRange.bind(keyboardInput);
+            keyboardInput.setSelectionRange = (...args) => { window.selectionWrites += 1; setSelection(...args); };
+            window.releaseComposer();
+        }""")
+        page.wait_for_function(
+            "() => document.getElementById('chat-fragment').dataset.draftRevision === '1'"
+        )
+        assert page.evaluate("""() => (
+            keyboardInput === document.querySelector('[data-testid=message-input]')
+            && document.activeElement === keyboardInput && !keyboardBlurred
+            && inputValueWrites === 0 && selectionWrites === 0
+            && keyboardInput.selectionStart === keyboardSelection[0]
+            && keyboardInput.selectionEnd === keyboardSelection[1]
+        )""")
+        expect(input_field).to_have_value(value)
+        if interaction == "composition":
+            input_field.evaluate(
+                "input => input.dispatchEvent(new CompositionEvent('compositionend', {bubbles: true, data: ' composing'}))"
+            )
+            page.keyboard.insert_text(" finished")
+            value += " finished"
+        elif interaction == "backspace":
+            for _ in range(6):
+                page.keyboard.down("Backspace")
+            page.keyboard.up("Backspace")
+            value = value[:-6]
+        else:
+            page.keyboard.insert_text(" finished")
+            value += " finished"
+        expect(input_field).to_have_value(value)
+        page.clock.resume()
+        page.wait_for_function(
+            "() => document.querySelector('.jouzetsu-composer-form input[name=draft_revision]').value === '2'"
+        )
+        assert browser_server.state.chats[0].draft == value
+
+
 def _create_chat_in_background(page: Page) -> None:
     assert (
         page.evaluate("""async () => {
@@ -1329,7 +1843,7 @@ def test_delayed_send_acknowledgement_does_not_reverse_chat_navigation(
         };
     }""")
     browser_page.get_by_test_id("message-input").fill("Save in first chat")
-    browser_page.get_by_test_id("send-only-button").click()
+    _send_only(browser_page)
     browser_page.wait_for_function("() => typeof window.releaseSend === 'function'")
     browser_page.get_by_test_id("open-nav-button").click()
     browser_page.locator(f'a[href="/chats/{second.id}"]').click()
@@ -1414,7 +1928,7 @@ def test_lost_send_response_can_retry_the_same_submission(
         };
     }""")
     browser_page.get_by_test_id("message-input").fill("Retry this accepted submission")
-    browser_page.get_by_test_id("send-only-button").click()
+    _send_only(browser_page)
     expect(browser_page.locator("#notice-area")).to_contain_text(
         "Could not save this change"
     )
@@ -1427,7 +1941,7 @@ def test_lost_send_response_can_retry_the_same_submission(
     expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(
         1 if with_image else 0
     )
-    browser_page.get_by_test_id("send-only-button").click()
+    _send_only(browser_page)
     expect(browser_page.get_by_test_id("message-input")).to_have_value("")
     chat = browser_server.state.chats[0]
     assert len(chat.messages) == len(chat.submissions) == 1

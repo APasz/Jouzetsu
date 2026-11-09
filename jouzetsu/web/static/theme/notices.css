@@ -57,13 +57,14 @@
     border-left: 3px solid var(--jouzetsu-system-accent);
 }
 
-.jouzetsu-notice-error .jouzetsu-notice-message::before,
-.jouzetsu-dialog-feedback.is-error::before {
+.jouzetsu-error-icon {
     display: inline-block;
-    margin-right: 0.5em;
     color: var(--jouzetsu-system-foreground);
-    font-weight: 700;
-    content: "!";
+    vertical-align: -0.125em;
+}
+
+.jouzetsu-dialog-feedback > .jouzetsu-error-icon {
+    margin-right: 0.5em;
 }
 
 .jouzetsu-access-page {

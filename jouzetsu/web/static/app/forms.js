@@ -32,6 +32,16 @@ export const liveFormBody = (form, submitter = null) => {
     return body;
 };
 
+export const togglePasswordVisibility = (button) => {
+    const input = document.getElementById(button.dataset.passwordToggle);
+    if (!(input instanceof HTMLInputElement)) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    const action = show ? 'Hide' : 'Show';
+    button.textContent = action;
+    button.setAttribute('aria-label', `${action} ${button.dataset.passwordLabel}`);
+};
+
 export { CSRF_FORM_FIELD };
 
 

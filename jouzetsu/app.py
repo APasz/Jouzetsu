@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from logging import Logger
 from pathlib import Path
-from typing import Final, cast
+from typing import Final, cast, override
 
 import uvicorn
 
@@ -43,6 +43,21 @@ _state: AppState | None = None
 _web_application: WebApplication | None = None
 _data_directory_lock: LinuxDataDirectoryLock | None = None
 _config_store: ConfigStore | None = None
+
+
+class JouzetsuServer(uvicorn.Server):
+    """Close indefinite UI streams before Uvicorn waits for HTTP requests."""
+
+    def __init__(
+        self, config: uvicorn.Config, *, close_event_streams: Callable[[], None]
+    ) -> None:
+        super().__init__(config)
+        self._close_event_streams = close_event_streams
+
+    @override
+    async def shutdown(self, sockets: list[socket.socket] | None = None) -> None:
+        self._close_event_streams()
+        await super().shutdown(sockets=sockets)
 
 
 def _browser_host(bind_host: str) -> str:
@@ -249,17 +264,20 @@ def run(config: AppConfig | None = None, *, app_home: Path | None = None) -> Non
     _log_access_urls(resolved_config)
     if _web_application is None:
         raise RuntimeError("application could not be initialised")
-    server: uvicorn.Server = uvicorn.Server(
+    server = JouzetsuServer(
         uvicorn.Config(
             _web_application.app,
             host=resolved_config.ui.host,
             port=resolved_config.ui.port,
             log_level="warning",
             proxy_headers=False,
-            # Browser clients keep the SSE stream open indefinitely. Uvicorn's
-            # default timeout is unbounded, which can otherwise stall Ctrl+C
-            # before application lifespan shutdown begins.
+            # Retain a bound for stuck requests after closing normal SSE streams.
             timeout_graceful_shutdown=_UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
-        )
+        ),
+        close_event_streams=_web_application.close_event_streams,
     )
-    server.run()
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        # Uvicorn re-raises SIGINT after completing its shutdown handlers.
+        pass

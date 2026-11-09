@@ -136,6 +136,38 @@ def field(label: str, control: HTML, *, classes: str = "") -> HTML:
     )
 
 
+def password_field(label: str, name: str, *, value: str) -> HTML:
+    """Render a masked value with an inline, explicitly labelled visibility toggle."""
+
+    control_id = f"{name.replace('_', '-')}-input"
+    return Div(
+        Label(label, fr=control_id, cls="jouzetsu-field-label"),
+        Div(
+            Input(
+                id=control_id,
+                name=name,
+                value=value,
+                type="password",
+                autocomplete="new-password",
+                spellcheck="false",
+                autocapitalize="none",
+                data_testid=control_id,
+            ),
+            Button(
+                "Show",
+                type="button",
+                aria_label=f"Show {label.lower()}",
+                aria_controls=control_id,
+                data_password_toggle=control_id,
+                data_password_label=label.lower(),
+                cls="jouzetsu-button jouzetsu-password-toggle",
+            ),
+            cls="jouzetsu-password-control",
+        ),
+        cls="jouzetsu-field",
+    )
+
+
 def checkbox(
     name: str,
     *,

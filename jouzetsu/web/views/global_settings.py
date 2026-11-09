@@ -47,6 +47,7 @@ from .controls import (
     reset_form_button,
 )
 from .feedback import dialog_feedback
+from .icons import render_icon
 from .tabs import DialogTab, render_dialog_tab_list, render_dialog_tab_panel
 
 type GlobalSettingsTab = Literal["behaviour", "appearance", "backends"]
@@ -538,7 +539,7 @@ def _spelling_replacement_row(replacement: SpellingReplacement) -> HTML:
             aria_label="Source spelling",
             data_spelling_source="true",
         ),
-        Span("→", aria_hidden="true", cls="jouzetsu-spelling-arrow"),
+        render_icon("arrow-right", classes="jouzetsu-svg-icon jouzetsu-spelling-arrow"),
         Input(
             value=replacement.replacement,
             placeholder="colour",

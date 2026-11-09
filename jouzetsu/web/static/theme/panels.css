@@ -240,19 +240,22 @@
     display: none;
 }
 
-.jouzetsu-device-card-summary::after {
+.jouzetsu-device-card-summary > .jouzetsu-svg-icon {
     position: absolute;
     top: 50%;
     right: 0;
     color: var(--jouzetsu-app-foreground);
-    content: "+";
     font-size: 18px;
-    line-height: 1;
     transform: translateY(-50%);
 }
 
-.jouzetsu-device-card[open] > .jouzetsu-device-card-summary::after {
-    content: "−";
+.jouzetsu-device-card-summary > .jouzetsu-device-collapse-icon,
+.jouzetsu-device-card[open] > .jouzetsu-device-card-summary > .jouzetsu-device-expand-icon {
+    display: none;
+}
+
+.jouzetsu-device-card[open] > .jouzetsu-device-card-summary > .jouzetsu-device-collapse-icon {
+    display: block;
 }
 
 .jouzetsu-device-card-summary:focus-visible {
@@ -402,6 +405,12 @@
     white-space: nowrap;
 }
 
+.jouzetsu-chat-item > .jouzetsu-svg-icon {
+    display: inline-block;
+    margin-right: 0.35em;
+    vertical-align: -0.125em;
+}
+
 .jouzetsu-chat-item:hover,
 .jouzetsu-chat-item.is-active {
     border-color: transparent;
@@ -497,6 +506,7 @@
 .jouzetsu-danger-zone {
     padding: 9px 10px;
     border: 1px solid var(--jouzetsu-app-muted);
+    background: var(--jouzetsu-app-danger-zone);
 }
 
 .jouzetsu-field {
@@ -522,6 +532,32 @@
 
 .jouzetsu-field textarea {
     min-height: 94px;
+}
+
+.jouzetsu-password-control {
+    position: relative;
+}
+
+.jouzetsu-password-control > input {
+    padding-right: 60px;
+}
+
+.jouzetsu-button.jouzetsu-password-toggle {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    bottom: 1px;
+    min-width: 54px;
+    min-height: 0;
+    padding: 0 8px;
+    border: 0;
+    background: transparent;
+    color: var(--jouzetsu-app-text-muted);
+}
+
+.jouzetsu-password-toggle:focus-visible {
+    outline: 2px solid var(--jouzetsu-app-accent);
+    outline-offset: -3px;
 }
 
 .jouzetsu-colour-override {

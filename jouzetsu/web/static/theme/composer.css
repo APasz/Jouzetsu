@@ -69,24 +69,52 @@
     margin: 0;
 }
 
-.jouzetsu-button.jouzetsu-composer-attachment {
-    display: grid;
+.jouzetsu-composer-menu {
     position: relative;
+    flex: 0 0 32px;
+}
+
+.jouzetsu-button.jouzetsu-composer-menu-toggle {
+    display: grid;
+    height: 100%;
+    min-height: 48px;
     padding: 0;
     place-items: center;
     cursor: pointer;
+    list-style: none;
 }
 
-.jouzetsu-image-file-input {
+.jouzetsu-composer-menu-toggle::-webkit-details-marker {
+    display: none;
+}
+
+.jouzetsu-composer-menu-options {
     position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
+    z-index: 4;
+    bottom: calc(100% + 6px);
+    left: 0;
+    min-width: 160px;
+    max-width: calc(100vw - 16px);
+    padding: 4px;
+    border: 1px solid var(--jouzetsu-app-border-strong);
+    background: var(--jouzetsu-app-surface-raised);
+    box-shadow: 0 4px 16px var(--jouzetsu-app-shadow-soft);
 }
 
-.jouzetsu-composer-attachment:focus-within {
-    outline: 2px solid var(--jouzetsu-app-accent);
-    outline-offset: -2px;
+.jouzetsu-button.jouzetsu-composer-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    border-color: transparent;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.jouzetsu-composer-menu-item .jouzetsu-svg-icon {
+    width: 18px;
+    height: 18px;
 }
 
 .jouzetsu-image-gallery {
@@ -361,8 +389,7 @@
     box-shadow: inset 0 0 0 1px var(--jouzetsu-user-focus);
 }
 
-.jouzetsu-composer-primary,
-.jouzetsu-composer-attachment {
+.jouzetsu-composer-primary {
     flex: 0 0 32px;
     width: 32px;
     min-width: 32px;
@@ -387,7 +414,7 @@
 }
 
 .jouzetsu-composer-primary.is-icon .jouzetsu-svg-icon,
-.jouzetsu-composer-attachment .jouzetsu-svg-icon {
+.jouzetsu-composer-menu-toggle .jouzetsu-svg-icon {
     width: 19px;
     height: 19px;
     transform: none;

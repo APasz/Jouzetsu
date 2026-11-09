@@ -22,10 +22,9 @@ class _WebApplicationStub:
 
     def __init__(self) -> None:
         self.app: object = object()
-        self.exit_callback_set: bool = False
 
-    def set_exit_callback(self, _callback: object) -> None:
-        self.exit_callback_set = True
+    def close_event_streams(self) -> None:
+        pass
 
 
 class ShutdownMarkerTests(unittest.TestCase):
@@ -46,16 +45,20 @@ class ShutdownMarkerTests(unittest.TestCase):
 
             self.assertFalse(marker_path.exists())
 
-    def test_server_config_bounds_graceful_shutdown_for_open_sse_streams(self) -> None:
+    def test_server_bounds_shutdown_and_handles_normal_ctrl_c(self) -> None:
         config = AppConfig()
         web_application = _WebApplicationStub()
         with (
             patch.object(app_module, "build_app", return_value=config),
             patch.object(app_module, "_log_access_urls"),
             patch.object(app_module, "_web_application", web_application),
-            patch.object(uvicorn, "Server") as server_type,
+            patch.object(app_module, "JouzetsuServer") as server_type,
         ):
+            server_type.return_value.run.side_effect = KeyboardInterrupt
             app_module.run(config)
+            server_type.return_value.run.side_effect = RuntimeError("Server failed")
+            with self.assertRaisesRegex(RuntimeError, "Server failed"):
+                app_module.run(config)
 
         server_config: uvicorn.Config = cast(
             uvicorn.Config, server_type.call_args.args[0]
@@ -64,5 +67,8 @@ class ShutdownMarkerTests(unittest.TestCase):
             server_config.timeout_graceful_shutdown,
             app_module._UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,  # pyright: ignore[reportPrivateUsage]
         )
-        self.assertFalse(web_application.exit_callback_set)
+        self.assertEqual(
+            server_type.call_args.kwargs["close_event_streams"],
+            web_application.close_event_streams,
+        )
         self.assertFalse(server_config.proxy_headers)

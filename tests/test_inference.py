@@ -655,7 +655,7 @@ def test_no_backend_defaults_are_retroactive_and_profiles_remain_independent(
     asyncio.run(exercise())
 
 
-def test_continue_preserves_original_on_empty_failure_then_appends_actual_text(
+def test_continue_preserves_original_on_empty_failure_then_adds_a_new_message(
     tmp_path: Path,
 ) -> None:
     async def exercise() -> None:
@@ -675,17 +675,18 @@ def test_continue_preserves_original_on_empty_failure_then_appends_actual_text(
         assert failed
         await failed.wait()
         assert original.content == "Reply"
+        assert len(chat.messages) == 2
+        assert h.reload(chat).to_dict() == chat.to_dict()
         h.adapters[config.id].plans.append(Plan(text=" continued"))
         continued = await h.runtime.generate(
             chat.id, chat.revision, GenerationMode.CONTINUE
         )
         assert continued
         await continued.wait()
-        assert (
-            chat.messages[-1] is original and original.content == "Reply\n\n continued"
-        )
-        assert len(chat.messages) == 2
-        assert h.reload(chat).messages[-1].content == "Reply\n\n continued"
+        assert chat.messages[-2] is original and original.content == "Reply"
+        assert len(chat.messages) == 3
+        assert chat.messages[-1].content == " continued"
+        assert h.reload(chat).to_dict() == chat.to_dict()
         assert await h.runtime.shutdown()
 
     asyncio.run(exercise())

@@ -9,11 +9,12 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import Event, Thread
-from typing import Final
+from typing import Final, Literal
 
 import uvicorn
 from inference_support import FakeBackend, backend
 
+from jouzetsu.app import JouzetsuServer
 from jouzetsu.backend_models import (
     BackendConfig,
     BackendConfiguration,
@@ -104,7 +105,9 @@ class BrowserServer:
             pass
 
 
-def create_browser_server(root: Path) -> BrowserServer:
+def create_browser_server(
+    root: Path, *, loop: Literal["asyncio", "uvloop"] = "asyncio"
+) -> BrowserServer:
     """Start an isolated local ASGI server suitable for one Playwright test."""
 
     paths: AppPaths = AppPaths.for_home(root)
@@ -151,18 +154,19 @@ def create_browser_server(root: Path) -> BrowserServer:
     web = WebApplication(config, state, on_startup=_noop, on_shutdown=shutdown)
     listener = _listening_socket()
     host, port = listener.getsockname()
-    server = uvicorn.Server(
+    server = JouzetsuServer(
         uvicorn.Config(
             web.app,
             host=host,
             port=port,
             # Uvicorn's optional uvloop path emits one deprecation warning per asset request.
-            loop="asyncio",
+            loop=loop,
             log_level="error",
             access_log=False,
             proxy_headers=False,
             timeout_graceful_shutdown=1,
-        )
+        ),
+        close_event_streams=web.close_event_streams,
     )
     thread = Thread(
         target=server.run,

@@ -29,6 +29,60 @@ const stableMarkup = (element) => {
     return clone.outerHTML;
 };
 
+const COMPOSER_INPUT_PATH = ['.jouzetsu-composer-form', '.jouzetsu-composer-input-row', '.jouzetsu-message-input'];
+const IMAGE_PICKER_PATH = ['.jouzetsu-composer-menu-options', '[data-image-upload-control]', 'input[type="file"]'];
+
+const reconcileComposerMarkup = (current, next, retainedPath = COMPOSER_INPUT_PATH) => {
+    const branches = [[current, next]];
+    for (const selector of retainedPath) {
+        const [parent, nextParent] = branches.at(-1);
+        const child = parent.querySelector(`:scope > ${selector}`);
+        const nextChild = nextParent.querySelector(`:scope > ${selector}`);
+        if (!child || !nextChild) return false;
+        branches.push([child, nextChild]);
+    }
+    // Keep native input sessions connected: Android's IME and open file pickers depend on their DOM ancestry.
+    for (let index = 0; index < branches.length; index += 1) {
+        const [parent, nextParent] = branches[index];
+        const saving = parent.dataset.chatMutationSaving === 'true';
+        // The outer composer's attributes belong to viewport sizing and manual resizing.
+        if (index > 0 || !parent.matches('.jouzetsu-composer')) syncElementAttributes(parent, nextParent);
+        if (saving) {
+            parent.dataset.chatMutationSaving = 'true';
+            parent.setAttribute('aria-busy', 'true');
+        }
+        if (index === branches.length - 1) break;
+        const [kept, nextKept] = branches[index + 1];
+        let existing = parent.firstElementChild;
+        for (const child of Array.from(nextParent.children)) {
+            if (child === nextKept) {
+                while (existing && existing !== kept) {
+                    const following = existing.nextElementSibling;
+                    existing.remove();
+                    existing = following;
+                }
+                existing = kept.nextElementSibling;
+            } else if (!existing || existing === kept) parent.insertBefore(child, existing);
+            else {
+                const following = existing.nextElementSibling;
+                if (stableMarkup(existing) !== stableMarkup(child)) {
+                    const retainedMenu = existing.matches('[data-composer-menu]')
+                        && child.matches('[data-composer-menu]')
+                        && reconcileComposerMarkup(existing, child, IMAGE_PICKER_PATH);
+                    if (!retainedMenu) existing.replaceWith(child);
+                }
+                existing = following;
+            }
+        }
+        while (existing) {
+            const following = existing.nextElementSibling;
+            existing.remove();
+            existing = following;
+        }
+    }
+    return true;
+};
+
 const matchesServerMessageMarkup = (current, next) => {
     const stable = (element) => {
         const clone = element.cloneNode(true);
@@ -461,6 +515,11 @@ export class ChatController {
             && nextForm instanceof HTMLFormElement
             && currentForm.dataset.composerMode === nextForm.dataset.composerMode
         );
+        if (sameChat && sameComposerMode) {
+            const menu = currentComposer.querySelector('[data-composer-menu]');
+            const nextMenu = nextComposer.querySelector('[data-composer-menu]');
+            if (menu instanceof HTMLDetailsElement && nextMenu instanceof HTMLDetailsElement) nextMenu.open = menu.open;
+        }
         const missingEditedMessage = sameChat
             && currentForm?.dataset.composerMode === 'edit'
             && nextForm?.dataset.composerMode !== 'edit'
@@ -488,8 +547,15 @@ export class ChatController {
         const selection = sameChat && sameComposerMode ? this.#composer.focusedSelection() : null;
         let renderedComposer = currentComposer;
         if (!missingEditedMessage && stableMarkup(currentComposer) !== stableMarkup(nextComposer)) {
-            currentComposer.replaceWith(nextComposer);
-            renderedComposer = nextComposer;
+            const nextInput = nextForm?.querySelector('.jouzetsu-message-input');
+            if (sameChat && sameComposerMode
+                && currentInput instanceof HTMLTextAreaElement && nextInput instanceof HTMLTextAreaElement
+                && reconcileComposerMarkup(currentComposer, nextComposer)) {
+                if (!liveDraft && currentInput.value !== nextInput.value) currentInput.value = nextInput.value;
+            } else {
+                currentComposer.replaceWith(nextComposer);
+                renderedComposer = nextComposer;
+            }
         }
         const renderedForm = renderedComposer.querySelector('.jouzetsu-composer-form');
         const renderedInput = renderedForm?.querySelector('.jouzetsu-message-input');
@@ -498,6 +564,7 @@ export class ChatController {
             && renderedForm instanceof HTMLFormElement
             && renderedInput instanceof HTMLTextAreaElement
             && renderedForm.dataset.chatId === liveDraft.chatId
+            && renderedInput.value !== liveDraft.value
         ) renderedInput.value = liveDraft.value;
         if (editRevision !== null && renderedForm instanceof HTMLFormElement && sameComposerMode) renderedForm.elements.namedItem('revision').value = editRevision;
         if (enteringEditMode) this.#composer.focusInput(renderedInput);

@@ -303,10 +303,19 @@ def test_remote_approved_browser_has_settings_but_cannot_administer_access(
         h.state.config.access.devices[device] = DeviceAccessSettings(
             access_allowed=True
         )
-        async with client(h, "192.0.2.20") as remote:
+        phrase = "Keep this saved phrase local"
+        await h.state.set_approval_phrase(phrase)
+        async with client(h) as local, client(h, "192.0.2.20") as remote:
+            settings = await local.get("/fragments/access")
+            assert settings.status_code == 200 and phrase in settings.text
             remote.cookies.set(DEVICE_ID_COOKIE_NAME, device)
             page = await remote.get("/chats")
             assert 'data-testid="add-backend-form"' in page.text
+            assert phrase not in page.text
+            settings = await remote.get(
+                "/fragments/access", headers={"X-Forwarded-For": "127.0.0.1"}
+            )
+            assert settings.status_code == 403 and phrase not in settings.text
             headers = csrf_headers(page)
             assert (
                 await remote.post(

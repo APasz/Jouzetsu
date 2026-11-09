@@ -32,8 +32,10 @@ from .controls import (
     close_dialog_button,
     csrf_context,
     field,
+    password_field,
 )
 from .feedback import dialog_feedback
+from .icons import render_icon
 from .tabs import DialogTab, render_dialog_tab_list, render_dialog_tab_panel
 
 _ACCESS_TAB: Final[DialogTab] = DialogTab("access", "Access")
@@ -67,7 +69,7 @@ def render_locked_access_page(
     return Div(
         csrf_context(context),
         Div(
-            Span("🔒", cls="jouzetsu-access-icon", aria_hidden="true"),
+            render_icon("lock", classes="jouzetsu-svg-icon jouzetsu-access-icon"),
             H1("Access pending", cls="jouzetsu-access-title"),
             P(
                 _locked_page_message(decision, preview=preview),
@@ -207,11 +209,10 @@ def _access_panel(state: AppState, context: PageContext) -> HTML:
         _ACCESS_TAB,
         _ACCESS_TAB.name,
         Form(
-            field(
+            password_field(
                 "Approval phrase",
-                Input(
-                    name="approval_phrase", type="password", autocomplete="new-password"
-                ),
+                "approval_phrase",
+                value=state.config.access.approval_phrase,
             ),
             Small(
                 "Share this phrase with browsers you want to enroll. Blank disables enrollment."
@@ -363,6 +364,12 @@ def _device_row(
                 ),
                 cls="jouzetsu-device-identity",
             ),
+            render_icon(
+                "plus", classes="jouzetsu-svg-icon jouzetsu-device-expand-icon"
+            ),
+            render_icon(
+                "minus", classes="jouzetsu-svg-icon jouzetsu-device-collapse-icon"
+            ),
             cls="jouzetsu-device-card-summary",
             data_testid=f"device-card-toggle-{device_id}",
         ),
@@ -457,11 +464,7 @@ def _device_actions(
 
     if is_current_browser:
         return None
-    actions: list[HTML] = (
-        [_device_access_action(device_id)]
-        if access_allowed
-        else []
-    )
+    actions: list[HTML] = [_device_access_action(device_id)] if access_allowed else []
     if not access_allowed:
         actions.append(_forget_pending_device_action(device_id))
     return Div(*actions, cls="jouzetsu-device-card-actions")

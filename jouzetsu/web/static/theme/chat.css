@@ -400,12 +400,16 @@
     pointer-events: none;
 }
 
-.jouzetsu-message-action.is-continue .jouzetsu-svg-icon {
-    transition: stroke-width 120ms ease;
+.jouzetsu-icon-armed {
+    display: none;
 }
 
-.jouzetsu-message-action.is-continue.is-swipe-armed .jouzetsu-svg-icon {
-    stroke-width: 2.5;
+.jouzetsu-message-action.is-continue.is-swipe-armed .jouzetsu-icon-regular {
+    display: none;
+}
+
+.jouzetsu-message-action.is-continue.is-swipe-armed .jouzetsu-icon-armed {
+    display: inline;
 }
 
 .jouzetsu-message-context-menu {
@@ -505,10 +509,10 @@
     position: relative;
 }
 
-.jouzetsu-bulk-delete-badge {
+.jouzetsu-message-action .jouzetsu-bulk-delete-badge {
     position: absolute;
     top: -5px;
     right: -4px;
-    font-size: 10px;
-    font-weight: 700;
+    width: 10px;
+    height: 10px;
 }

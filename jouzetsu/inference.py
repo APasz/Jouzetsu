@@ -57,10 +57,7 @@ from .runtime import (
 )
 from .state_registry import ChatRegistry
 from .submissions import Submission, submission_fingerprint
-from .text_processing import (
-    apply_case_preserving_word_replacements,
-    continuation_prefix,
-)
+from .text_processing import apply_case_preserving_word_replacements
 
 log = logging.getLogger(__name__)
 _POLL_SECONDS = 120.0
@@ -117,8 +114,6 @@ class GenerationJob:
     save_reasoning: bool
     replacements: tuple[SpellingReplacement, ...]
     replacement_id: str | None = None
-    prefix: str = ""
-    original_attributions: tuple[GenerationAttribution, ...] = ()
     phase: JobPhase = JobPhase.QUEUED
     task: asyncio.Task[None] | None = None
     done: asyncio.Event = field(default_factory=asyncio.Event)
@@ -567,9 +562,8 @@ class InferenceRuntime:
                     raise ValueError(
                         "only the final assistant response can be regenerated or continued"
                     )
-                replacement = messages[-1]
                 if mode is GenerationMode.REGENERATE:
-                    messages.pop()
+                    replacement = messages.pop()
             generation = self.persistence.config.generation
             prompt = chat.system_prompt.strip() or generation.system_prompt.strip()
             if generation.british_english:
@@ -582,7 +576,11 @@ class InferenceRuntime:
                 for message in messages
                 if message.content or message.images
             )
-            if mode is GenerationMode.CONTINUE:
+            if mode is GenerationMode.CONTINUE or (
+                mode is GenerationMode.REGENERATE
+                and messages
+                and messages[-1].role == "assistant"
+            ):
                 prepared.append(InferenceMessage("user", CONTINUE_PROMPT_CONTENT))
             request = GenerationRequest(
                 model,
@@ -605,12 +603,6 @@ class InferenceRuntime:
                 if chat.postprocess_british_spellings
                 else (),
                 replacement.id if replacement else None,
-                continuation_prefix(replacement.content)
-                if replacement and mode is GenerationMode.CONTINUE
-                else "",
-                replacement.attributions
-                if replacement and mode is GenerationMode.CONTINUE
-                else (),
                 manually_registered=registered.manually_registered,
             )
         except BackendError as exc:
@@ -879,7 +871,7 @@ class InferenceRuntime:
         session = self.registry.get(job.chat_id)
         session.live_reasoning = job.reasoning
         if job.has_text:
-            job.preview.content = job.prefix + apply_case_preserving_word_replacements(
+            job.preview.content = apply_case_preserving_word_replacements(
                 job.text, job.replacements
             )
             session.live_response = job.preview
@@ -904,9 +896,7 @@ class InferenceRuntime:
                 job.preview,
                 updated_at=time.time(),
                 reasoning=job.reasoning if job.save_reasoning else "",
-                attributions=tuple(
-                    dict.fromkeys((*job.original_attributions, attribution))
-                ),
+                attributions=(attribution,),
             )
             if job.replacement_id is None:
                 candidate.messages.append(response)

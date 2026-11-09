@@ -46,6 +46,7 @@ class ConfigStoreTests(unittest.TestCase):
             content = config.config_file.read_text(encoding="utf-8")
             self.assertIn('\n    "version": 2,', content)
             self.assertEqual(json.loads(content), encode_config(config))
+            self.assertIs(config.ui.message_action_style, MessageActionStyle.SEMANTIC)
 
     def test_custom_config_file_name_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -79,7 +80,7 @@ class ConfigStoreTests(unittest.TestCase):
                 user=replace(config.theme.user, accent="#112233", muted="#223344"),
                 app=replace(config.theme.app, message_action_delete="#334455"),
             )
-            config.ui.message_action_style = MessageActionStyle.SEMANTIC
+            config.ui.message_action_style = MessageActionStyle.UNIFORM
 
             store.save(config)
 
@@ -95,7 +96,7 @@ class ConfigStoreTests(unittest.TestCase):
                 saved["theme"]["app"],
                 {"accent": "#7439b0", "message_action_delete": "#334455"},
             )
-            self.assertEqual(saved["ui"]["message_action_style"], "semantic")
+            self.assertEqual(saved["ui"]["message_action_style"], "uniform")
             self.assertEqual(
                 set(saved["theme"]), {"app", "user", "assistant", "system"}
             )
@@ -172,7 +173,7 @@ class ConfigStoreTests(unittest.TestCase):
                 "message_action_icon_style", cast(dict[str, object], encoded["ui"])
             )
 
-    def test_missing_message_action_style_defaults_to_uniform(self) -> None:
+    def test_missing_message_action_style_defaults_to_semantic(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             paths = AppPaths.for_home(Path(tmp_dir))
             document = encode_config(default_config(paths))
@@ -180,7 +181,7 @@ class ConfigStoreTests(unittest.TestCase):
 
             config = decode_config(document, paths=paths)
 
-            self.assertIs(config.ui.message_action_style, MessageActionStyle.UNIFORM)
+            self.assertIs(config.ui.message_action_style, MessageActionStyle.SEMANTIC)
 
     def test_config_rejects_an_invalid_message_action_style(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

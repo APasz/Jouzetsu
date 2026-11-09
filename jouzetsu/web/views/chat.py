@@ -280,14 +280,15 @@ def render_navigation_panel(view: NavigationView) -> HTML:
             if chat.id == view.selected_chat_id
             else "jouzetsu-chat-item"
         )
-        title: str = f"● {chat.title}" if generating else chat.title
         chat_items.append(
             A(
-                title,
+                _icon("activity") if generating else None,
+                chat.title,
                 href=f"/chats/{chat.id}",
                 cls=classes,
                 data_testid=f"chat-item-{chat.id}",
                 data_chat_navigation="true",
+                aria_label=f"{chat.title} (generating)" if generating else None,
             )
         )
 
@@ -1024,10 +1025,9 @@ def render_message(
                     _post_button(
                         Span(
                             _icon("trash"),
-                            Span(
-                                "+",
-                                cls="jouzetsu-bulk-delete-badge",
-                                aria_hidden="true",
+                            _icon(
+                                "plus",
+                                classes="jouzetsu-svg-icon jouzetsu-bulk-delete-badge",
                             ),
                             cls="jouzetsu-bulk-delete-icon",
                         ),
@@ -1035,7 +1035,7 @@ def render_message(
                         aria_label="Delete this and following messages",
                         action=f"/messages/{message.id}/delete-following",
                         marker=f"delete-following-{message.id}",
-                        classes="jouzetsu-message-action",
+                        classes="jouzetsu-message-action is-delete",
                         confirm="Delete this message and all later messages?",
                         chat_mutation=True,
                     ),
@@ -1045,7 +1045,7 @@ def render_message(
                         aria_label="Truncate after this message",
                         action=f"/messages/{message.id}/truncate",
                         marker=f"truncate-{message.id}",
-                        classes="jouzetsu-message-action",
+                        classes="jouzetsu-message-action is-delete",
                         confirm="Remove all messages after this one?",
                         chat_mutation=True,
                     ),
@@ -1104,7 +1104,7 @@ def render_message(
     if can_continue:
         actions.append(
             _post_button(
-                _icon("play"),
+                _icon("play", armed_name="play-bold"),
                 action=f"/messages/{message.id}/continue",
                 marker=f"continue-message-{message.id}",
                 classes="jouzetsu-message-action is-continue",
@@ -1333,7 +1333,11 @@ def render_composer(
         else None,
         Form(
             Div(
-                render_image_upload_control() if not editing else None,
+                _render_composer_menu(
+                    generating=generating, send_disabled=primary_disabled
+                )
+                if not editing
+                else None,
                 message_input,
                 Button(
                     primary_content,
@@ -1344,16 +1348,6 @@ def render_composer(
                     aria_label=primary_label,
                     data_composer_primary="true",
                     data_testid=primary_marker,
-                ),
-                Button(
-                    "Send only",
-                    type="submit",
-                    name="generate",
-                    value="false",
-                    data_send_only="true",
-                    data_testid="send-only-button",
-                    cls="jouzetsu-button",
-                    hidden=generating or editing,
                 ),
                 cls="jouzetsu-composer-input-row",
             ),
@@ -1377,6 +1371,40 @@ def render_composer(
         ),
         footer,
         cls="jouzetsu-composer",
+    )
+
+
+def _render_composer_menu(*, generating: bool, send_disabled: bool) -> HTML:
+    """Group secondary actions behind one compact, keyboard-accessible disclosure."""
+
+    return Details(
+        Summary(
+            _icon("plus"),
+            cls="jouzetsu-button jouzetsu-composer-menu-toggle",
+            aria_label="Message actions",
+            title="Message actions",
+            data_testid="composer-menu-toggle",
+        ),
+        Div(
+            render_image_upload_control(),
+            Button(
+                _icon("send"),
+                "Send only",
+                type="submit",
+                name="generate",
+                value="false",
+                disabled=send_disabled,
+                hidden=generating,
+                data_send_only="true",
+                data_testid="send-only-button",
+                cls="jouzetsu-button jouzetsu-composer-menu-item",
+            ),
+            role="group",
+            aria_label="Message actions",
+            cls="jouzetsu-composer-menu-options",
+        ),
+        cls="jouzetsu-composer-menu",
+        data_composer_menu="true",
     )
 
 

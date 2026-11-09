@@ -1,3 +1,5 @@
+import { createIcon } from './icons.js';
+
 const CHARACTER_FIELD_KINDS = new Map([
     ['short_text', 'Short text'],
     ['long_text', 'Long text'],
@@ -48,10 +50,7 @@ const createSpellingRow = (source = '', replacement = '') => {
     sourceInput.value = source;
     sourceInput.setAttribute('aria-label', 'Source spelling');
     sourceInput.dataset.spellingSource = 'true';
-    const arrow = document.createElement('span');
-    arrow.className = 'jouzetsu-spelling-arrow';
-    arrow.setAttribute('aria-hidden', 'true');
-    arrow.textContent = '→';
+    const arrow = createIcon('arrow-right', 'jouzetsu-svg-icon jouzetsu-spelling-arrow');
     const replacementInput = document.createElement('input');
     replacementInput.placeholder = 'colour';
     replacementInput.value = replacement;
@@ -132,11 +131,7 @@ const createFieldActions = (fieldId, kind, label) => {
     toggle.setAttribute('aria-controls', optionsId);
     toggle.setAttribute('aria-expanded', 'false');
     toggle.dataset.characterFieldMenuToggle = 'true';
-    const icon = document.createElement('span');
-    icon.className = 'jouzetsu-character-field-menu-icon';
-    icon.setAttribute('aria-hidden', 'true');
-    icon.textContent = '•••';
-    toggle.append(icon);
+    toggle.append(createIcon('more'));
     const menu = document.createElement('div');
     menu.id = optionsId;
     menu.className = 'jouzetsu-character-field-menu';

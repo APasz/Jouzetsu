@@ -43,7 +43,8 @@ jouzetsu --home /path/to/Jouzetsu
 - Character profiles and JSON preset packs; start immutable single-character or
   multi-character chats in Roleplay, Assistant, Story, or Custom prompt modes.
 - Shared drafts and live SSE updates, explicit chat URLs and browser-local
-  navigation. Send only is available beside Send and through Shift-click.
+  navigation. The composer's **+** menu groups Add images and Send only;
+  Shift-click on Send also saves without generating.
 - Phrase-based browser enrollment; actual localhost connections always have
   administrative access. Approved remote browsers share ordinary settings.
 
@@ -137,7 +138,9 @@ Repeated submission IDs return their persisted message IDs without regenerating,
 even after a message is edited or deleted.
 Once a submission is accepted, its save and generation acceptance finish despite
 caller cancellation. Intentional shutdown still suppresses a new generation.
-Continuations retain the existing newline separation before new response text.
+Continue creates a separate assistant message, preserving the preceding response.
+Regenerating a continuation keeps the preceding history and its synthetic
+Continue prompt; cancelled or interrupted output is retained in the new message.
 
 Manual models on generic backends can generate despite unsupported, malformed,
 or unavailable discovery endpoints. Discovery errors remain visible through
@@ -174,8 +177,10 @@ failures are logged and retried without rejecting an already committed edit.
 
 Global Settings separates Behaviour, Appearance and Backends. Appearance retains
 the existing App, User, Assistant and System colourways, automatic shades,
-light/dark mode, icon colours and semantic message-action colours. Generation
-errors use the System colourway with a top accent rail.
+light/dark mode, icon colours and semantic message-action colours (the default).
+Interface icons use locally bundled Phosphor SVGs; their licence and source
+details are in `jouzetsu/web/static/icons/`. Generation errors use the System
+colourway with a top accent rail.
 
 Useful environment overrides:
 
@@ -275,8 +280,21 @@ Pi deployment guidance belongs to Gate 4.
 
 ## Development
 
+Run the checkout manually, using its root for local configuration and data:
+
 ```sh
-uv sync --group dev
+uv sync --frozen --group dev
+uv run jouzetsu --home .
+```
+
+The server runs in the foreground; Ctrl+C shuts it down and flushes pending
+drafts. The listen port comes from the local `config.json` (8080 on a fresh
+configuration). Run one instance per application home; the data-directory lock
+prevents duplicate instances. Local archives under `archives/` are ignored by Git.
+
+Development checks:
+
+```sh
 uv run --group dev playwright install chromium
 uv run --group dev pytest -q
 uv run --group dev ruff check .

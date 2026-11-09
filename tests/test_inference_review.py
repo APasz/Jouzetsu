@@ -553,7 +553,7 @@ def test_cancelled_send_finishes_submission_and_acceptance_after_delayed_save(
 
 @pytest.mark.parametrize("initial", ["Original", "Original\n", "Original\n\n"])
 @pytest.mark.parametrize("outcome", ["complete", "cancelled", "interrupted"])
-def test_continuation_keeps_newline_separation_in_preview_and_storage(
+def test_continuation_is_a_separate_message_in_preview_and_storage(
     tmp_path: Path,
     initial: str,
     outcome: Literal["complete", "cancelled", "interrupted"],
@@ -578,20 +578,21 @@ def test_continuation_keeps_newline_separation_in_preview_and_storage(
         job = await h.runtime.generate(chat.id, chat.revision, GenerationMode.CONTINUE)
         assert job
         await plan.produced.wait()
-        expected = (
-            initial + ("\n" if initial.endswith("\n") else "\n\n") + "Continuation"
-        )
         preview = h.registry.get(chat.id).live_response
-        assert preview and preview.content == expected
+        assert preview and preview.content == "Continuation"
+        assert job.replacement_id is None
+        assert preview.id != original.id
         assert original.content == initial == h.reload(chat).messages[-1].content
         if outcome == "cancelled":
             await h.runtime.cancel(chat.id)
         else:
             plan.release.set()
             await job.wait()
-        assert chat.messages[-1] is original
-        assert original.content == expected == h.reload(chat).messages[-1].content
-        assert len(chat.messages) == 2
+        assert chat.messages[-2] is original and original.content == initial
+        assert chat.messages[-1].id == preview.id
+        assert chat.messages[-1].content == "Continuation"
+        assert len(chat.messages) == 3
+        assert h.reload(chat).to_dict() == chat.to_dict()
         assert (
             job.phase
             is {

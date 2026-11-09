@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from typing import Final
 
@@ -32,12 +32,14 @@ class UiEventBroker:
         self._revision: int = 0
         self._queues: set[asyncio.Queue[UiEvent]] = set()
         self._remove_listener: Callable[[], None] | None = None
+        self._closed: bool = False
         self.start()
 
     def start(self) -> None:
         """Attach exactly one listener, including after a reused app lifespan."""
 
         if self._remove_listener is None:
+            self._closed = False
             self._remove_listener = self._state.add_listener(self._on_state_change)
 
     async def _on_state_change(self, kind: StateChangeKind) -> None:
@@ -66,6 +68,9 @@ class UiEventBroker:
         """Create a bounded queue so a stalled browser cannot stall generation."""
 
         queue: asyncio.Queue[UiEvent] = asyncio.Queue(maxsize=1)
+        if self._closed:
+            queue.shutdown(immediate=True)
+            return queue
         self._queues.add(queue)
         self._state.inference.set_observers(len(self._queues))
         return queue
@@ -77,11 +82,14 @@ class UiEventBroker:
         self._state.inference.set_observers(len(self._queues))
 
     def close(self) -> None:
-        """Detach listeners and browser queues during one lifespan shutdown."""
+        """End streams, waking idle consumers before the server drains requests."""
 
+        self._closed = True
         if self._remove_listener is not None:
             self._remove_listener()
             self._remove_listener = None
+        for queue in self._queues:
+            queue.shutdown(immediate=True)
         self._queues.clear()
         self._state.inference.set_observers(0)
 
@@ -90,7 +98,7 @@ async def stream_events(
     broker: UiEventBroker,
     queue: asyncio.Queue[UiEvent],
     allowed: Callable[[], bool] = lambda: True,
-) -> AsyncIterator[str]:
+) -> AsyncGenerator[str]:
     """Yield SSE frames and release the queue when its response disconnects."""
 
     try:
@@ -104,6 +112,8 @@ async def stream_events(
                 event: UiEvent = await asyncio.wait_for(
                     queue.get(), timeout=_HEARTBEAT_SECONDS
                 )
+            except asyncio.QueueShutDown:
+                return
             except TimeoutError:
                 if not allowed():
                     return

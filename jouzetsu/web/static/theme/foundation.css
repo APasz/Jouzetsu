@@ -1,5 +1,6 @@
 /* Foundation: local variables, font faces, and browser defaults */
 :root {
+    --jouzetsu-app-danger-zone: color-mix(in srgb, crimson 28%, var(--jouzetsu-app-surface));
     --jouzetsu-composer-height: auto;
     --jouzetsu-font-sans: "Jouzetsu Fira Sans", ui-sans-serif, system-ui, sans-serif;
     --jouzetsu-font-display: "Jouzetsu Sovngarde", var(--jouzetsu-font-sans);

@@ -8,13 +8,6 @@ from collections.abc import Sequence
 from .config import SpellingReplacement
 
 
-def continuation_prefix(content: str) -> str:
-    """Preserve the existing paragraph separator before continued output."""
-    if not content:
-        return ""
-    return content + ("\n" if content.endswith("\n") else "\n\n")
-
-
 def apply_case_preserving_word_replacements(
     text: str,
     replacements: Sequence[SpellingReplacement],

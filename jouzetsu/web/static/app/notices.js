@@ -1,4 +1,5 @@
 import { byId } from './dom.js';
+import { createIcon } from './icons.js';
 
 export const RETRY_DRAFT_NOTICE_ACTION = 'retry-draft';
 
@@ -52,6 +53,7 @@ export class NoticeController {
         notice.dataset.noticeKind = isError ? 'error' : 'success';
         notice.dataset.noticeDismiss = 'true';
         notice.setAttribute('role', isError ? 'alert' : 'status');
+        if (isError) notice.append(createIcon('warning', 'jouzetsu-svg-icon jouzetsu-error-icon'));
         const text = document.createElement('span');
         text.className = 'jouzetsu-notice-message';
         text.textContent = message;

@@ -103,6 +103,21 @@ export class ComposerController {
         return this.#maximumHeight();
     }
 
+    handleMenuClick(target) {
+        const menu = document.querySelector('[data-composer-menu]');
+        if (!(menu instanceof HTMLDetailsElement)) return;
+        if (!menu.contains(target) || target.closest('[data-image-picker], [data-send-only]')) menu.open = false;
+    }
+
+    handleMenuKeyDown(event) {
+        const menu = document.querySelector('[data-composer-menu]');
+        if (event.isComposing || event.key !== 'Escape' || !(menu instanceof HTMLDetailsElement) || !menu.open) return false;
+        event.preventDefault();
+        menu.open = false;
+        menu.querySelector('summary')?.focus({ preventScroll: true });
+        return true;
+    }
+
     minimumHeight(composer) {
         return this.#minimumHeight(composer);
     }
@@ -132,8 +147,10 @@ export class ComposerController {
 
     restoreSelection(input, selection) {
         if (!(input instanceof HTMLTextAreaElement) || !selection) return;
-        input.focus({ preventScroll: true });
-        input.setSelectionRange(selection.start, selection.end, selection.direction);
+        if (document.activeElement !== input) input.focus({ preventScroll: true });
+        if (input.selectionStart !== selection.start || input.selectionEnd !== selection.end || input.selectionDirection !== selection.direction) {
+            input.setSelectionRange(selection.start, selection.end, selection.direction);
+        }
     }
 
     focusInput(input) {
@@ -251,14 +268,11 @@ export class ComposerController {
         const savedComposerHeight = composer.style.getPropertyValue('--jouzetsu-composer-height');
         const savedInputHeight = input.style.height;
         const savedInputOverflow = input.style.overflowY;
-        const savedValue = input.value;
         composer.classList.remove('is-resized');
         composer.style.removeProperty('--jouzetsu-composer-height');
-        input.value = '';
-        input.style.removeProperty('height');
+        input.style.height = '0px';
         input.style.removeProperty('overflow-y');
         const minimumHeight = Math.ceil(composer.getBoundingClientRect().height);
-        input.value = savedValue;
         input.style.height = savedInputHeight;
         input.style.overflowY = savedInputOverflow;
         if (savedComposerHeight) composer.style.setProperty('--jouzetsu-composer-height', savedComposerHeight);

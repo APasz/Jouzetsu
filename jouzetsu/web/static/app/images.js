@@ -74,6 +74,15 @@ export class ImageController {
         form.requestSubmit();
     }
 
+    handleClick(target) {
+        const button = target.closest('[data-image-picker]');
+        if (!(button instanceof HTMLButtonElement)) return false;
+        const input = button.parentElement?.querySelector('input[type="file"]');
+        if (!(input instanceof HTMLInputElement)) return false;
+        input.click();
+        return true;
+    }
+
     handleSubmit(form, submitter) {
         if (form.dataset.imageUploadForm !== 'true') return false;
         const isRemoval = submitter instanceof HTMLButtonElement && submitter.hasAttribute('formaction');

@@ -345,7 +345,7 @@ class UiSettings:
     port: int = 8080
     dark_mode: bool = True
     auto_open_browser: bool = False
-    message_action_style: MessageActionStyle = MessageActionStyle.UNIFORM
+    message_action_style: MessageActionStyle = MessageActionStyle.SEMANTIC
     icon_colors: IconColorSettings = field(default_factory=IconColorSettings)
     starter_prompts: list[StarterPrompt] = field(
         default_factory=lambda: list(DEFAULT_STARTER_PROMPTS)
