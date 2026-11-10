@@ -1,4 +1,8 @@
-# Phosphor icons
+# Interface and capability icons
+
+`sprite.svg` is shared by server-rendered controls and browser-created icons. Symbols retain their original viewBoxes and path data; SVG scales each symbol into the shared viewport.
+
+## Phosphor interface icons
 
 Bundled from [@phosphor-icons/core 2.1.1](https://github.com/phosphor-icons/core), commit `2b75f3ad12b420c9504ef05df8d2564a28f8500e`. See [PHOSPHOR-LICENSE.txt](PHOSPHOR-LICENSE.txt).
 
@@ -35,3 +39,16 @@ Source files are relative to https://github.com/phosphor-icons/core/tree/2b75f3a
 | shield | assets/regular/shield-check.svg | `bb04d552c0baaaabd90f7eb60760cb0c7ddb7e9f47e4b76e9599ddd7dfd8eaa7` |
 | stop | assets/regular/stop.svg | `90c8296c46c18d913784d0c3d6c66bbbfcf536b161a0387659d65dc2548ba623` |
 | trash | assets/regular/trash.svg | `e6a830c0409f9e101e3695c981eef98427d39fd01f502b9cbd6900930b01f19c` |
+
+## LM Studio capability icons
+
+These are the four capability icons used by LM Studio 0.4.28+2, verified against its bundled SVG definitions. They are bundled from the original open-source projects, so LM Studio need not be installed. Only confirmed capabilities receive badges; basic and unknown capabilities have no icon or fallback text. The FIM icon is available as `render_icon("fim")`, but no FIM capability is inferred because LM Studio's public model API does not expose it.
+
+| Application name | Upstream source | SHA-256 |
+|---|---|---|
+| vision | [Feather 4.29.2: eye.svg](https://github.com/feathericons/feather/blob/v4.29.2/icons/eye.svg) | `3e6c211d83ca5a71baec90ec51a97ff52ce1df17307e3c56254958bc5e54daaf` |
+| tool-use | [Lucide 0.468.0: hammer.svg](https://github.com/lucide-icons/lucide/blob/0.468.0/icons/hammer.svg) | `2d0c9b5627d1a59ef769d64ce411c9467d1fbdd6f92f5d2c0bbed9d7aa825225` |
+| reasoning | [Lucide 0.468.0: brain.svg](https://github.com/lucide-icons/lucide/blob/0.468.0/icons/brain.svg) | `8c07e052620014d2beb9b646f2056a1c4655ff635087c4197b63cc0df9c17440` |
+| fim | [Ant Design: column-width.svg](https://github.com/ant-design/ant-design-icons/blob/7f2516ac91226d2b41f93b35cb5197c8d94f7189/packages/icons-svg/svg/outlined/column-width.svg) | `9df955c4d1a1494378f28254a82df18c40df8055a7a2162dc5a2aae4029f428d` |
+
+Licenses: [Feather (MIT)](FEATHER-LICENSE.txt), [Lucide (ISC)](LUCIDE-LICENSE.txt), [Ant Design (MIT)](ANT-DESIGN-LICENSE.txt).

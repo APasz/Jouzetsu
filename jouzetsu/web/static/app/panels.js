@@ -19,7 +19,11 @@ export class PanelController {
         document.documentElement.classList.add('jouzetsu-panel-open');
         const focusTarget = panel.querySelector('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])');
         if (focusTarget instanceof HTMLElement) {
-            window.requestAnimationFrame(() => focusTarget.focus({ preventScroll: true }));
+            window.requestAnimationFrame(() => {
+                if (panel.classList.contains('is-open') && !panel.contains(document.activeElement)) {
+                    focusTarget.focus({ preventScroll: true });
+                }
+            });
         }
     }
 

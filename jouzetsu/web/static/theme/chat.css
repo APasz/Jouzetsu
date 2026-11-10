@@ -109,7 +109,7 @@
 
 .jouzetsu-message {
     width: min(100%, 980px);
-    margin: 0 auto 2px;
+    margin: 0 auto 6px;
     border: 0;
     background: transparent;
 }
@@ -265,16 +265,21 @@
 .jouzetsu-message-footer {
     display: flex;
     align-items: flex-end;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 8px;
 }
 
 .jouzetsu-message-updated-at {
-    padding: 0 1px 3px;
+    position: absolute;
+    bottom: 0;
+    left: 8px;
+    padding: 0 4px;
+    background: var(--jouzetsu-app-canvas);
     color: var(--jouzetsu-app-text-muted);
     font-size: 10px;
     line-height: 1;
     white-space: nowrap;
+    transform: translateY(50%);
 }
 
 .jouzetsu-streaming-pending {
@@ -386,18 +391,11 @@
     --jouzetsu-action-color: var(--jouzetsu-app-message-action-continue);
 }
 
-.jouzetsu-message-action.is-action-divider {
-    margin-right: 8px;
-}
-
-.jouzetsu-message-action.is-action-divider::after {
-    position: absolute;
-    top: 9px;
-    right: -5px;
-    bottom: 9px;
-    border-right: 1px solid var(--jouzetsu-app-border);
-    content: "";
-    pointer-events: none;
+.jouzetsu-message-action-divider {
+    align-self: stretch;
+    flex: 0 0 1px;
+    margin: 9px 2px;
+    background: var(--jouzetsu-app-border);
 }
 
 .jouzetsu-icon-armed {
@@ -502,17 +500,4 @@
     border-top: 3px solid var(--jouzetsu-system-accent);
     background: var(--jouzetsu-system-subtle);
     color: var(--jouzetsu-system-body);
-}
-
-.jouzetsu-bulk-delete-icon {
-    display: inline-flex;
-    position: relative;
-}
-
-.jouzetsu-message-action .jouzetsu-bulk-delete-badge {
-    position: absolute;
-    top: -5px;
-    right: -4px;
-    width: 10px;
-    height: 10px;
 }

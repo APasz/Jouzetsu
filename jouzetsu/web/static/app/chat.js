@@ -7,6 +7,7 @@ import {
     syncElementAttributes,
 } from './dom.js';
 import { addCsrfToken, liveFormBody, randomIdentifier } from './forms.js';
+import { synchronizeModelPickers } from './model-picker.js';
 
 const FULL_REFRESH = 'full';
 const COMPOSER_REFRESH = 'composer';
@@ -117,6 +118,7 @@ const reconcileSurface = (current, next) => {
         preserved.push([target, form]);
     }
     preserved.forEach(([target, form]) => target.replaceWith(form));
+    synchronizeModelPickers(current, next);
     current.replaceWith(next);
     const restored = focus?.isConnected ? focus : Array.from(next.querySelectorAll('form')).find((form) => formKey(form) === focusForm)?.elements.namedItem(focusName);
     if (restored instanceof HTMLElement) {
@@ -255,7 +257,13 @@ export class ChatController {
             if (!reconciled) return;
             const activeTab = next.querySelector(`[role="tab"][data-tab-name="${CSS.escape(active)}"]`);
             if (activeTab) this.#panels.activateTab(activeTab);
-            if (open) next.showModal();
+            if (open) {
+                const focusTarget = reconciled instanceof HTMLElement ? reconciled : null;
+                const hadAutofocus = focusTarget?.hasAttribute('autofocus');
+                if (focusTarget) focusTarget.setAttribute('autofocus', '');
+                next.showModal();
+                if (focusTarget && !hadAutofocus) focusTarget.removeAttribute('autofocus');
+            }
             if (reconciled instanceof HTMLElement) reconciled.focus({preventScroll: true});
         } catch { /* Reconnection will refresh settings from the shared configuration. */ }
     }

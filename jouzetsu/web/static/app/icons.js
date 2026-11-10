@@ -2,7 +2,7 @@
 export const createIcon = (name, classes = 'jouzetsu-svg-icon') => {
     const metadata = document.querySelector('meta[name="jouzetsu-icons"]');
     if (!(metadata instanceof HTMLMetaElement) || !metadata.content || !metadata.dataset.viewBox) {
-        throw new Error('The page is missing its Phosphor icon sprite configuration.');
+        throw new Error('The page is missing its icon sprite configuration.');
     }
     const namespace = 'http://www.w3.org/2000/svg';
     const icon = document.createElementNS(namespace, 'svg');

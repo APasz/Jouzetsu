@@ -1,4 +1,4 @@
-"""Shared, locally bundled Phosphor icons for the interface."""
+"""Shared, locally bundled interface and model capability icons."""
 
 from __future__ import annotations
 
@@ -39,6 +39,10 @@ type IconName = Literal[
     "stop",
     "trash",
     "warning",
+    "vision",
+    "tool-use",
+    "reasoning",
+    "fim",
 ]
 
 ICON_VIEW_BOX: Final[str] = "0 0 256 256"
@@ -48,9 +52,9 @@ ICON_VIEW_BOX: Final[str] = "0 0 256 256"
 def icon_sprite_url() -> str:
     """Version the shared sprite by content so updated icons bypass browser caches."""
 
-    sprite: Path = Path(__file__).resolve().parents[1] / "static/icons/phosphor.svg"
+    sprite: Path = Path(__file__).resolve().parents[1] / "static/icons/sprite.svg"
     version: str = sha256(sprite.read_bytes()).hexdigest()[:12]
-    return f"/static/icons/phosphor.svg?v={version}"
+    return f"/static/icons/sprite.svg?v={version}"
 
 
 def render_icon(
@@ -59,7 +63,7 @@ def render_icon(
     classes: str = "jouzetsu-svg-icon",
     armed_name: IconName | None = None,
 ) -> HTML:
-    """Render a decorative Phosphor icon, optionally with an armed gesture variant."""
+    """Render a decorative icon, optionally with an armed gesture variant."""
 
     return ft(
         "svg",

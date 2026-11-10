@@ -7,6 +7,7 @@ import { byId, localizeMessageUpdatedTimes, rememberChat } from './dom.js';
 import { addCsrfToken, randomIdentifier, togglePasswordVisibility } from './forms.js';
 import { ImageController } from './images.js';
 import { MessageController } from './messages.js';
+import { ModelPickerController } from './model-picker.js';
 import { NoticeController, RETRY_DRAFT_NOTICE_ACTION } from './notices.js';
 import { PanelController } from './panels.js';
 
@@ -104,6 +105,7 @@ export const startApplication = () => {
     const drafts = new DraftController(currentComposerDraft, notices.announce.bind(notices));
     const deviceActivity = new DeviceActivityController();
     const panels = new PanelController();
+    const modelPickers = new ModelPickerController();
     const images = new ImageController({
         announce: notices.announce.bind(notices), syncPrimary: composer.syncPrimary.bind(composer), drafts,
     });
@@ -121,6 +123,10 @@ export const startApplication = () => {
     document.addEventListener('click', (event) => {
         const target = event.target instanceof Element ? event.target : null;
         if (!target) return;
+        if (modelPickers.handleClick(target)) {
+            event.preventDefault();
+            return;
+        }
         const passwordToggle = target.closest('[data-password-toggle]');
         if (passwordToggle instanceof HTMLButtonElement) {
             togglePasswordVisibility(passwordToggle);
@@ -308,7 +314,10 @@ export const startApplication = () => {
         if (form instanceof HTMLFormElement && form.dataset.liveSubmit === 'true') form.requestSubmit();
     });
 
+    document.addEventListener('focusin', (event) => modelPickers.handleFocusIn(event.target));
+
     document.addEventListener('pointerdown', (event) => {
+        modelPickers.handlePointerDown(event);
         messages.handlePointerDown(event);
         const composerElement = event.target instanceof Element ? event.target.closest('.jouzetsu-composer') : null;
         installComposerResize(composerElement, event, composer);
@@ -332,8 +341,10 @@ export const startApplication = () => {
     document.addEventListener('contextmenu', (event) => messages.handleContextMenu(event));
     window.addEventListener('resize', () => messages.closeContextMenu());
     document.addEventListener('scroll', () => messages.closeContextMenu(), true);
+    document.addEventListener('scroll', (event) => modelPickers.handleViewportChange(event), true);
 
     document.addEventListener('keydown', (event) => {
+        if (modelPickers.handleKeyDown(event)) return;
         if (composer.handleMenuKeyDown(event)) return;
         if (characters.handleKeyDown(event)) return;
         if (event.key === 'Escape' && messages.closeContextMenu()) {
@@ -431,8 +442,11 @@ export const startApplication = () => {
 
     window.addEventListener('resize', () => composer.scheduleViewportReconciliation());
     window.addEventListener('resize', () => characters.handleViewportChange());
+    window.addEventListener('resize', (event) => modelPickers.handleViewportChange(event));
     window.visualViewport?.addEventListener('resize', () => composer.scheduleViewportReconciliation());
     window.visualViewport?.addEventListener('scroll', () => composer.scheduleViewportReconciliation());
+    window.visualViewport?.addEventListener('resize', (event) => modelPickers.handleViewportChange(event));
+    window.visualViewport?.addEventListener('scroll', (event) => modelPickers.handleViewportChange(event));
     window.addEventListener('popstate', () => void chat.handlePopstate());
     window.addEventListener('pagehide', () => {
         messages.saveScrollForNavigation();

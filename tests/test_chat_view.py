@@ -29,7 +29,7 @@ from jouzetsu.web.views.chat import (
 from jouzetsu.web.views.context import PageContext
 from jouzetsu.web.views.feedback import render_notice_area
 from jouzetsu.web.views.icons import icon_sprite_url
-from jouzetsu.web.views.model_controls import ModelChoice, render_model_options
+from jouzetsu.web.views.model_controls import ModelChoice, render_model_picker
 
 
 def _render_message(
@@ -106,6 +106,11 @@ def test_last_assistant_message_renders_only_valid_actions_in_display_order() ->
     assert 'action="/messages/assistant-2/continue"' in markup
     assert 'data-message-action="continue"' in markup
     assert 'data-chat-mutation="true"' in markup
+    assert (
+        markup.index('data-testid="regenerate-message-assistant-2"')
+        < markup.index('class="jouzetsu-message-action-divider"')
+        < markup.index('data-testid="merge-message-assistant-2"')
+    )
     assert "truncate-message-assistant-2" not in markup
     assert "fork-message-assistant-2" not in markup
     assert 'class="jouzetsu-svg-icon"' in markup
@@ -124,7 +129,11 @@ def test_last_user_message_renders_resend_in_the_continue_position() -> None:
     assert [markup.index(f'data-testid="{marker}"') for marker in markers] == sorted(
         markup.index(f'data-testid="{marker}"') for marker in markers
     )
-    assert "is-resend is-action-divider" not in markup
+    assert (
+        markup.index('data-testid="delete-message-user-1"')
+        < markup.index('class="jouzetsu-message-action-divider"')
+        < markup.index('data-testid="edit-message-user-1"')
+    )
     assert "regenerate-message-user-1" not in markup
     assert "fork-message-user-1" not in markup
 
@@ -138,15 +147,21 @@ def test_nonfinal_user_message_hides_resend() -> None:
     assert "resend-message-user-1" not in _render_message(messages, 0)
 
 
-def test_nonfinal_message_delete_action_marks_following_messages() -> None:
+def test_nonfinal_message_has_delete_and_truncate_without_delete_following() -> None:
     messages: list[Message] = [
         Message(id="user-1", role="user", content="Question"),
         Message(id="assistant-1", role="assistant", content="Answer"),
     ]
 
     markup: str = _render_message(messages, 0)
-    assert "/delete-following" in markup
-    assert "/truncate" in markup
+    assert 'action="/messages/user-1/delete"' in markup
+    assert 'action="/messages/user-1/truncate"' in markup
+    assert "/delete-following" not in markup
+    assert (
+        markup.index('data-testid="truncate-user-1"')
+        < markup.index('class="jouzetsu-message-action-divider"')
+        < markup.index('data-testid="edit-message-user-1"')
+    )
 
 
 def test_streaming_message_hides_message_actions() -> None:
@@ -533,13 +548,13 @@ def test_settings_panel_lists_every_character_in_a_cast() -> None:
 
 def test_model_options_mark_stale_entries_and_retain_the_current_selection() -> None:
     choice = ModelChoice("missing-model", "Old model", "Unavailable", selectable=False)
-    unavailable: str = repr(render_model_options((choice,), "")[0])
-    selected: str = repr(render_model_options((choice,), "missing-model")[0])
+    unavailable = str(render_model_picker((choice,), "", marker="model"))
+    selected = str(render_model_picker((choice,), "missing-model", marker="model"))
 
-    assert "Old model · Unavailable" in unavailable
-    assert "disabled" in unavailable
-    assert "selected" in selected
-    assert "disabled" not in selected
+    assert "Old model" in unavailable and "Unavailable" in unavailable
+    assert 'aria-disabled="true"' in unavailable
+    assert 'value="missing-model"' in selected
+    assert 'aria-disabled="true"' not in selected
 
 
 def test_composer_status_distinguishes_model_loading_from_prompt_processing() -> None:

@@ -714,15 +714,9 @@ def test_mobile_message_actions_fill_the_footer_before_wrapping() -> None:
     action_styles = responsive_styles.partition(".jouzetsu-message-actions {")[
         2
     ].partition("}")[0]
-    updated_at_styles = responsive_styles.partition(".jouzetsu-message-updated-at {")[
-        2
-    ].partition("}")[0]
-
-    assert "grid-template-columns: minmax(0, 1fr);" in footer_styles
-    assert '"actions"\n            "updated-at";' in footer_styles
-    assert "grid-area: actions;" in action_styles
+    assert "min-width: 0;" in footer_styles
     assert "width: 100%;" in action_styles
-    assert "grid-area: updated-at;" in updated_at_styles
+    assert "min-width: 0;" in action_styles
 
 
 def test_root_renders_the_workspace_launch_page() -> None:

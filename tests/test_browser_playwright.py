@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from pathlib import Path
 from threading import Event
 from typing import Final, Literal, TypedDict, cast
@@ -25,6 +26,7 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
+from jouzetsu.backend_models import RegisteredModel
 from jouzetsu.config import (
     CONTINUE_PROMPT_CONTENT,
     ConfigStore,
@@ -419,8 +421,8 @@ def test_uploads_keep_send_disabled_through_fragment_refreshes(
     expect(browser_page.locator("[data-image-upload-pending]")).to_be_visible()
     browser_page.get_by_test_id("open-settings-button").click()
     with browser_page.expect_response("**/fragments/chat*"):
-        browser_page.get_by_test_id("active-chat-model").select_option(
-            "browser-test-model"
+        browser_page.locator("#settings-panel [data-model-picker-value]").evaluate(
+            "control => control.dispatchEvent(new Event('change', { bubbles: true }))"
         )
     browser_page.get_by_role("button", name="Close settings").click()
     expect(browser_page.get_by_test_id("send-message-button")).to_be_disabled()
@@ -1509,6 +1511,376 @@ def _expect_icons_painted(page: Page) -> None:
     }""")
 
 
+def _set_browser_models(
+    server: BrowserServer, models: tuple[RegisteredModel, ...]
+) -> None:
+    configuration = server.state.config.backends
+    backend = configuration.backends[0]
+    server.state.config.backends = replace(
+        configuration, backends=(replace(backend, models=models),)
+    )
+    server.client.descriptors = tuple(model.descriptor for model in models)
+
+
+@pytest.mark.parametrize("viewport_width", [390, 1280])
+@pytest.mark.parametrize("dark_mode", [False, True])
+def test_capability_badges_render_and_follow_the_selected_model(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    tmp_path: Path,
+    viewport_width: int,
+    dark_mode: bool,
+) -> None:
+    state = browser_server.state
+    state.config.ui.dark_mode = dark_mode
+    backend = state.config.backends.backends[0]
+    supported = ModelCapabilities(True, True, True)
+    models = tuple(
+        replace(
+            model,
+            descriptor=replace(
+                model.descriptor,
+                capabilities=supported
+                if index == 0
+                else ModelCapabilities(False, False, None),
+            ),
+        )
+        for index, model in enumerate(backend.models)
+    )
+    _set_browser_models(browser_server, models)
+    browser_page.set_viewport_size({"width": viewport_width, "height": 844})
+    _open_chat_page(browser_page)
+    browser_page.get_by_test_id("open-settings-button").click()
+    picker = browser_page.get_by_test_id("active-chat-model")
+    capabilities = picker.locator(".jouzetsu-model-capabilities")
+    for label in ("Vision supported", "Tool use supported", "Reasoning supported"):
+        expect(capabilities.get_by_role("img", name=label, exact=True)).to_be_visible()
+    _expect_icons_painted(browser_page)
+    browser_page.wait_for_function("""() => {
+        const panel = document.getElementById('settings-panel');
+        return Math.abs(panel.getBoundingClientRect().right - innerWidth) < 0.1;
+    }""")
+    panel_content = browser_page.locator("#settings-panel .jouzetsu-panel-content")
+    scroll_top: object = panel_content.evaluate("element => element.scrollTop")
+    picker.click()
+    options = browser_page.locator("#active-chat-model-options")
+    supported_option = options.locator('[data-model-value="browser-test-model"]')
+    expect(supported_option.locator(".jouzetsu-capability-badge")).to_have_count(3)
+    text_option = options.locator('[data-model-value="text-model"]')
+    expect(text_option.locator(".jouzetsu-capability-badge")).to_have_count(0)
+    assert "Unknown" not in options.inner_text()
+    assert "Vision" not in options.inner_text()
+    assert panel_content.evaluate("element => element.scrollTop") == scroll_top
+    _ = browser_page.screenshot(
+        path=str(tmp_path / "capability-badges.png"), animations="disabled"
+    )
+    with browser_page.expect_response("**/chat/model") as saved:
+        text_option.click()
+    assert saved.value.ok
+    expect(capabilities.locator(".jouzetsu-capability-badge")).to_have_count(0)
+    expect(picker).to_have_text("Text model")
+    profile = browser_server.state.chats[0].inference.selected_profile
+    assert profile is not None and profile.model_id == "text-model"
+    browser_page.evaluate("""async () => {
+        const { createIcon } = await import('/static/app/icons.js');
+        document.querySelector('#settings-panel [data-model-choice-content]')
+            .append(createIcon('fim'));
+    }""")
+    _expect_icons_painted(browser_page)
+    browser_page.goto("/chats?dialog=global")
+    browser_page.get_by_test_id("global-settings-dialog-backends-tab").click()
+    backend_editor = browser_page.locator(f"#backend-{backend.id}")
+    backend_editor.locator(":scope > summary").click()
+    default_picker = browser_page.get_by_test_id(f"backend-model-{backend.id}")
+    default_picker.click()
+    default_options = browser_page.locator(f"#backend-model-{backend.id}-options")
+    expect(
+        default_options.locator(
+            '[data-model-value="browser-test-model"] .jouzetsu-capability-badge'
+        )
+    ).to_have_count(3)
+    default_picker.press("Escape")
+    for label in ("Vision supported", "Tool use supported", "Reasoning supported"):
+        expect(
+            backend_editor.get_by_role("img", name=label, exact=True).first
+        ).to_be_visible()
+    _expect_icons_painted(browser_page)
+    default_picker.click()
+    default_options.locator('[data-model-value="text-model"]').click()
+    expect(default_picker).to_have_text("Text model")
+    expect(backend_editor.locator("[data-model-picker-value]")).to_have_value(
+        "text-model"
+    )
+    assert state.config.backends.backends[0].defaults.model_id == "browser-test-model"
+    with browser_page.expect_response(
+        f"**/settings/backends/{backend.id}/save"
+    ) as saved_default:
+        backend_editor.get_by_role("button", name="Save backend", exact=True).click()
+    assert saved_default.value.ok
+    assert state.config.backends.backends[0].defaults.model_id == "text-model"
+
+
+def test_model_picker_keyboard_selection_and_live_refresh(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    chat = browser_server.state.chats[0]
+    message = chat.add_message("user", "A message to edit in the background")
+    backend = browser_server.state.config.backends.backends[0]
+    _set_browser_models(
+        browser_server,
+        (
+            *(
+                RegisteredModel(ModelDescriptor(f"extra-{index}", f"Extra {index:02}"))
+                for index in range(30)
+            ),
+            *backend.models,
+        ),
+    )
+    _open_chat_page(browser_page)
+    browser_page.get_by_test_id("open-settings-button").click()
+    picker = browser_page.get_by_test_id("active-chat-model")
+    options = browser_page.locator("#active-chat-model-options")
+    text_option = options.locator('[data-model-value="text-model"]')
+    picker.focus()
+    picker.press("ArrowDown")
+    expect(options).to_be_visible()
+    picker.press("End")
+    expect(picker).to_have_attribute(
+        "aria-activedescendant", text_option.get_attribute("id") or ""
+    )
+    picker.press("Escape")
+    expect(options).to_be_hidden()
+    expect(browser_page.locator("#settings-panel")).to_have_class(
+        re.compile(r"is-open")
+    )
+    profile = chat.inference.selected_profile
+    assert profile is not None and profile.model_id == "browser-test-model"
+    picker.press("t")
+    expect(picker).to_have_attribute(
+        "aria-activedescendant", text_option.get_attribute("id") or ""
+    )
+    with browser_page.expect_response("**/chat/model") as saved:
+        picker.press("Enter")
+    assert saved.value.ok
+    expect(browser_page.locator("#chat-fragment")).to_have_attribute(
+        "data-revision", str(chat.revision)
+    )
+    expect(picker).to_be_focused()
+    expect(picker).to_have_text("Text model")
+    picker.press("ArrowDown")
+    scroll_top = options.evaluate(
+        "element => { element.scrollTop = 400; return element.scrollTop; }"
+    )
+    browser_page.evaluate(
+        "window.previousModelPicker = document.getElementById('active-chat-model')"
+    )
+    _edit_message_in_background(
+        browser_page, message.id, "Updated while the picker is open"
+    )
+    browser_page.wait_for_function(
+        "() => window.previousModelPicker !== document.getElementById('active-chat-model')"
+    )
+    expect(picker).to_have_attribute("aria-expanded", "true")
+    expect(options).to_be_visible()
+    expect(picker).to_be_focused()
+    expect(picker).to_have_attribute(
+        "aria-activedescendant", text_option.get_attribute("id") or ""
+    )
+    _wait_for_message_text(browser_page, message.id, "Updated while the picker is open")
+    expect(
+        browser_page.locator(
+            '#settings-panel form[action="/chat/model"] input[name="revision"]'
+        )
+    ).to_have_value(str(chat.revision))
+    assert options.evaluate("element => element.scrollTop") == scroll_top
+    picker.press("Home")
+    with browser_page.expect_response("**/chat/model") as cleared:
+        picker.press("Enter")
+    assert cleared.value.ok
+    profile = chat.inference.selected_profile
+    assert profile is not None and profile.model_id is None
+    expect(picker).to_have_text("No model selected")
+    picker.press("ArrowDown")
+    picker.press("Tab")
+    expect(options).to_be_hidden()
+    expect(browser_page.locator("#settings-panel")).to_have_class(
+        re.compile(r"is-open")
+    )
+
+
+def test_model_picker_touch_selection_and_outside_dismissal(
+    touch_browser_page: Page, browser_server: BrowserServer
+) -> None:
+    page = touch_browser_page
+    _open_chat_page(page)
+    page.get_by_test_id("open-settings-button").tap()
+    picker = page.get_by_test_id("active-chat-model")
+    options = page.locator("#active-chat-model-options")
+    picker.tap()
+    expect(options).to_be_visible()
+    with page.expect_response("**/chat/model") as saved:
+        options.locator('[data-model-value="text-model"]').tap()
+    assert saved.value.ok
+    expect(picker).to_have_text("Text model")
+    expect(options).to_be_hidden()
+    profile = browser_server.state.chats[0].inference.selected_profile
+    assert profile is not None and profile.model_id == "text-model"
+    picker.tap()
+    expect(options).to_be_visible()
+    page.get_by_test_id("rename-chat-input").tap()
+    expect(options).to_be_hidden()
+
+
+@pytest.mark.parametrize("unsaved", [False, True])
+def test_backend_model_picker_survives_configuration_refresh(
+    browser_page: Page, browser_server: BrowserServer, unsaved: bool
+) -> None:
+    """A dialog refresh retains focus, the popup, and any unsaved default model."""
+
+    backend = browser_server.state.config.backends.backends[0]
+    browser_page.goto("/chats?dialog=global&tab=backends")
+    browser_page.locator(f"#backend-{backend.id} > summary").click()
+    picker = browser_page.get_by_test_id(f"backend-model-{backend.id}")
+    options = browser_page.locator(f"#backend-model-{backend.id}-options")
+    picker.click()
+    if unsaved:
+        options.locator('[data-model-value="text-model"]').click()
+        picker.click()
+    assert (
+        browser_page.evaluate("""async () => {
+        const response = await fetch('/settings/global/prompt', {
+            method: 'POST',
+            headers: {
+                'X-Jouzetsu-CSRF': document.querySelector('[data-csrf-token]').dataset.csrfToken,
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({system_prompt: 'Changed in the background'}),
+        });
+        return response.status;
+    }""")
+        == 200
+    )
+    browser_page.wait_for_function("""() => {
+        const dialog = document.getElementById('global-settings-dialog');
+        return dialog.open && dialog.querySelector('textarea[name="system_prompt"]')
+            .value === 'Changed in the background';
+    }""")
+    expect(picker).to_be_focused()
+    expect(picker).to_have_attribute("aria-expanded", "true")
+    expect(options).to_be_visible()
+    expect(picker).to_have_text("Text model" if unsaved else "Browser test model")
+
+
+def test_model_picker_touch_scroll_does_not_select_or_dismiss(
+    touch_browser_page: Page, browser_server: BrowserServer
+) -> None:
+    page = touch_browser_page
+    backend = browser_server.state.config.backends.backends[0]
+    _set_browser_models(
+        browser_server,
+        (
+            *backend.models,
+            *(
+                RegisteredModel(ModelDescriptor(f"extra-{index}", f"Extra {index:02}"))
+                for index in range(30)
+            ),
+        ),
+    )
+    _open_chat_page(page)
+    page.get_by_test_id("open-settings-button").tap()
+    picker = page.get_by_test_id("active-chat-model")
+    picker.tap()
+    options = page.locator("#active-chat-model-options")
+    bounds = options.bounding_box()
+    assert bounds
+    session = page.context.new_cdp_session(page)
+    x, y = bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] - 20
+    _dispatch_touch(session, "touchStart", x, y)
+    for distance in range(30, 181, 30):
+        _dispatch_touch(session, "touchMove", x, y - distance)
+    _dispatch_touch(session, "touchEnd")
+    page.wait_for_function(
+        "() => document.getElementById('active-chat-model-options').scrollTop > 0"
+    )
+    expect(picker).to_have_attribute("aria-expanded", "true")
+    profile = browser_server.state.chats[0].inference.selected_profile
+    assert profile is not None and profile.model_id == "browser-test-model"
+
+
+@pytest.mark.parametrize("location", ["chat", "backend"])
+def test_model_picker_fits_its_scroll_container(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    location: Literal["chat", "backend"],
+) -> None:
+    """A long list remains reachable when the control is near the viewport bottom."""
+
+    browser_page.set_viewport_size({"width": 390, "height": 500})
+    backend = browser_server.state.config.backends.backends[0]
+    models = tuple(
+        replace(
+            backend.models[0],
+            descriptor=ModelDescriptor(f"model-{index}", f"Model {index:02}"),
+        )
+        for index in range(30)
+    )
+    _set_browser_models(browser_server, (*backend.models, *models))
+    if location == "chat":
+        _open_chat_page(browser_page)
+        browser_page.get_by_test_id("open-settings-button").click()
+        picker = browser_page.get_by_test_id("active-chat-model")
+    else:
+        browser_page.goto("/chats?dialog=global&tab=backends")
+        browser_page.locator(f"#backend-{backend.id} > summary").click()
+        picker = browser_page.get_by_test_id(f"backend-model-{backend.id}")
+    picker.evaluate("element => element.scrollIntoView({block: 'end'})")
+    picker.click()
+    options = browser_page.locator(f"#{picker.get_attribute('id')}-options")
+    expect(options).to_be_visible()
+    assert options.evaluate("""element => {
+        const bounds = element.getBoundingClientRect();
+        const container = element.closest('.jouzetsu-panel-content, dialog');
+        const clip = container.getBoundingClientRect();
+        return bounds.top >= Math.max(0, clip.top)
+            && bounds.bottom <= Math.min(innerHeight, clip.bottom);
+    }""")
+    picker.press("End")
+    last = options.locator('[data-model-value="model-29"]')
+    expect(last).to_be_in_viewport()
+    last.click()
+    expect(picker).to_have_text("Model 29")
+
+
+def test_model_picker_typeahead_starts_after_the_current_selection(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    backend = browser_server.state.config.backends.backends[0]
+    first, second = backend.models
+    second = replace(
+        second,
+        descriptor=replace(second.descriptor, display_name="Browser alternative"),
+    )
+    _set_browser_models(browser_server, (first, second))
+    _open_chat_page(browser_page)
+    browser_page.get_by_test_id("open-settings-button").click()
+    picker = browser_page.get_by_test_id("active-chat-model")
+    picker.focus()
+    picker.press("b")
+    alternative = browser_page.locator(
+        '#active-chat-model-options [data-model-value="text-model"]'
+    )
+    expect(picker).to_have_attribute(
+        "aria-activedescendant", alternative.get_attribute("id") or ""
+    )
+    picker.press("b")
+    original = browser_page.locator(
+        '#active-chat-model-options [data-model-value="browser-test-model"]'
+    )
+    expect(picker).to_have_attribute(
+        "aria-activedescendant", original.get_attribute("id") or ""
+    )
+
+
 @pytest.mark.parametrize("viewport_width", [390, 1280])
 def test_phosphor_icons_render_and_continue_keeps_its_armed_variant(
     browser_page: Page, browser_server: BrowserServer, viewport_width: int
@@ -1521,7 +1893,7 @@ def test_phosphor_icons_render_and_continue_keeps_its_armed_variant(
     sprite_url = browser_page.locator('meta[name="jouzetsu-icons"]').get_attribute(
         "content"
     )
-    assert sprite_url and sprite_url.startswith("/static/icons/phosphor.svg?v=")
+    assert sprite_url and sprite_url.startswith("/static/icons/sprite.svg?v=")
     sprite = browser_page.request.get(sprite_url)
     assert sprite.status == 200
     assert sprite.headers["content-type"] == "image/svg+xml"
@@ -1618,7 +1990,6 @@ def test_every_message_action_icon_uses_its_configured_colour(
     _open_chat_page(browser_page)
     for marker, action in (
         (f"delete-message-{first.id}", MessageAction.DELETE),
-        (f"delete-following-{first.id}", MessageAction.DELETE),
         (f"truncate-{first.id}", MessageAction.DELETE),
         (f"edit-message-{first.id}", MessageAction.EDIT),
         (f"regenerate-message-{last.id}", MessageAction.REGENERATE),
@@ -1626,6 +1997,8 @@ def test_every_message_action_icon_uses_its_configured_colour(
         (f"continue-message-{last.id}", MessageAction.CONTINUE),
     ):
         _expect_message_action_colour(browser_page, marker, action, style)
+    for message in browser_page.locator(_MESSAGE_SELECTOR).all():
+        expect(message.locator(".jouzetsu-message-action-divider")).to_be_visible()
     _ = browser_page.screenshot(path=str(tmp_path / "message-action-colours.png"))
     browser_page.get_by_test_id("message-input").fill("Next prompt")
     _send_only(browser_page)

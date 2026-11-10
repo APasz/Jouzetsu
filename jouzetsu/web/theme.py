@@ -42,6 +42,11 @@ _SHADOW_OPACITIES: Final[tuple[tuple[str, int], ...]] = (
     ("shadow-meter", 65),
     ("shadow-notice", 60),
 )
+_CAPABILITY_COLOURS: Final[tuple[tuple[str, str], ...]] = (
+    ("vision", "#facc15"),
+    ("tool-use", "#62adf2"),
+    ("reasoning", "#5cc77b"),
+)
 
 
 def render_theme_css(config: AppConfig) -> str:
@@ -52,6 +57,13 @@ def render_theme_css(config: AppConfig) -> str:
         f"--jouzetsu-app-{name.replace('_', '-')}": value
         for name, value in surfaces.items()
     }
+    variables.update(
+        (
+            f"--jouzetsu-capability-{name}",
+            readable_accent(accent, surfaces["surface_raised"]),
+        )
+        for name, accent in _CAPABILITY_COLOURS
+    )
     variables.update(
         (
             f"--jouzetsu-app-{action.color_field.replace('_', '-')}",

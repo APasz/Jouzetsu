@@ -5,6 +5,7 @@ from __future__ import annotations
 from ...backend_codec import backend_fingerprint
 from ...backend_models import BackendConfig, BackendKind
 from ...backend_protocol import BackendReachability
+from ...runtime import ModelCapabilities
 from ...state import AppState
 from ..html import (
     H3,
@@ -21,6 +22,11 @@ from ..html import (
     Summary,
 )
 from .controls import checkbox, field
+from .model_controls import (
+    model_choices,
+    render_model_capabilities,
+    render_model_picker,
+)
 
 
 def _action(
@@ -148,33 +154,12 @@ def _backend_editor(state: AppState, backend: BackendConfig) -> HTML:
                     min=1,
                 ),
             ),
-            field(
-                "Default model",
-                Select(
-                    Option(
-                        "None", value="", selected=backend.defaults.model_id is None
-                    ),
-                    *(
-                        Option(
-                            model.alias or model.descriptor.display_name,
-                            value=model.descriptor.key,
-                            selected=model.descriptor.key == backend.defaults.model_id,
-                        )
-                        for model in backend.models
-                    ),
-                    Option(
-                        f"Missing model: {backend.defaults.model_id}",
-                        value=backend.defaults.model_id,
-                        selected=True,
-                    )
-                    if backend.defaults.model_id is not None
-                    and all(
-                        model.descriptor.key != backend.defaults.model_id
-                        for model in backend.models
-                    )
-                    else None,
-                    name="model",
-                ),
+            render_model_picker(
+                model_choices(backend, backend.defaults.model_id),
+                backend.defaults.model_id or "",
+                marker=f"backend-model-{backend.id}",
+                label="Default model",
+                empty_label="None",
             ),
             *(
                 field(
@@ -236,7 +221,7 @@ def _backend_editor(state: AppState, backend: BackendConfig) -> HTML:
                 backend,
                 model.descriptor.key,
                 model.alias,
-                model.descriptor.capabilities.vision,
+                model.descriptor.capabilities,
                 observed[model.descriptor.key].loaded_instance_ids
                 if health.state is BackendReachability.ONLINE
                 and model.descriptor.key in observed
@@ -263,7 +248,7 @@ def _model_editor(
     backend: BackendConfig,
     model_id: str,
     alias: str,
-    vision: bool | None,
+    capabilities: ModelCapabilities,
     instances: tuple[str, ...] | None,
 ) -> HTML:
     return Form(
@@ -271,16 +256,7 @@ def _model_editor(
         Small(model_id),
         Input(type="hidden", name="model_id", value=model_id),
         field("Alias", Input(name="alias", value=alias)),
-        Small(
-            "Vision: "
-            + (
-                "unknown"
-                if vision is None
-                else "supported"
-                if vision
-                else "unsupported"
-            )
-        ),
+        render_model_capabilities(capabilities),
         Small(
             "Load state unknown"
             if instances is None

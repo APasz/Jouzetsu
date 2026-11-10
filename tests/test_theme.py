@@ -211,6 +211,22 @@ def test_uniform_message_action_colour_remains_readable(
     )
 
 
+@pytest.mark.parametrize("surface", ["#000000", "#ffffff", "#7c6394"])
+def test_capability_colours_remain_readable_on_custom_surfaces(
+    tmp_path: Path, surface: str
+) -> None:
+    config = default_config(AppPaths.for_home(tmp_path))
+    config.theme = replace(
+        config.theme, app=replace(config.theme.app, surface_raised=surface)
+    )
+    palette = _root_colors(config)
+    for capability in ("vision", "tool-use", "reasoning"):
+        assert (
+            contrast_ratio(palette[f"--jouzetsu-capability-{capability}"], surface)
+            >= 4.5
+        )
+
+
 def test_semantic_message_action_overrides_are_independent(tmp_path: Path) -> None:
     config = default_config(AppPaths.for_home(tmp_path))
     config.theme = replace(
@@ -289,9 +305,7 @@ def test_automatic_app_panel_shades_follow_the_panel_background(tmp_path: Path) 
     surface = palette["--jouzetsu-app-surface"]
     text = palette["--jouzetsu-app-text"]
 
-    assert palette["--jouzetsu-app-surface-raised"] == mix_colors(
-        surface, text, 0.06
-    )
+    assert palette["--jouzetsu-app-surface-raised"] == mix_colors(surface, text, 0.06)
     assert palette["--jouzetsu-app-border"] == mix_colors(surface, text, 0.2)
 
 
@@ -485,7 +499,9 @@ def test_colour_overrides_render_as_compact_pickers_with_auto_controls(
         csrf_token="test-token",
     )
 
-    markup = repr(render_global_settings_dialog(state, context, active_tab="appearance"))
+    markup = repr(
+        render_global_settings_dialog(state, context, active_tab="appearance")
+    )
     picker = re.search(
         r'<input(?=[^>]*data-testid="theme-assistant-muted-override")[^>]*>',
         markup,
@@ -512,13 +528,13 @@ def test_colour_overrides_render_as_compact_pickers_with_auto_controls(
     assert 'data-colour-override-picker="true"' in picker.group()
     assert automatic is not None
     assert 'type="checkbox"' in automatic.group()
-    assert 'checked' in automatic.group()
+    assert "checked" in automatic.group()
     assert 'data-colour-override-automatic="true"' in automatic.group()
     assert key_visual_picker is not None
     assert 'type="color"' in key_visual_picker.group()
     assert 'data-colour-override-picker="true"' in key_visual_picker.group()
     assert key_visual_automatic is not None
-    assert 'checked' in key_visual_automatic.group()
+    assert "checked" in key_visual_automatic.group()
     assert 'name="theme_app_key_visual_automatic_present"' in markup
 
 

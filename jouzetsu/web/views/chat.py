@@ -58,7 +58,7 @@ from .images import (
     render_image_upload,
     render_image_upload_control,
 )
-from .model_controls import ModelChoice, render_model_options
+from .model_controls import ModelChoice, render_model_picker
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,8 +357,8 @@ def render_navigation_panel(view: NavigationView) -> HTML:
                 ),
                 cls="jouzetsu-panel-header",
             ),
-            H3("Chats", cls="jouzetsu-section-title"),
             Div(
+                H3("Chats", cls="jouzetsu-section-title"),
                 Form(
                     Button(
                         _icon("plus"),
@@ -369,8 +369,12 @@ def render_navigation_panel(view: NavigationView) -> HTML:
                     ),
                     action="/chats/new",
                     method="post",
+                    cls="jouzetsu-inline-form",
                     data_chat_mutation="true",
                 ),
+                cls="jouzetsu-chats-header",
+            ),
+            Div(
                 Div(*chat_items, cls="jouzetsu-chat-list", data_testid="chat-list"),
                 cls="jouzetsu-chats-section",
             ),
@@ -417,21 +421,12 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
     generating: bool = view.generating
     sampling: SamplingParameters = view.profile.parameters
     current_model: str = view.profile.model_id or ""
-    model_options: list[HTML] = [
-        Option("No model selected", value="", selected=not current_model)
-    ]
-    model_options.extend(render_model_options(view.model_choices, current_model))
-
     return scope_chat_forms(
         Aside(
             Div(
                 Div(
                     Div(
                         H2("Chat settings", cls="jouzetsu-sheet-title"),
-                        Small(
-                            "Applies to this chat only.",
-                            cls="jouzetsu-sheet-subtitle",
-                        ),
                     ),
                     Button(
                         _icon("close"),
@@ -442,7 +437,6 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                     ),
                     cls="jouzetsu-panel-header",
                 ),
-                H3("Chat", cls="jouzetsu-section-title"),
                 _render_character_cast_source(chat),
                 Form(
                     _field(
@@ -505,15 +499,12 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                     data_live_submit="true",
                 ),
                 Form(
-                    _field(
-                        "Model",
-                        Select(
-                            *model_options,
-                            name="model",
-                            disabled=generating,
-                            data_live_autosave="true",
-                            data_testid="active-chat-model",
-                        ),
+                    render_model_picker(
+                        view.model_choices,
+                        current_model,
+                        marker="active-chat-model",
+                        disabled=generating,
+                        autosave=True,
                     ),
                     action="/chat/model",
                     method="post",
@@ -1020,35 +1011,16 @@ def render_message(
             )
         )
         if not is_last:
-            actions.extend(
-                (
-                    _post_button(
-                        Span(
-                            _icon("trash"),
-                            _icon(
-                                "plus",
-                                classes="jouzetsu-svg-icon jouzetsu-bulk-delete-badge",
-                            ),
-                            cls="jouzetsu-bulk-delete-icon",
-                        ),
-                        title="Delete this and following messages",
-                        aria_label="Delete this and following messages",
-                        action=f"/messages/{message.id}/delete-following",
-                        marker=f"delete-following-{message.id}",
-                        classes="jouzetsu-message-action is-delete",
-                        confirm="Delete this message and all later messages?",
-                        chat_mutation=True,
-                    ),
-                    _post_button(
-                        _icon("scissors"),
-                        title="Truncate after this message",
-                        aria_label="Truncate after this message",
-                        action=f"/messages/{message.id}/truncate",
-                        marker=f"truncate-{message.id}",
-                        classes="jouzetsu-message-action is-delete",
-                        confirm="Remove all messages after this one?",
-                        chat_mutation=True,
-                    ),
+            actions.append(
+                _post_button(
+                    _icon("scissors"),
+                    title="Truncate after this message",
+                    aria_label="Truncate after this message",
+                    action=f"/messages/{message.id}/truncate",
+                    marker=f"truncate-{message.id}",
+                    classes="jouzetsu-message-action is-delete",
+                    confirm="Remove all messages after this one?",
+                    chat_mutation=True,
                 )
             )
     if can_change and is_last_assistant:
@@ -1057,13 +1029,15 @@ def render_message(
                 _icon("refresh"),
                 action=f"/messages/{message.id}/regenerate",
                 marker=f"regenerate-message-{message.id}",
-                classes="jouzetsu-message-action is-regenerate is-action-divider",
+                classes="jouzetsu-message-action is-regenerate",
                 title="Regenerate the last assistant message",
                 disabled=bool(view.history_generation_block_reason),
                 aria_label="Regenerate the last assistant message",
                 chat_mutation=True,
             )
         )
+    if actions:
+        actions.append(Span(cls="jouzetsu-message-action-divider", aria_hidden="true"))
     if can_merge:
         actions.append(
             _post_button(
