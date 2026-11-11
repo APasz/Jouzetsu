@@ -30,6 +30,70 @@ from jouzetsu.inference import (
     RuntimeChange,
 )
 from jouzetsu.models import Chat, ChatJSON, ImageAttachment, ImageMediaType
+from jouzetsu.runtime import ModelCapabilities
+
+
+@pytest.mark.parametrize(
+    ("choice", "expected"),
+    [("model_default", "on"), ("automatic", None), ("off", "off"), ("high", None)],
+)
+def test_reasoning_selection_reaches_request_and_attribution(
+    tmp_path: Path, choice: str, expected: str | None
+) -> None:
+    async def exercise() -> None:
+        config = backend(native=True)
+        original = config.models[0]
+        descriptor = replace(
+            original.descriptor,
+            capabilities=ModelCapabilities(
+                reasoning=True, reasoning_options=("off", "on")
+            ),
+        )
+        config = replace(
+            config,
+            models=(replace(original, descriptor=descriptor, reasoning_default="on"),),
+        )
+        h = Harness(tmp_path, (config,))
+        chat = await h.chat()
+        profile = chat.inference.selected_profile
+        assert profile is not None
+        await h.runtime.set_profile(
+            chat.id, chat.revision, replace(profile, reasoning=choice)
+        )  # type: ignore[arg-type]
+        job = await h.runtime.generate(chat.id, chat.revision)
+        assert job is not None
+        await job.wait()
+        assert h.adapters[config.id].requests[-1].reasoning == expected
+        assert chat.messages[-1].attributions[0].reasoning == (expected or "automatic")
+        if choice == "high":
+            assert chat.inference.selected_profile is not None
+            assert chat.inference.selected_profile.reasoning == "automatic"
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_unknown_reasoning_capability_does_not_erase_chat_selection(
+    tmp_path: Path,
+) -> None:
+    async def exercise() -> None:
+        config = backend(native=True)
+        h = Harness(tmp_path, (config,))
+        chat = await h.chat()
+        profile = chat.inference.selected_profile
+        assert profile is not None
+        await h.runtime.set_profile(
+            chat.id, chat.revision, replace(profile, reasoning="high")
+        )
+        job = await h.runtime.generate(chat.id, chat.revision)
+        assert job is not None
+        await job.wait()
+        profile = chat.inference.selected_profile
+        assert profile is not None and profile.reasoning == "high"
+        assert h.adapters[config.id].requests[-1].reasoning is None
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
 
 
 def test_backend_queues_are_fifo_independent_and_lock_chats(tmp_path: Path) -> None:

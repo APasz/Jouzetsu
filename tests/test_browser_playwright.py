@@ -1522,6 +1522,163 @@ def _set_browser_models(
     server.client.descriptors = tuple(model.descriptor for model in models)
 
 
+def test_reasoning_control_updates_chat_profile(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    from jouzetsu.backend_models import BackendKind, ModelManagementSettings
+
+    state = browser_server.state
+    configuration = state.config.backends
+    backend = configuration.backends[0]
+    model = backend.models[0]
+    model = replace(
+        model,
+        descriptor=replace(
+            model.descriptor,
+            capabilities=ModelCapabilities(
+                reasoning=True, reasoning_options=("off", "on")
+            ),
+        ),
+    )
+    configured = replace(
+        backend,
+        kind=BackendKind.LM_STUDIO,
+        model_management=ModelManagementSettings(),
+        models=(model, *backend.models[1:]),
+    )
+    state.config.backends = replace(configuration, backends=(configured,))
+    _open_chat_page(browser_page)
+    toggle = browser_page.get_by_test_id("reasoning-level-toggle")
+    expect(toggle).to_have_attribute("data-reasoning-state", "automatic")
+    expect(toggle).to_have_attribute(
+        "aria-label", "Reasoning level: Model default (Automatic)"
+    )
+    reasoning_menu = browser_page.locator("[data-reasoning-menu]")
+    actions_menu = browser_page.locator("[data-composer-menu]")
+    toggle.click()
+    expect(reasoning_menu).to_have_js_property("open", True)
+    browser_page.evaluate(
+        "window.reasoningMenu = document.querySelector('[data-reasoning-menu]')"
+    )
+    browser_page.get_by_test_id("message-input").fill(
+        "Draft updated while the menu is open"
+    )
+    browser_page.wait_for_function(
+        "() => document.getElementById('chat-fragment').dataset.draftRevision === '1'"
+    )
+    expect(reasoning_menu).to_have_js_property("open", True)
+    assert browser_page.evaluate(
+        "window.reasoningMenu === document.querySelector('[data-reasoning-menu]')"
+    )
+    browser_page.get_by_test_id("message-input").click()
+    expect(reasoning_menu).to_have_js_property("open", False)
+    toggle.click()
+    browser_page.get_by_test_id("composer-menu-toggle").click()
+    expect(reasoning_menu).to_have_js_property("open", False)
+    expect(actions_menu).to_have_js_property("open", True)
+    toggle.click()
+    expect(actions_menu).to_have_js_property("open", False)
+    expect(reasoning_menu).to_have_js_property("open", True)
+    browser_page.keyboard.press("Escape")
+    expect(reasoning_menu).to_have_js_property("open", False)
+    expect(toggle).to_be_focused()
+    toggle.click()
+    model_default = browser_page.get_by_role("button", name="Model default", exact=True)
+    expect(model_default).to_have_attribute("aria-pressed", "true")
+    with browser_page.expect_response("**/chat/reasoning-level") as response:
+        browser_page.get_by_role("button", name="Off", exact=True).click()
+    assert response.value.ok
+    expect(toggle).to_have_attribute("data-reasoning-state", "off")
+    expect(toggle).to_have_attribute("aria-label", "Reasoning level: Off")
+    assert (
+        toggle.evaluate("element => getComputedStyle(element, '::after').width")
+        == "22px"
+    )
+    expect(browser_page.locator("#chat-fragment")).to_have_attribute(
+        "data-revision", str(state.chats[0].revision)
+    )
+    profile = state.chats[0].inference.selected_profile
+    assert profile is not None and profile.reasoning == "off"
+    browser_page.reload()
+    browser_page.get_by_test_id("reasoning-level-toggle").click()
+    off = browser_page.get_by_role("button", name="Off", exact=True)
+    expect(off).to_have_attribute("aria-pressed", "true")
+    expect(
+        browser_page.get_by_role("button", name="Model default", exact=True)
+    ).to_have_attribute("aria-pressed", "false")
+    with browser_page.expect_response("**/chat/reasoning-level") as on_response:
+        browser_page.get_by_role("button", name="On", exact=True).click()
+    assert on_response.value.ok
+    expect(toggle).to_have_attribute("data-reasoning-state", "on")
+    expect(toggle).to_have_attribute("aria-label", "Reasoning level: On")
+    browser_page.get_by_test_id("open-settings-button").click()
+    browser_page.get_by_test_id("active-chat-model").click()
+    with browser_page.expect_response("**/chat/model") as changed:
+        browser_page.locator(
+            '#active-chat-model-options [data-model-value="text-model"]'
+        ).click()
+    assert changed.value.ok
+    profile = state.chats[0].inference.selected_profile
+    assert profile is not None and profile.reasoning == "model_default"
+    expect(browser_page.get_by_test_id("reasoning-level-toggle")).to_have_count(0)
+    browser_page.goto("/chats?dialog=global&tab=backends")
+    browser_page.locator(f"#backend-{configured.id} > summary").click()
+    model_form = browser_page.locator(
+        f'#backend-{configured.id} form[action$="/alias"]'
+    ).filter(
+        has=browser_page.locator('input[name="model_id"][value="browser-test-model"]')
+    )
+    model_form.locator('select[name="reasoning_default"]').select_option("on")
+    with browser_page.expect_response(
+        f"**/settings/backends/{configured.id}/alias"
+    ) as saved:
+        model_form.get_by_role("button", name="Save model").click()
+    assert saved.value.ok
+    assert (
+        state.config.backends.backend(configured.id)
+        .model("browser-test-model")
+        .reasoning_default
+        == "on"
+    )
+
+
+def test_unknown_reasoning_capabilities_do_not_erase_model_default(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    from jouzetsu.backend_models import BackendKind, ModelManagementSettings
+
+    state = browser_server.state
+    configuration = state.config.backends
+    backend = configuration.backends[0]
+    model = replace(backend.models[0], reasoning_default="on")
+    configured = replace(
+        backend,
+        kind=BackendKind.LM_STUDIO,
+        model_management=ModelManagementSettings(),
+        models=(model, *backend.models[1:]),
+    )
+    state.config.backends = replace(configuration, backends=(configured,))
+    browser_page.goto("/chats?dialog=global&tab=backends")
+    browser_page.locator(f"#backend-{backend.id} > summary").click()
+    form = browser_page.locator(f'#backend-{backend.id} form[action$="/alias"]').filter(
+        has=browser_page.locator('input[name="model_id"][value="browser-test-model"]')
+    )
+    expect(form.locator('select[name="reasoning_default"]')).to_have_value("on")
+    expect(form).to_contain_text("previous reasoning default is unavailable")
+    form.locator('input[name="alias"]').fill("New alias")
+    with browser_page.expect_response(
+        f"**/settings/backends/{backend.id}/alias"
+    ) as response:
+        form.get_by_role("button", name="Save model").click()
+    assert response.value.ok
+    assert (
+        state.config.backends.backend(backend.id)
+        .model("browser-test-model")
+        .reasoning_default
+        == "on"
+    )
+
+
 @pytest.mark.parametrize("viewport_width", [390, 1280])
 @pytest.mark.parametrize("dark_mode", [False, True])
 def test_capability_badges_render_and_follow_the_selected_model(

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from ...backend_codec import backend_fingerprint
-from ...backend_models import BackendConfig, BackendKind
+from ...backend_models import BackendConfig, BackendKind, RegisteredModel
 from ...backend_protocol import BackendReachability
-from ...runtime import ModelCapabilities
+from ...runtime import REASONING_OPTIONS
 from ...state import AppState
 from ..html import (
     H3,
@@ -221,7 +221,7 @@ def _backend_editor(state: AppState, backend: BackendConfig) -> HTML:
                 backend,
                 model.descriptor.key,
                 model.alias,
-                model.descriptor.capabilities,
+                model,
                 observed[model.descriptor.key].loaded_instance_ids
                 if health.state is BackendReachability.ONLINE
                 and model.descriptor.key in observed
@@ -248,7 +248,7 @@ def _model_editor(
     backend: BackendConfig,
     model_id: str,
     alias: str,
-    capabilities: ModelCapabilities,
+    model: RegisteredModel,
     instances: tuple[str, ...] | None,
 ) -> HTML:
     return Form(
@@ -256,7 +256,65 @@ def _model_editor(
         Small(model_id),
         Input(type="hidden", name="model_id", value=model_id),
         field("Alias", Input(name="alias", value=alias)),
-        render_model_capabilities(capabilities),
+        render_model_capabilities(model.descriptor.capabilities),
+        field(
+            "Default reasoning",
+            Select(
+                Option(
+                    "Automatic",
+                    value="",
+                    selected=model.reasoning_default is None,
+                ),
+                Option(
+                    f"{model.reasoning_default.title()} (unavailable)",
+                    value=model.reasoning_default,
+                    selected=True,
+                )
+                if model.reasoning_default is not None
+                and model.reasoning_default not in model.reasoning_options
+                else None,
+                *(
+                    Option(
+                        option.title(),
+                        value=option,
+                        selected=option == model.reasoning_default,
+                    )
+                    for option in model.reasoning_options
+                ),
+                name="reasoning_default",
+            ),
+        )
+        if backend.kind is BackendKind.LM_STUDIO
+        else None,
+        P(
+            "The previous reasoning default is unavailable; using Automatic.",
+            role="status",
+        )
+        if model.reasoning_default_unavailable
+        or (
+            model.reasoning_default is not None
+            and model.reasoning_default not in model.reasoning_options
+        )
+        else None,
+        Div(
+            Input(type="hidden", name="reasoning_override", value="true"),
+            Small("Manually configured reasoning options"),
+            *(
+                checkbox(
+                    name=f"reasoning_option_{option}",
+                    checked=option in model.reasoning_options_override,
+                    label=option.title(),
+                    marker=f"reasoning-option-{option}",
+                )
+                for option in REASONING_OPTIONS
+            ),
+        )
+        if backend.kind is BackendKind.LM_STUDIO
+        and (
+            not model.descriptor.capabilities.reasoning_options
+            or model.reasoning_options_override
+        )
+        else None,
         Small(
             "Load state unknown"
             if instances is None
@@ -266,7 +324,7 @@ def _model_editor(
         )
         if backend.model_management is not None
         else None,
-        Button("Save alias", type="submit", cls="jouzetsu-button"),
+        Button("Save model", type="submit", cls="jouzetsu-button"),
         *(
             Button(
                 label,

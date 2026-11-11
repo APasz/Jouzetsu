@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Final
+from typing import Final, Literal
 
 from .backend_models import (
     BackendConfig,
@@ -20,6 +20,7 @@ from .backend_models import (
     GenerationProfile,
     ModelManagementSettings,
     ModelRef,
+    ReasoningSelection,
     RegisteredModel,
 )
 from .json_codec import JsonDecoder
@@ -140,6 +141,7 @@ def encode_attribution(attribution: GenerationAttribution) -> JsonObject:
         "backend_name": attribution.backend_name,
         "model_name": attribution.model_name,
         "instance_id": attribution.instance_id,
+        "reasoning": attribution.reasoning,
     }
 
 
@@ -152,6 +154,7 @@ def decode_attribution(raw: object) -> GenerationAttribution:
         required=frozenset(
             {"backend_id", "model_id", "backend_name", "model_name", "instance_id"}
         ),
+        optional=frozenset({"reasoning"}),
     )
     backend_id = decoder.string(
         values.get("backend_id"), path=f"{path}.backend_id", default=""
@@ -168,12 +171,22 @@ def decode_attribution(raw: object) -> GenerationAttribution:
     instance = decoder.optional_string(
         values.get("instance_id"), path=f"{path}.instance_id"
     )
+    reasoning: ReasoningOption | Literal["automatic"] | None = (
+        decoder.choice(
+            values["reasoning"],
+            path=f"{path}.reasoning",
+            choices=("automatic", *REASONING_OPTIONS),
+        )
+        if values.get("reasoning") is not None
+        else None
+    )
     return decoder.construct(
         lambda: GenerationAttribution(
             ModelRef(BackendId(backend_id), model_id),
             backend_name,
             model_name,
             instance,
+            reasoning,
         ),
         path=path,
     )
@@ -344,6 +357,7 @@ def _decode_support(decoder: JsonDecoder, raw: object, path: str) -> ParameterSu
 def _encode_profile(profile: GenerationProfile) -> JsonObject:
     return {
         "model_id": profile.model_id,
+        "reasoning": profile.reasoning,
         "parameters": {
             "temperature": profile.parameters.temperature,
             "top_p": profile.parameters.top_p,
@@ -354,7 +368,10 @@ def _encode_profile(profile: GenerationProfile) -> JsonObject:
 
 def _decode_profile(decoder: JsonDecoder, raw: object, path: str) -> GenerationProfile:
     values = decoder.object(
-        raw, path=path, required=frozenset({"model_id", "parameters"})
+        raw,
+        path=path,
+        required=frozenset({"model_id", "parameters"}),
+        optional=frozenset({"reasoning"}),
     )
     model = decoder.optional_string(values.get("model_id"), path=f"{path}.model_id")
     sampling = decoder.object(
@@ -377,9 +394,14 @@ def _decode_profile(decoder: JsonDecoder, raw: object, path: str) -> GenerationP
         path=f"{path}.parameters.max_tokens",
         default=DEFAULT_SAMPLING.max_tokens,
     )
+    reasoning: ReasoningSelection = decoder.choice(
+        values.get("reasoning", "model_default"),
+        path=f"{path}.reasoning",
+        choices=("model_default", "automatic", *REASONING_OPTIONS),
+    )
     return decoder.construct(
         lambda: GenerationProfile(
-            model, SamplingParameters(temperature, top_p, max_tokens)
+            model, SamplingParameters(temperature, top_p, max_tokens), reasoning
         ),
         path=path,
     )
@@ -453,6 +475,9 @@ def _encode_model(model: RegisteredModel) -> JsonObject:
         "display_name": metadata.display_name,
         "alias": model.alias,
         "manually_registered": model.manually_registered,
+        "reasoning_default": model.reasoning_default,
+        "reasoning_options_override": list(model.reasoning_options_override),
+        "reasoning_default_unavailable": model.reasoning_default_unavailable,
         "context_length": metadata.context_length,
         "max_context_length": metadata.max_context_length,
         "auto_unload_minutes": metadata.auto_unload_minutes,
@@ -494,6 +519,13 @@ def _decode_model(decoder: JsonDecoder, raw: object, path: str) -> RegisteredMod
                 "description",
                 "variants",
                 "selected_variant",
+            }
+        ),
+        optional=frozenset(
+            {
+                "reasoning_default",
+                "reasoning_options_override",
+                "reasoning_default_unavailable",
             }
         ),
     )
@@ -582,6 +614,36 @@ def _decode_model(decoder: JsonDecoder, raw: object, path: str) -> RegisteredMod
         variants=variants,
         selected_variant=selected,
     )
+    default: ReasoningOption | None = (
+        decoder.choice(
+            values["reasoning_default"],
+            path=f"{path}.reasoning_default",
+            choices=REASONING_OPTIONS,
+        )
+        if values.get("reasoning_default") is not None
+        else None
+    )
+    options: tuple[ReasoningOption, ...] = tuple(
+        decoder.choice(
+            value,
+            path=f"{path}.reasoning_options_override[{index}]",
+            choices=REASONING_OPTIONS,
+        )
+        for index, value in enumerate(
+            decoder.list(
+                values.get("reasoning_options_override", []),
+                path=f"{path}.reasoning_options_override",
+            )
+        )
+    )
+    default_unavailable = decoder.boolean(
+        values.get("reasoning_default_unavailable", False),
+        path=f"{path}.reasoning_default_unavailable",
+        default=False,
+    )
     return decoder.construct(
-        lambda: RegisteredModel(descriptor, alias, manual), path=path
+        lambda: RegisteredModel(
+            descriptor, alias, manual, default, options, default_unavailable
+        ),
+        path=path,
     )

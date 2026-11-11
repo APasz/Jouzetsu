@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -13,6 +14,7 @@ from jouzetsu.config import MessageActionStyle, StarterPrompt
 from jouzetsu.models import CharacterChatBinding, Chat, ChatPromptMode, Message
 from jouzetsu.runtime import (
     GenerationMetrics,
+    ReasoningOption,
     RuntimePhase,
     RuntimeStatus,
 )
@@ -77,6 +79,23 @@ def _chat_view(
         if generating and chat.messages and chat.messages[-1].role == "assistant"
         else None,
     )
+
+
+@pytest.mark.parametrize(
+    ("default", "state", "label"),
+    [(None, "automatic", "Automatic"), ("off", "off", "Off"), ("on", "on", "On")],
+)
+def test_reasoning_button_reflects_the_model_default(
+    default: ReasoningOption | None, state: str, label: str
+) -> None:
+    view = replace(
+        _chat_view(Chat()),
+        reasoning_options=("off", "on"),
+        reasoning_default=default,
+    )
+    markup = str(render_composer(view, edit_message_id="", editing_message=None))
+    assert f'data-reasoning-state="{state}"' in markup
+    assert f'aria-label="Reasoning level: Model default ({label})"' in markup
 
 
 def test_last_assistant_message_renders_only_valid_actions_in_display_order() -> None:

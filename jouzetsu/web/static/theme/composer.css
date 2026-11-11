@@ -88,6 +88,29 @@
     display: none;
 }
 
+.jouzetsu-composer-menu-toggle[data-reasoning-state="on"] {
+    color: var(--jouzetsu-app-key-visual);
+    background: var(--jouzetsu-app-subtle);
+}
+
+.jouzetsu-composer-menu-toggle[data-reasoning-state="off"] {
+    position: relative;
+    color: var(--jouzetsu-app-text-muted);
+}
+
+.jouzetsu-composer-menu-toggle[data-reasoning-state="off"]::after {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 22px;
+    height: 2px;
+    background: currentColor;
+    box-shadow: 0 0 0 1px var(--jouzetsu-app-surface);
+    content: "";
+    transform: translate(-50%, -50%) rotate(-45deg);
+    pointer-events: none;
+}
+
 .jouzetsu-composer-menu-options {
     position: absolute;
     z-index: 4;
@@ -119,6 +142,11 @@
 .jouzetsu-composer-menu-item .jouzetsu-svg-icon {
     width: 18px;
     height: 18px;
+}
+
+.jouzetsu-reasoning-options .jouzetsu-composer-menu-item[aria-pressed="true"] {
+    border-left-color: var(--jouzetsu-app-key-visual);
+    background: var(--jouzetsu-app-subtle);
 }
 
 .jouzetsu-composer-templates {

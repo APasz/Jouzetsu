@@ -32,6 +32,55 @@ def json_round_trip(raw: object) -> object:
     return cast(object, json.loads(json.dumps(raw, allow_nan=False)))
 
 
+def test_reasoning_settings_and_attribution_round_trip() -> None:
+    backend = configured_backend()
+    model = replace(
+        backend.models[0],
+        reasoning_default="on",
+        reasoning_options_override=("off", "on"),
+    )
+    backend = replace(backend, models=(model, *backend.models[1:]))
+    configuration = BackendConfiguration((backend,), backend.id)
+    assert (
+        decode_backends(json_round_trip(encode_backends(configuration)))
+        == configuration
+    )
+    unavailable = replace(
+        model, reasoning_default=None, reasoning_default_unavailable=True
+    )
+    fallback_config = replace(
+        configuration,
+        backends=(replace(backend, models=(unavailable, *backend.models[1:])),),
+    )
+    assert (
+        decode_backends(json_round_trip(encode_backends(fallback_config)))
+        == fallback_config
+    )
+    inference = ChatInferenceSettings(
+        backend.id,
+        {backend.id: GenerationProfile(model.descriptor.key, reasoning="off")},
+    )
+    assert decode_inference(json_round_trip(encode_inference(inference))) == inference
+    attribution = GenerationAttribution(
+        ModelRef(backend.id, model.descriptor.key), "Backend", "Model", reasoning="off"
+    )
+    assert (
+        decode_attribution(json_round_trip(encode_attribution(attribution)))
+        == attribution
+    )
+
+
+def test_attribution_rejects_invalid_reasoning_level() -> None:
+    backend = configured_backend()
+    attribution = GenerationAttribution(
+        ModelRef(backend.id, "model"), "Backend", "Model"
+    )
+    raw = encode_attribution(attribution)
+    raw["reasoning"] = "invalid"
+    with pytest.raises(JsonValidationError, match="attribution.reasoning"):
+        decode_attribution(raw)
+
+
 def configured_backend() -> BackendConfig:
     descriptor = ModelDescriptor(
         key="publisher/model",

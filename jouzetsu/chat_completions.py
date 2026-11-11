@@ -26,12 +26,14 @@ from .backend_protocol import (
 from .image_storage import ImageStorage
 from .models import Role
 from .runtime import (
+    REASONING_OPTIONS,
     ChatStreamEvent,
     FirstToken,
     GenerationMetrics,
     ModelReady,
     PredictionComplete,
     PredictionFragment,
+    ReasoningOption,
 )
 
 CONNECT_TIMEOUT: Final[float] = 10.0
@@ -185,6 +187,7 @@ async def completion_events(
     completed = False
     ready_emitted = False
     reported_model: str | None = None
+    reported_reasoning: ReasoningOption | None = None
     async for data in iter_sse_data(response.content.iter_chunked(4096)):
         if data == "[DONE]":
             completed = True
@@ -196,6 +199,12 @@ async def completion_events(
         if "error" in chunk:
             raise protocol_error("The backend reported a streaming error.")
         model = chunk.get("model")
+        level = chunk.get("reasoning_effort")
+        if level is not None:
+            if level == "none":
+                reported_reasoning = "off"
+            elif level in REASONING_OPTIONS:
+                reported_reasoning = level
         if model is not None:
             if (
                 not isinstance(model, str)
@@ -299,12 +308,17 @@ async def completion_events(
             if first_token_at is not None
             else None,
             stop_reason=stop_reason,
+            reasoning_level=reported_reasoning,
         )
     )
 
 
 def _encode_request(
-    request: GenerationRequest, ready: ModelReady, images: ImageStorage | None
+    request: GenerationRequest,
+    ready: ModelReady,
+    images: ImageStorage | None,
+    *,
+    native: bool = False,
 ) -> bytes:
     """Prepare potentially large prompts and image payloads off the event loop."""
     payload: dict[str, object] = {
@@ -314,6 +328,15 @@ def _encode_request(
         "stream": True,
         "stream_options": {"include_usage": True},
     }
+    if request.reasoning is not None and not native:
+        raise BackendError(
+            BackendErrorCategory.INCOMPATIBLE,
+            "Reasoning controls are unavailable for this backend.",
+        )
+    if request.reasoning is not None:
+        payload["reasoning_effort"] = {"off": "none", "on": "medium"}.get(
+            request.reasoning, request.reasoning
+        )
     try:
         return json.dumps(
             payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")
@@ -384,7 +407,9 @@ class ChatCompletionsTransport:
         self, request: GenerationRequest, ready: ModelReady, *, native: bool = False
     ) -> AsyncGenerator[ChatStreamEvent]:
         try:
-            payload = await run_in_worker(_encode_request, request, ready, self.images)
+            payload = await run_in_worker(
+                _encode_request, request, ready, self.images, native=native
+            )
             wire_model = ready.instance_id or request.model.model_id
             session = await self.session()
             started = asyncio.get_running_loop().time()

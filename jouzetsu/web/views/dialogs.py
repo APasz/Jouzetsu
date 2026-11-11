@@ -151,6 +151,21 @@ def render_message_details_content(message: Message | None = None) -> HTML:
             cls="jouzetsu-message-detail-row",
         ),
         model_detail,
+        Div(
+            Span("Reasoning level", cls="jouzetsu-message-detail-label"),
+            Pre(
+                "\n".join(
+                    item.reasoning.title() if item.reasoning else "Not recorded"
+                    for item in message.attributions
+                )
+                or "Not recorded",
+                cls="jouzetsu-message-detail-value",
+            ),
+            cls="jouzetsu-message-detail-row",
+            data_testid="message-details-reasoning-level",
+        )
+        if message.role == "assistant"
+        else None,
         _message_timestamp_row("Created", message.created_at),
         _message_timestamp_row("Updated", message.updated_at),
         Div(

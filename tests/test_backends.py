@@ -87,6 +87,45 @@ def request(backend: BackendConfig) -> GenerationRequest:
     )
 
 
+@pytest.mark.parametrize(
+    ("selection", "wire_value"),
+    [("off", "none"), ("on", "medium"), ("low", "low"), ("high", "high")],
+)
+def test_lmstudio_reasoning_request_mapping(selection: str, wire_value: str) -> None:
+    backend = config("http://localhost/v1", native=True)
+    generation = replace(
+        request(backend), reasoning=cast(Literal["off", "on", "low", "high"], selection)
+    )
+    ready = ModelReady("catalog-model", "catalog-model", 0)
+    native_payload = json.loads(_encode_request(generation, ready, None, native=True))
+    assert native_payload["reasoning_effort"] == wire_value
+    with pytest.raises(BackendError, match="Reasoning controls are unavailable"):
+        _encode_request(generation, ready, None)
+
+
+def test_reported_reasoning_level_is_retained() -> None:
+    async def exercise() -> None:
+        async def handler(req: web.Request) -> web.Response:
+            payload = chunk("reply")
+            payload["reasoning_effort"] = "high"
+            return web.Response(
+                text=event(payload) + "data: [DONE]\n\n",
+                content_type="text/event-stream",
+            )
+
+        async with server(handler) as url:
+            backend = config(url)
+            adapter = ChatCompletionsBackend(backend)
+            events = [event async for event in adapter.stream(request(backend))]
+            completion = next(
+                event for event in events if isinstance(event, PredictionComplete)
+            )
+            assert completion.metrics.reasoning_level == "high"
+            await adapter.close()
+
+    asyncio.run(exercise())
+
+
 def event(payload: object) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\r\n\r\n"
 
@@ -565,6 +604,8 @@ def test_slow_request_encoding_leaves_the_event_loop_available() -> None:
                 request: GenerationRequest,
                 ready: ModelReady,
                 images: ImageStorage | None,
+                *,
+                native: bool = False,
             ) -> bytes:
                 entered.set()
                 assert release.wait(5)

@@ -22,6 +22,7 @@ type IconName = Literal[
     "fork",
     "image",
     "lock",
+    "lightbulb",
     "menu",
     "merge",
     "minus",

@@ -11,11 +11,13 @@ from typing import Protocol, cast
 from .backend_models import BackendId, ModelRef
 from .models import ImageAttachment, Role
 from .runtime import (
+    REASONING_OPTIONS,
     ChatStreamEvent,
     ModelCapabilities,
     ModelDescriptor,
     ModelLoadProgress,
     ModelReady,
+    ReasoningOption,
 )
 from .sampling import (
     DEFAULT_SAMPLING,
@@ -97,8 +99,11 @@ class GenerationRequest:
     capabilities: ModelCapabilities
     parameter_support: ParameterSupport
     parameters: SamplingParameters = DEFAULT_SAMPLING
+    reasoning: ReasoningOption | None = None
 
     def __post_init__(self) -> None:
+        if self.reasoning is not None and self.reasoning not in REASONING_OPTIONS:
+            raise ValueError("unknown reasoning option")
         if not isinstance(cast(object, self.messages), tuple) or not all(
             isinstance(cast(object, message), InferenceMessage)
             for message in self.messages

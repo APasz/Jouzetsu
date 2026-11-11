@@ -100,6 +100,7 @@ const open = (control, activeValue = control.input.value, scroll = true) => {
 
 /** @param {Element} current @param {Element} next */
 export const synchronizeModelPickers = (current, next) => {
+    const restore = [];
     current.querySelectorAll(OPEN_PICKER_SELECTOR).forEach(toggle => {
         const picker = toggle.closest('[data-model-picker]');
         const nextPicker = next.querySelector(`#${CSS.escape(toggle.id)}`)?.closest('[data-model-picker]');
@@ -109,13 +110,14 @@ export const synchronizeModelPickers = (current, next) => {
         const active = control.options.find(option => option.classList.contains('is-active'));
         const scrollTop = control.list.scrollTop;
         open(nextControl, active?.dataset.modelValue, false);
-        window.requestAnimationFrame(() => {
+        restore.push(() => {
             if (nextControl.toggle.isConnected && isOpen(nextControl)) {
                 positionList(nextControl);
                 nextControl.list.scrollTop = scrollTop;
             }
         });
     });
+    return () => restore.forEach(callback => callback());
 };
 
 export class ModelPickerController {

@@ -56,6 +56,7 @@ from ..models import (
     chat_prompt_mode_from_text,
     image_attachments_from_json,
 )
+from ..runtime import REASONING_OPTIONS, ReasoningOption
 from ..sampling import SamplingParameters
 from ..state import AppState
 from .form_data import (
@@ -672,13 +673,37 @@ def _register_chat_routes(context: RouteContext) -> None:
                     chat_id, revision, BackendId(form.required_text("backend_id"))
                 )
                 return None
-            if action in {"model", "sampling"}:
+            if action in {"model", "sampling", "reasoning-level"}:
                 selected = chat.inference.selected_backend_id
                 if selected is None:
                     raise ValueError("select a backend first")
                 profile = chat.inference.profiles[selected]
                 if action == "model":
-                    profile = replace(profile, model_id=form.text("model") or None)
+                    model_id = form.text("model") or None
+                    profile = replace(
+                        profile,
+                        model_id=model_id,
+                        reasoning="model_default"
+                        if model_id != profile.model_id
+                        else profile.reasoning,
+                    )
+                elif action == "reasoning-level":
+                    value = form.required_text("reasoning_level")
+                    backend = context.state.config.backends.backend(selected)
+                    if backend.kind is not BackendKind.LM_STUDIO:
+                        raise ValueError(
+                            "reasoning controls are unavailable for this backend"
+                        )
+                    model = backend.model(profile.model_id or "")
+                    if value not in (
+                        "model_default",
+                        "automatic",
+                        *model.reasoning_options,
+                    ):
+                        raise ValueError(
+                            "reasoning level is not available for this model"
+                        )
+                    profile = replace(profile, reasoning=value)
                 else:
                     profile = replace(profile, parameters=_sampling(form))
                 await runtime.set_profile(chat_id, revision, profile)
@@ -762,6 +787,7 @@ def _register_chat_routes(context: RouteContext) -> None:
                 "prompt/reset",
                 "british-spellings",
                 "reasoning",
+                "reasoning-level",
             )
         ),
     ):
@@ -1241,6 +1267,49 @@ def _register_backend_routes(context: RouteContext) -> None:
                 candidate = backend.set_model_alias(
                     form.required_text("model_id"), form.text("alias").strip()
                 )
+                if form.has("reasoning_default"):
+                    if backend.kind is not BackendKind.LM_STUDIO:
+                        raise ValueError(
+                            "reasoning controls are unavailable for this backend"
+                        )
+                    model = candidate.model(form.required_text("model_id"))
+                    options = (
+                        tuple(
+                            option
+                            for option in REASONING_OPTIONS
+                            if form.flag(f"reasoning_option_{option}")
+                        )
+                        if form.has("reasoning_override")
+                        else model.reasoning_options_override
+                    )
+                    default = form.text("reasoning_default")
+                    available = (
+                        options or model.descriptor.capabilities.reasoning_options
+                    )
+                    default_unavailable = False
+                    if default and default not in available:
+                        if default != model.reasoning_default:
+                            raise ValueError(
+                                "reasoning default is not available for this model"
+                            )
+                        if options != model.reasoning_options_override:
+                            default = ""
+                            default_unavailable = True
+                    updated = replace(
+                        model,
+                        reasoning_default=cast(ReasoningOption, default)
+                        if default
+                        else None,
+                        reasoning_options_override=options,
+                        reasoning_default_unavailable=default_unavailable,
+                    )
+                    candidate = replace(
+                        candidate,
+                        models=tuple(
+                            updated if item is model else item
+                            for item in candidate.models
+                        ),
+                    )
             elif action == "register-model":
                 model_id = form.required_text("model_id").strip()
                 candidate = backend.register_model(

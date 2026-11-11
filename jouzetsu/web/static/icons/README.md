@@ -23,6 +23,7 @@ Source files are relative to https://github.com/phosphor-icons/core/tree/2b75f3a
 | image | assets/regular/image.svg | `642a0575f7b5a7ea2f5fefa6f27a5dc57683911845b85213a7e33652c2a3179d` |
 | menu | assets/regular/list.svg | `fb1851842c74b40a3f42ce3d6ae0e67ede556b624218e79c0f4ead7d9ceec51f` |
 | lock | assets/regular/lock.svg | `7f9e0acc09a417a48328cd5b74e95de98989c5af1710ca5da705179da75c72d9` |
+| lightbulb | assets/regular/lightbulb.svg | `b61e4d9685a1d74e579a7dbbe0d5222bdf8dcdcaf5b67825a17ff45363e4fadd` |
 | merge | assets/regular/arrows-merge.svg | `539b016c43d95d693548f3a50d41b31e5602209df9881d688092ee85cc6624ab` |
 | more | assets/regular/dots-three.svg | `ca4e748007101155641ec3041cd129bb03a8030d0eed16e313b9dd75e6beac77` |
 | minus | assets/regular/minus.svg | `5a068d1cfd707fde5ddb0ce0623958123b6a5afba98401318983aeb0fdad6382` |

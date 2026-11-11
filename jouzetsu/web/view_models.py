@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from ..backend_models import GenerationProfile
+from ..backend_models import BackendKind, GenerationProfile
 from ..backend_protocol import BackendReachability
 from ..runtime import RuntimePhase
 from ..state import AppState
@@ -19,6 +19,22 @@ def chat_view(state: AppState, chat_id: str) -> ChatView:
     job = state.inference.job(chat_id)
     status = session.runtime_status
     selected = session.chat.inference.selected_backend_id
+    profile = session.chat.inference.selected_profile
+    backend = next(
+        (item for item in state.config.backends.backends if item.id == selected), None
+    )
+    model = (
+        next(
+            (
+                item
+                for item in backend.models
+                if profile and item.descriptor.key == profile.model_id
+            ),
+            None,
+        )
+        if backend and backend.kind is BackendKind.LM_STUDIO
+        else None
+    )
     if not session.is_generating and session.latest_error is None:
         if selected is None or session.chat.inference.selected_model is None:
             status = replace(
@@ -27,28 +43,20 @@ def chat_view(state: AppState, chat_id: str) -> ChatView:
                 detail="Select a backend" if selected is None else "Select a model",
             )
         else:
-            configured = next(
-                (
-                    backend
-                    for backend in state.config.backends.backends
-                    if backend.id == selected
-                ),
-                None,
-            )
-            if configured is None:
+            if backend is None:
                 status = replace(
                     status,
                     phase=RuntimePhase.ERROR,
                     detail="Selected backend was removed",
                 )
             elif (
-                not configured.enabled
+                not backend.enabled
                 or state.inference.health(selected).state is BackendReachability.OFFLINE
             ):
                 status = replace(
                     status,
                     phase=RuntimePhase.OFFLINE,
-                    detail=configured.name + " unavailable",
+                    detail=backend.name + " unavailable",
                 )
     return ChatView(
         chat=session.chat,
@@ -63,6 +71,19 @@ def chat_view(state: AppState, chat_id: str) -> ChatView:
         latest_error=session.latest_error,
         save_failed=job is not None and job.save_error is not None,
         draft_write_error=state.persistence.chat_write_error is not None,
+        reasoning_options=model.reasoning_options if model else (),
+        reasoning_default=model.reasoning_default if model else None,
+        reasoning_unavailable=bool(
+            model
+            and profile
+            and (
+                not model.resolve_reasoning(profile.reasoning)[1]
+                or (
+                    profile.reasoning == "model_default"
+                    and model.reasoning_default_unavailable
+                )
+            )
+        ),
     )
 
 

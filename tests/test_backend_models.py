@@ -228,6 +228,32 @@ def test_discovery_retains_omitted_models_manual_registration_and_aliases() -> N
         refreshed.merge_discovery((discovered, discovered))
 
 
+def test_discovery_resets_disappearing_reasoning_default_permanently() -> None:
+    descriptor = ModelDescriptor(
+        "model-a",
+        "Model",
+        capabilities=ModelCapabilities(reasoning=True, reasoning_options=("off", "on")),
+    )
+    original = backend().merge_discovery((descriptor,))
+    configured = replace(original.model("model-a"), reasoning_default="on")
+    original = replace(original, models=(configured,))
+    unknown = original.merge_discovery(
+        (replace(descriptor, capabilities=ModelCapabilities()),)
+    )
+    assert unknown.model("model-a").reasoning_default == "on"
+    assert not unknown.model("model-a").reasoning_default_unavailable
+    changed = replace(
+        descriptor,
+        capabilities=ModelCapabilities(reasoning=True, reasoning_options=("off",)),
+    )
+    refreshed = original.merge_discovery((changed,))
+    assert refreshed.model("model-a").reasoning_default is None
+    assert refreshed.model("model-a").reasoning_default_unavailable
+    restored = refreshed.merge_discovery((descriptor,))
+    assert restored.model("model-a").reasoning_default is None
+    assert restored.model("model-a").reasoning_default_unavailable
+
+
 def test_unknown_capabilities_are_distinct_and_never_imply_vision_support() -> None:
     manual = backend().register_model("manual").model("manual").descriptor
     unsupported = replace(manual, capabilities=ModelCapabilities(vision=False))

@@ -15,7 +15,7 @@ from ...backend_protocol import BackendError
 from ...config import GenerationSettings, MessageActionStyle, StarterPrompt
 from ...markdown import render_markdown
 from ...models import Chat, Message
-from ...runtime import GenerationMetrics, RuntimePhase, RuntimeStatus
+from ...runtime import GenerationMetrics, ReasoningOption, RuntimePhase, RuntimeStatus
 from ...sampling import SamplingParameters
 from ..html import (
     H1,
@@ -79,6 +79,9 @@ class ChatView:
     latest_error: BackendError | None = None
     save_failed: bool = False
     draft_write_error: bool = False
+    reasoning_options: tuple[ReasoningOption, ...] = ()
+    reasoning_default: ReasoningOption | None = None
+    reasoning_unavailable: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1287,6 +1290,22 @@ def render_composer(
         )
         if view.generation_block_reason and not editing
         else None,
+        P(
+            "Previous reasoning choice is unavailable; using Automatic.",
+            role="status",
+            cls="jouzetsu-image-model-notice",
+            data_testid="reasoning-unavailable",
+        )
+        if view.reasoning_unavailable
+        else None,
+        Form(
+            action="/chat/reasoning-level",
+            method="post",
+            id="chat-reasoning-form",
+            data_chat_mutation="true",
+        )
+        if view.reasoning_options and not editing
+        else None,
         Form(
             Div(
                 _render_composer_menu(
@@ -1295,6 +1314,9 @@ def render_composer(
                     starter_prompts=view.starter_prompts,
                 )
                 if not editing
+                else None,
+                _render_reasoning_selector(view)
+                if view.reasoning_options and not editing
                 else None,
                 message_input,
                 Button(
@@ -1329,6 +1351,62 @@ def render_composer(
         ),
         footer,
         cls="jouzetsu-composer",
+    )
+
+
+def _render_reasoning_selector(view: ChatView) -> HTML:
+    profile = view.chat.inference.selected_profile
+    selected = profile.reasoning if profile else "model_default"
+    available = ("model_default", "automatic", *view.reasoning_options)
+    invalid = view.reasoning_unavailable or selected not in available
+    if invalid:
+        selected = "automatic"
+    effective = view.reasoning_default if selected == "model_default" else selected
+    state: Literal["automatic", "off", "on"] = (
+        "automatic"
+        if effective in (None, "automatic")
+        else "off"
+        if effective == "off"
+        else "on"
+    )
+    label = (
+        f"Model default ({effective.title()})"
+        if selected == "model_default" and effective is not None
+        else "Model default (Automatic)"
+        if selected == "model_default"
+        else selected.title()
+    )
+    return Details(
+        Summary(
+            _icon("lightbulb"),
+            cls="jouzetsu-button jouzetsu-composer-menu-toggle",
+            aria_label=f"Reasoning level: {label}",
+            title=f"Reasoning level: {label}",
+            data_reasoning_state=state,
+            data_testid="reasoning-level-toggle",
+        ),
+        Div(
+            *(
+                Button(
+                    label,
+                    type="submit",
+                    name="reasoning_level",
+                    value=value,
+                    form="chat-reasoning-form",
+                    disabled=view.generating,
+                    cls="jouzetsu-button jouzetsu-composer-menu-item",
+                    aria_pressed="true" if value == selected else "false",
+                )
+                for value, label in (
+                    ("model_default", "Model default"),
+                    ("automatic", "Automatic"),
+                    *((option, option.title()) for option in view.reasoning_options),
+                )
+            ),
+            cls="jouzetsu-composer-menu-options jouzetsu-reasoning-options",
+        ),
+        cls="jouzetsu-composer-menu",
+        data_reasoning_menu="true",
     )
 
 

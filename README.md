@@ -121,6 +121,14 @@ have no native load/unload controls. Unknown vision support blocks image inferen
 unsupported/unknown sampling parameters remain stored and are marked inactive.
 No credentials or arbitrary generation parameters are exposed.
 
+LM Studio models with known reasoning options show a lightbulb beside the
+composer's **+** button. Choose the model default, Automatic, or an advertised
+option; the selection persists in the chat until changed or the model changes.
+Set per-model defaults in **Global settings → Backends**. If discovery does not
+provide options, configure them on the model there. Automatic leaves the choice
+to LM Studio. Message details records the requested level or a level reported by
+the server. LM Studio's Chat Completions handling can vary by model and version.
+
 **Access & Logs** is available from localhost. Set an approval phrase there and
 enter it in each new remote browser. The phrase is the sole enrollment path;
 localhost administrators can revoke devices but cannot directly approve them.

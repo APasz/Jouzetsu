@@ -26,6 +26,7 @@ from .backend_models import (
     BackendConfig,
     BackendConfiguration,
     BackendId,
+    BackendKind,
     ChatInferenceSettings,
     GenerationAttribution,
     GenerationProfile,
@@ -52,6 +53,7 @@ from .runtime import (
     ModelReady,
     PredictionComplete,
     PredictionFragment,
+    ReasoningOption,
     RuntimePhase,
     RuntimeStatus,
 )
@@ -129,6 +131,7 @@ class GenerationJob:
     save_error: Exception | None = None
     cancelled: bool = False
     manually_registered: bool = False
+    reported_reasoning: ReasoningOption | None = None
 
     @property
     def text(self) -> str:
@@ -483,6 +486,8 @@ class InferenceRuntime:
                 candidate.draft_images = ()
                 candidate.draft_revision += 1
             candidate.revision += 1
+            if settings := self._reasoning_fallback(candidate):
+                candidate.inference = settings
             if len(candidate.messages) == 1:
                 candidate.set_auto_title_from_first_message(content)
             candidate.touch()
@@ -509,9 +514,38 @@ class InferenceRuntime:
         async with self._lock(chat_id):
             chat = self._editable(chat_id, expected_revision)
             async with self._config_lock:
+                if settings := self._reasoning_fallback(chat):
+                    candidate = chat.copy()
+                    candidate.inference = settings
+                    candidate.revision += 1
+                    candidate.touch()
+                    await self._commit(chat, candidate)
                 job = self._accept(chat, mode)
             await self._notify(ChangeKind.STATUS, chat_id)
             return job
+
+    def _reasoning_fallback(self, chat: Chat) -> ChatInferenceSettings | None:
+        """Replace an unavailable selection with Automatic when generating."""
+        profile = chat.inference.selected_profile
+        ref = chat.inference.selected_model
+        if profile is None or ref is None or profile.reasoning == "automatic":
+            return None
+        try:
+            backend = self.configuration.backend(ref.backend_id)
+            if backend.kind is not BackendKind.LM_STUDIO:
+                return None
+            model = backend.model(ref.model_id)
+        except KeyError:
+            return None
+        if (
+            not model.reasoning_options
+            and model.descriptor.capabilities.reasoning is not False
+        ):
+            return None
+        _, available = model.resolve_reasoning(profile.reasoning)
+        if available:
+            return None
+        return chat.inference.set_profile(replace(profile, reasoning="automatic"))
 
     def _accept(self, chat: Chat, mode: GenerationMode) -> GenerationJob | None:
         if self._closing:
@@ -588,6 +622,9 @@ class InferenceRuntime:
                 registered.descriptor.capabilities,
                 config.parameter_support,
                 profile.parameters,
+                registered.resolve_reasoning(profile.reasoning)[0]
+                if config.kind is BackendKind.LM_STUDIO
+                else None,
             )
             job = GenerationJob(
                 uuid4().hex,
@@ -755,6 +792,7 @@ class InferenceRuntime:
                         self._update_preview(job)
                     elif isinstance(event, PredictionComplete):
                         completed = True
+                        job.reported_reasoning = event.metrics.reasoning_level
                         session.runtime_status = replace(
                             session.runtime_status, metrics=event.metrics
                         )
@@ -891,6 +929,7 @@ class InferenceRuntime:
                 if ready is None or ready.model_key == job.request.model.model_id
                 else ready.model_name,
                 ready.instance_id if ready else None,
+                job.reported_reasoning or job.request.reasoning or "automatic",
             )
             response = replace(
                 job.preview,

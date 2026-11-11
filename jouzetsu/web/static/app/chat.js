@@ -27,6 +27,7 @@ const stableMarkup = (element) => {
     clone.classList.remove('is-resized');
     clone.removeAttribute('data-composer-requested-height');
     clone.removeAttribute('data-composer-minimum-height');
+    if (clone.matches('[data-reasoning-menu]')) clone.removeAttribute('open');
     return clone.outerHTML;
 };
 
@@ -118,13 +119,14 @@ const reconcileSurface = (current, next) => {
         preserved.push([target, form]);
     }
     preserved.forEach(([target, form]) => target.replaceWith(form));
-    synchronizeModelPickers(current, next);
+    const restoreModelPickers = synchronizeModelPickers(current, next);
     current.replaceWith(next);
     const restored = focus?.isConnected ? focus : Array.from(next.querySelectorAll('form')).find((form) => formKey(form) === focusForm)?.elements.namedItem(focusName);
     if (restored instanceof HTMLElement) {
         restored.focus({preventScroll: true});
         if (selection && typeof restored.setSelectionRange === 'function') restored.setSelectionRange(...selection);
     }
+    restoreModelPickers();
     return restored instanceof HTMLElement ? restored : true;
 };
 

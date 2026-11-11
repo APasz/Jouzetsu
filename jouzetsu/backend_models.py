@@ -8,11 +8,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
-from typing import NewType, cast
+from typing import Literal, NewType, cast
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from .runtime import ModelDescriptor
+from .runtime import REASONING_OPTIONS, ModelDescriptor, ReasoningOption
 from .sampling import (
     CHAT_COMPLETIONS_PARAMETERS,
     DEFAULT_SAMPLING,
@@ -21,6 +21,7 @@ from .sampling import (
 )
 
 BackendId = NewType("BackendId", str)
+type ReasoningSelection = Literal["model_default", "automatic"] | ReasoningOption
 _BACKEND_ID_PATTERN = re.compile(r"be_[0-9a-f]{32}")
 
 
@@ -73,12 +74,15 @@ class GenerationProfile:
 
     model_id: str | None = None
     parameters: SamplingParameters = DEFAULT_SAMPLING
+    reasoning: ReasoningSelection = "model_default"
 
     def __post_init__(self) -> None:
         if self.model_id is not None:
             validate_model_id(self.model_id)
         if not isinstance(cast(object, self.parameters), SamplingParameters):
             raise TypeError("profile parameters must be SamplingParameters")
+        if self.reasoning not in ("model_default", "automatic", *REASONING_OPTIONS):
+            raise ValueError("unknown reasoning selection")
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,8 +106,25 @@ class RegisteredModel:
     descriptor: ModelDescriptor
     alias: str = ""
     manually_registered: bool = False
+    reasoning_default: ReasoningOption | None = None
+    reasoning_options_override: tuple[ReasoningOption, ...] = ()
+    reasoning_default_unavailable: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.reasoning_default_unavailable) is not bool:
+            raise TypeError("reasoning default unavailable must be a boolean")
+        if self.reasoning_default_unavailable and self.reasoning_default is not None:
+            raise ValueError("an unavailable reasoning default must use Automatic")
+        if (
+            self.reasoning_default is not None
+            and self.reasoning_default not in REASONING_OPTIONS
+        ):
+            raise ValueError("unknown model reasoning default")
+        if not isinstance(cast(object, self.reasoning_options_override), tuple) or any(
+            option not in REASONING_OPTIONS
+            for option in self.reasoning_options_override
+        ):
+            raise ValueError("invalid reasoning options override")
         if not isinstance(cast(object, self.descriptor), ModelDescriptor):
             raise TypeError("registered metadata must be a ModelDescriptor")
         validate_model_id(self.descriptor.key)
@@ -137,6 +158,28 @@ class RegisteredModel:
     @classmethod
     def discovered(cls, descriptor: ModelDescriptor) -> RegisteredModel:
         return cls(replace(descriptor, loaded_instance_ids=(), loaded_instances=()))
+
+    @property
+    def reasoning_options(self) -> tuple[ReasoningOption, ...]:
+        return (
+            self.reasoning_options_override
+            or self.descriptor.capabilities.reasoning_options
+        )
+
+    def resolve_reasoning(
+        self, selection: ReasoningSelection
+    ) -> tuple[ReasoningOption | None, bool]:
+        """Return the request option and whether the selection remains available."""
+        chosen = (
+            self.reasoning_default
+            if selection == "model_default"
+            else None
+            if selection == "automatic"
+            else selection
+        )
+        if chosen is None:
+            return None, True
+        return (chosen, True) if chosen in self.reasoning_options else (None, False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,6 +313,18 @@ class BackendConfig(BackendIdentity):
                 if previous is not None
                 else discovered
             )
+            model = models[descriptor.key]
+            if (
+                model.reasoning_default is not None
+                and model.reasoning_default not in model.reasoning_options
+                and (
+                    model.descriptor.capabilities.reasoning is False
+                    or model.descriptor.capabilities.reasoning_options
+                )
+            ):
+                models[descriptor.key] = replace(
+                    model, reasoning_default=None, reasoning_default_unavailable=True
+                )
         updated = tuple(models.values())
         return self if updated == self.models else replace(self, models=updated)
 
@@ -411,6 +466,7 @@ class ChatInferenceSettings:
                 if previous is not None
                 else defaults
             )
+        profiles[backend_id] = replace(profiles[backend_id], reasoning="model_default")
         return ChatInferenceSettings(backend_id, profiles)
 
     def set_profile(self, profile: GenerationProfile) -> ChatInferenceSettings:
@@ -434,9 +490,15 @@ class GenerationAttribution:
     backend_name: str
     model_name: str
     instance_id: str | None = None
+    reasoning: ReasoningOption | Literal["automatic"] | None = None
 
     def __post_init__(self) -> None:
         if not self.backend_name.strip() or not self.model_name.strip():
             raise ValueError("generation attribution labels cannot be blank")
         if self.instance_id is not None:
             validate_model_id(self.instance_id)
+        if self.reasoning is not None and self.reasoning not in (
+            "automatic",
+            *REASONING_OPTIONS,
+        ):
+            raise ValueError("unknown attributed reasoning option")

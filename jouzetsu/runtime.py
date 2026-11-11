@@ -146,6 +146,7 @@ class GenerationMetrics:
     tokens_per_second: float | None = None
     time_to_first_token_seconds: float | None = None
     stop_reason: str | None = None
+    reasoning_level: ReasoningOption | None = None
 
 
 @dataclass(frozen=True, slots=True)

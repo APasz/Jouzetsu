@@ -1,6 +1,6 @@
 import { CharacterEditorController } from './character-editor.js';
 import { ChatController } from './chat.js';
-import { ComposerController, currentComposerDraft } from './composer.js';
+import { COMPOSER_MENU_SELECTOR, ComposerController, currentComposerDraft } from './composer.js';
 import { DeviceActivityController } from './device-activity.js';
 import { DraftController } from './drafts.js';
 import { byId, localizeMessageUpdatedTimes, rememberChat } from './dom.js';
@@ -123,6 +123,7 @@ export const startApplication = () => {
     document.addEventListener('click', (event) => {
         const target = event.target instanceof Element ? event.target : null;
         if (!target) return;
+        composer.handleMenuClick(target);
         if (modelPickers.handleClick(target)) {
             event.preventDefault();
             return;
@@ -132,7 +133,6 @@ export const startApplication = () => {
             togglePasswordVisibility(passwordToggle);
             return;
         }
-        composer.handleMenuClick(target);
         if (images.handleClick(target)) {
             event.preventDefault();
             return;
@@ -334,7 +334,7 @@ export const startApplication = () => {
     document.addEventListener('touchcancel', () => messages.handleTouchCancel());
     document.addEventListener('touchend', (event) => messages.handleTouchEnd(event), { passive: false });
     document.addEventListener('toggle', (event) => {
-        if (event.target instanceof HTMLDetailsElement && event.target.matches('[data-generation-reasoning], [data-composer-menu]')) {
+        if (event.target instanceof HTMLDetailsElement && event.target.matches(`[data-generation-reasoning], ${COMPOSER_MENU_SELECTOR}`)) {
             composer.scheduleViewportReconciliation();
         }
     }, true);

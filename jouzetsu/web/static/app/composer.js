@@ -7,6 +7,7 @@ const KEYBOARD_BOTTOM_CLEARANCE_PX = 12;
 const COMPOSER_STATUS_PROGRESS_SELECTOR = '[data-composer-status-progress]';
 const COMPOSER_STATUS_PROGRESS_FILL_SELECTOR = '[data-composer-status-progress-fill]';
 const COMPOSER_STATUS_LOAD_PROGRESS_PROPERTY = '--jouzetsu-composer-status-load-progress';
+export const COMPOSER_MENU_SELECTOR = '[data-composer-menu], [data-reasoning-menu]';
 
 const formatElapsed = (seconds) => `${Math.max(0, seconds).toFixed(1)}s`;
 
@@ -64,12 +65,13 @@ export class ComposerController {
             const requestedHeight = Number.parseFloat(composer.dataset.composerRequestedHeight || '');
             if (Number.isFinite(requestedHeight)) this.#applyHeight(composer, requestedHeight);
         }
-        const menu = composer.querySelector('[data-composer-menu]');
-        const options = menu?.querySelector('.jouzetsu-composer-menu-options');
-        if (menu instanceof HTMLDetailsElement && menu.open && options instanceof HTMLElement) {
-            const availableHeight = options.getBoundingClientRect().bottom - (window.visualViewport?.offsetTop || 0) - 8;
-            menu.style.setProperty('--jouzetsu-composer-menu-max-height', `${Math.max(0, Math.floor(availableHeight))}px`);
-        }
+        composer.querySelectorAll(COMPOSER_MENU_SELECTOR).forEach((menu) => {
+            const options = menu.querySelector('.jouzetsu-composer-menu-options');
+            if (menu instanceof HTMLDetailsElement && menu.open && options instanceof HTMLElement) {
+                const availableHeight = options.getBoundingClientRect().bottom - (window.visualViewport?.offsetTop || 0) - 8;
+                menu.style.setProperty('--jouzetsu-composer-menu-max-height', `${Math.max(0, Math.floor(availableHeight))}px`);
+            }
+        });
     }
 
     scheduleViewportReconciliation() {
@@ -110,13 +112,14 @@ export class ComposerController {
     }
 
     handleMenuClick(target) {
-        const menu = document.querySelector('[data-composer-menu]');
-        if (!(menu instanceof HTMLDetailsElement)) return;
-        if (!menu.contains(target) || target.closest('[data-image-picker], [data-send-only], [data-suggestion]')) menu.open = false;
+        document.querySelectorAll(COMPOSER_MENU_SELECTOR).forEach((menu) => {
+            if (!(menu instanceof HTMLDetailsElement)) return;
+            if (!menu.contains(target) || target.closest('[data-image-picker], [data-send-only], [data-suggestion], [name="reasoning_level"]')) menu.open = false;
+        });
     }
 
     handleMenuKeyDown(event) {
-        const menu = document.querySelector('[data-composer-menu]');
+        const menu = document.querySelector(`:is(${COMPOSER_MENU_SELECTOR})[open]`);
         if (event.isComposing || event.key !== 'Escape' || !(menu instanceof HTMLDetailsElement) || !menu.open) return false;
         event.preventDefault();
         menu.open = false;
