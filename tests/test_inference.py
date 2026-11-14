@@ -13,6 +13,7 @@ from inference_support import Harness, Plan, backend
 
 from jouzetsu.backend_models import (
     GenerationProfile,
+    LMStudioTransport,
     ModelRef,
 )
 from jouzetsu.backend_protocol import (
@@ -572,6 +573,10 @@ def test_native_loading_unload_protection_and_idle_scope(tmp_path: Path) -> None
         job = await h.runtime.generate(chat.id, chat.revision)
         assert job
         await plan.produced.wait()
+        with pytest.raises(ChatBusy):
+            await h.runtime.update_backend(
+                replace(config, lmstudio_transport=LMStudioTransport.RESPONSES)
+            )
         with pytest.raises(ChatBusy):
             await h.runtime.unload_model(ModelRef(config.id, "model"))
         assert adapter.loads == ["model"]

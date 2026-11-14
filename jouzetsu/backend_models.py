@@ -53,7 +53,21 @@ def validate_model_id(model_id: str) -> None:
 
 class BackendKind(str, Enum):
     LM_STUDIO = "lm_studio"
+    OLLAMA = "ollama"
     OPENAI_COMPATIBLE = "openai_compatible"
+
+    @property
+    def supports_reasoning_controls(self) -> bool:
+        return self in (BackendKind.LM_STUDIO, BackendKind.OLLAMA)
+
+    @property
+    def supports_model_management(self) -> bool:
+        return self in (BackendKind.LM_STUDIO, BackendKind.OLLAMA)
+
+
+class LMStudioTransport(str, Enum):
+    CHAT_COMPLETIONS = "chat_completions"
+    RESPONSES = "responses"
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,9 +221,28 @@ class BackendConfig(BackendIdentity):
     parameter_support: ParameterSupport = CHAT_COMPLETIONS_PARAMETERS
     model_management: ModelManagementSettings | None = None
     models: tuple[RegisteredModel, ...] = ()
+    lmstudio_transport: LMStudioTransport = LMStudioTransport.CHAT_COMPLETIONS
+    ollama_idle_unload_minutes: int | None = None
 
     def __post_init__(self) -> None:
         super(BackendConfig, self).__post_init__()
+        if not isinstance(cast(object, self.lmstudio_transport), LMStudioTransport):
+            raise TypeError("LM Studio transport must be an LMStudioTransport")
+        if (
+            self.kind is not BackendKind.LM_STUDIO
+            and self.lmstudio_transport is not LMStudioTransport.CHAT_COMPLETIONS
+        ):
+            raise ValueError("Responses transport is only available for LM Studio")
+        if self.ollama_idle_unload_minutes is not None:
+            if self.kind is not BackendKind.OLLAMA:
+                raise ValueError("Ollama idle unload is only available for Ollama")
+            if (
+                type(self.ollama_idle_unload_minutes) is not int
+                or self.ollama_idle_unload_minutes < 1
+            ):
+                raise ValueError(
+                    "Ollama idle unload minutes must be a positive integer or null"
+                )
         if not isinstance(cast(object, self.base_url), str) or any(
             character.isspace() for character in self.base_url
         ):

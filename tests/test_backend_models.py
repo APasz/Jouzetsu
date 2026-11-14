@@ -13,6 +13,7 @@ from jouzetsu.backend_models import (
     ChatInferenceSettings,
     GenerationAttribution,
     GenerationProfile,
+    LMStudioTransport,
     ModelManagementSettings,
     ModelRef,
     RegisteredModel,
@@ -44,6 +45,22 @@ def test_identity_survives_edits_and_same_endpoint_gets_a_new_identity() -> None
     assert original.id == renamed.id
     assert original.id != recreated.id
     assert ModelRef(original.id, "same") != ModelRef(recreated.id, "same")
+
+
+def test_responses_transport_is_scoped_to_lm_studio() -> None:
+    with pytest.raises(ValueError, match="only available for LM Studio"):
+        replace(backend(), lmstudio_transport=LMStudioTransport.RESPONSES)
+
+
+def test_ollama_idle_unload_requires_positive_minutes_and_ollama() -> None:
+    ollama = BackendConfig.create(
+        BackendKind.OLLAMA, "Ollama", "http://localhost:11434"
+    )
+    for value in (0, -1, True):
+        with pytest.raises(ValueError, match="positive integer"):
+            replace(ollama, ollama_idle_unload_minutes=value)
+    with pytest.raises(ValueError, match="only available for Ollama"):
+        replace(backend(), ollama_idle_unload_minutes=1)
 
 
 @pytest.mark.parametrize(

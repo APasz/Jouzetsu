@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from ...backend_codec import backend_fingerprint
-from ...backend_models import BackendConfig, BackendKind, RegisteredModel
+from ...backend_models import (
+    BackendConfig,
+    BackendKind,
+    LMStudioTransport,
+    RegisteredModel,
+)
 from ...backend_protocol import BackendReachability
 from ...runtime import REASONING_OPTIONS
 from ...state import AppState
@@ -96,6 +101,8 @@ def render_backends(state: AppState) -> HTML:
                         Option(
                             "LM Studio"
                             if kind is BackendKind.LM_STUDIO
+                            else "Ollama"
+                            if kind is BackendKind.OLLAMA
                             else "Chat Completions",
                             value=kind.value,
                         )
@@ -113,6 +120,7 @@ def render_backends(state: AppState) -> HTML:
                     placeholder="http://localhost:1234/v1",
                 ),
             ),
+            Small("For Ollama, use http://127.0.0.1:11434."),
             Button("Add backend", type="submit", cls="jouzetsu-button"),
             action="/settings/backends/new",
             method="post",
@@ -154,6 +162,32 @@ def _backend_editor(state: AppState, backend: BackendConfig) -> HTML:
                     min=1,
                 ),
             ),
+            field(
+                "Chat API",
+                Select(
+                    Option(
+                        "Chat Completions",
+                        value=LMStudioTransport.CHAT_COMPLETIONS.value,
+                        selected=backend.lmstudio_transport
+                        is LMStudioTransport.CHAT_COMPLETIONS,
+                    ),
+                    Option(
+                        "Responses (experimental)",
+                        value=LMStudioTransport.RESPONSES.value,
+                        selected=backend.lmstudio_transport
+                        is LMStudioTransport.RESPONSES,
+                    ),
+                    name="lmstudio_transport",
+                ),
+            )
+            if backend.kind is BackendKind.LM_STUDIO
+            else None,
+            P(
+                "Responses requires LM Studio to confirm truncation is disabled. "
+                "Chat Completions may omit older messages when the context limit is reached."
+            )
+            if backend.kind is BackendKind.LM_STUDIO
+            else None,
             render_model_picker(
                 model_choices(backend, backend.defaults.model_id),
                 backend.defaults.model_id or "",
@@ -180,12 +214,6 @@ def _backend_editor(state: AppState, backend: BackendConfig) -> HTML:
                 )
             ),
             Div(
-                checkbox(
-                    "automatic_loading",
-                    checked=management.automatic_loading,
-                    label="Load selected model automatically",
-                    marker=f"auto-load-{backend.id}",
-                ),
                 field(
                     "Idle unload minutes (blank disables)",
                     Input(
@@ -197,6 +225,21 @@ def _backend_editor(state: AppState, backend: BackendConfig) -> HTML:
                 ),
             )
             if management
+            else Div(
+                field(
+                    "Idle unload minutes (blank disables)",
+                    Input(
+                        name="ollama_idle_unload_minutes",
+                        value=backend.ollama_idle_unload_minutes or "",
+                        type="number",
+                        min=1,
+                    ),
+                ),
+                Small(
+                    "Applies on the next load or generation; Ollama manages the idle timer."
+                ),
+            )
+            if backend.kind is BackendKind.OLLAMA
             else P(
                 "Model loading and unloading are not supported by this backend kind."
             ),
@@ -284,7 +327,7 @@ def _model_editor(
                 name="reasoning_default",
             ),
         )
-        if backend.kind is BackendKind.LM_STUDIO
+        if backend.kind.supports_reasoning_controls
         else None,
         P(
             "The previous reasoning default is unavailable; using Automatic.",
@@ -309,7 +352,7 @@ def _model_editor(
                 for option in REASONING_OPTIONS
             ),
         )
-        if backend.kind is BackendKind.LM_STUDIO
+        if backend.kind.supports_reasoning_controls
         and (
             not model.descriptor.capabilities.reasoning_options
             or model.reasoning_options_override
@@ -322,7 +365,7 @@ def _model_editor(
             if instances
             else "Unloaded"
         )
-        if backend.model_management is not None
+        if backend.kind.supports_model_management
         else None,
         Button("Save model", type="submit", cls="jouzetsu-button"),
         *(
@@ -333,7 +376,7 @@ def _model_editor(
                 cls="jouzetsu-button",
             )
             for label, action in (("Load", "load"), ("Unload", "unload"))
-            if backend.model_management is not None
+            if backend.kind.supports_model_management
         ),
         action=f"/settings/backends/{backend.id}/alias",
         method="post",

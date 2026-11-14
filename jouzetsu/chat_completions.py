@@ -163,13 +163,24 @@ def build_messages(
     return result
 
 
-def _token_count(usage: dict[str, object], name: str) -> int | None:
+def token_count(usage: dict[str, object], name: str) -> int | None:
     value = usage.get(name)
     if value is None:
         return None
     if type(value) is not int or value < 0:
         raise protocol_error()
     return value
+
+
+def reasoning_effort(
+    option: ReasoningOption,
+) -> Literal["none", "low", "medium", "high", "max"]:
+    """Translate LM Studio's binary choices to its OpenAI-compatible vocabulary."""
+    if option == "off":
+        return "none"
+    if option == "on":
+        return "medium"
+    return option
 
 
 async def completion_events(
@@ -239,8 +250,8 @@ async def completion_events(
         raw_usage = chunk.get("usage")
         if raw_usage is not None:
             usage = json_object(raw_usage)
-            output_tokens = _token_count(usage, "completion_tokens")
-            prompt_tokens = _token_count(usage, "prompt_tokens")
+            output_tokens = token_count(usage, "completion_tokens")
+            prompt_tokens = token_count(usage, "prompt_tokens")
         raw_choices = chunk.get("choices")
         if not isinstance(raw_choices, list):
             raise protocol_error()
@@ -334,9 +345,12 @@ def _encode_request(
             "Reasoning controls are unavailable for this backend.",
         )
     if request.reasoning is not None:
-        payload["reasoning_effort"] = {"off": "none", "on": "medium"}.get(
-            request.reasoning, request.reasoning
-        )
+        payload["reasoning_effort"] = reasoning_effort(request.reasoning)
+    return encode_payload(payload)
+
+
+def encode_payload(payload: dict[str, object]) -> bytes:
+    """Encode a prepared request without leaking request content in errors."""
     try:
         return json.dumps(
             payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")
@@ -404,17 +418,33 @@ class ChatCompletionsTransport:
             raise protocol_error() from exc
 
     async def stream(
-        self, request: GenerationRequest, ready: ModelReady, *, native: bool = False
+        self,
+        request: GenerationRequest,
+        ready: ModelReady,
+        *,
+        native: bool = False,
+        responses: bool = False,
     ) -> AsyncGenerator[ChatStreamEvent]:
+        from .responses_transport import (
+            encode_request as encode_responses,
+            response_events,
+        )
+
+        if responses and not native:
+            raise ValueError("Responses transport requires an LM Studio backend")
         try:
-            payload = await run_in_worker(
-                _encode_request, request, ready, self.images, native=native
+            payload = (
+                await run_in_worker(encode_responses, request, ready, self.images)
+                if responses
+                else await run_in_worker(
+                    _encode_request, request, ready, self.images, native=native
+                )
             )
             wire_model = ready.instance_id or request.model.model_id
             session = await self.session()
             started = asyncio.get_running_loop().time()
             async with session.post(
-                f"{self.base_url}/chat/completions",
+                f"{self.base_url}/{'responses' if responses else 'chat/completions'}",
                 data=payload,
                 headers={
                     "Accept": "text/event-stream",
@@ -439,7 +469,15 @@ class ChatCompletionsTransport:
                         "The backend did not return a streaming response."
                     )
                 async with aclosing(
-                    completion_events(
+                    response_events(
+                        response,
+                        ready=ready,
+                        started_at=started,
+                        wire_model=wire_model,
+                        requested_reasoning=request.reasoning,
+                    )
+                    if responses
+                    else completion_events(
                         response,
                         ready=ready,
                         started_at=started,

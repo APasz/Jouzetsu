@@ -18,6 +18,7 @@ from .backend_models import (
     ChatInferenceSettings,
     GenerationAttribution,
     GenerationProfile,
+    LMStudioTransport,
     ModelManagementSettings,
     ModelRef,
     ReasoningSelection,
@@ -250,6 +251,8 @@ def _encode_backend(backend: BackendConfig) -> JsonObject:
         if backend.model_management is not None
         else None,
         "models": [_encode_model(model) for model in backend.models],
+        "lmstudio_transport": backend.lmstudio_transport.value,
+        "ollama_idle_unload_minutes": backend.ollama_idle_unload_minutes,
     }
 
 
@@ -271,8 +274,16 @@ def _decode_backend(decoder: JsonDecoder, raw: object, path: str) -> BackendConf
                 "models",
             }
         ),
+        optional=frozenset({"lmstudio_transport", "ollama_idle_unload_minutes"}),
     )
     backend_id, kind, name = _identity_fields(decoder, values, path)
+    transport = LMStudioTransport(
+        decoder.choice(
+            values.get("lmstudio_transport", LMStudioTransport.CHAT_COMPLETIONS.value),
+            path=f"{path}.lmstudio_transport",
+            choices=tuple(item.value for item in LMStudioTransport),
+        )
+    )
     url = decoder.string(values.get("base_url"), path=f"{path}.base_url", default="")
     enabled = decoder.boolean(
         values.get("enabled"), path=f"{path}.enabled", default=True
@@ -286,6 +297,11 @@ def _decode_backend(decoder: JsonDecoder, raw: object, path: str) -> BackendConf
     )
     management = _decode_management(
         decoder, values.get("model_management"), f"{path}.model_management"
+    )
+    ollama_idle_unload = decoder.optional_integer(
+        values.get("ollama_idle_unload_minutes"),
+        path=f"{path}.ollama_idle_unload_minutes",
+        default=None,
     )
     models = tuple(
         _decode_model(decoder, item, f"{path}.models[{index}]")
@@ -305,6 +321,8 @@ def _decode_backend(decoder: JsonDecoder, raw: object, path: str) -> BackendConf
             support,
             management,
             models,
+            transport,
+            ollama_idle_unload,
         ),
         path=path,
     )

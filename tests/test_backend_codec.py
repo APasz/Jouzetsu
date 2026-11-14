@@ -21,6 +21,7 @@ from jouzetsu.backend_models import (
     ChatInferenceSettings,
     GenerationAttribution,
     GenerationProfile,
+    LMStudioTransport,
     ModelRef,
 )
 from jouzetsu.json_codec import JsonValidationError
@@ -79,6 +80,47 @@ def test_attribution_rejects_invalid_reasoning_level() -> None:
     raw["reasoning"] = "invalid"
     with pytest.raises(JsonValidationError, match="attribution.reasoning"):
         decode_attribution(raw)
+
+
+def test_responses_transport_round_trips_and_old_config_defaults_to_chat_completions() -> (
+    None
+):
+    backend = replace(
+        configured_backend(), lmstudio_transport=LMStudioTransport.RESPONSES
+    )
+    configuration = BackendConfiguration((backend,), backend.id)
+    encoded = encode_backends(configuration)
+    assert decode_backends(json_round_trip(encoded)) == configuration
+    item = cast(list[dict[str, object]], encoded["backends"])[0]
+    del item["lmstudio_transport"]
+    assert (
+        decode_backends(json_round_trip(encoded)).backend(backend.id).lmstudio_transport
+        is LMStudioTransport.CHAT_COMPLETIONS
+    )
+    item["lmstudio_transport"] = "invalid"
+    with pytest.raises(JsonValidationError, match="lmstudio_transport"):
+        decode_backends(json_round_trip(encoded))
+
+
+def test_ollama_idle_unload_round_trip_and_legacy_default() -> None:
+    backend = replace(
+        BackendConfig.create(BackendKind.OLLAMA, "Ollama", "http://localhost:11434"),
+        ollama_idle_unload_minutes=7,
+    )
+    configuration = BackendConfiguration((backend,), backend.id)
+    encoded = encode_backends(configuration)
+    assert decode_backends(json_round_trip(encoded)) == configuration
+    item = cast(list[dict[str, object]], encoded["backends"])[0]
+    del item["ollama_idle_unload_minutes"]
+    assert (
+        decode_backends(json_round_trip(encoded))
+        .backend(backend.id)
+        .ollama_idle_unload_minutes
+        is None
+    )
+    item["ollama_idle_unload_minutes"] = 0
+    with pytest.raises(JsonValidationError, match="idle unload"):
+        decode_backends(json_round_trip(encoded))
 
 
 def configured_backend() -> BackendConfig:

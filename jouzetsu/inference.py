@@ -26,7 +26,6 @@ from .backend_models import (
     BackendConfig,
     BackendConfiguration,
     BackendId,
-    BackendKind,
     ChatInferenceSettings,
     GenerationAttribution,
     GenerationProfile,
@@ -40,6 +39,7 @@ from .backend_protocol import (
     GenerationRequest,
     InferenceBackend,
     InferenceMessage,
+    UnsafeContextError,
 )
 from .backends import create_backend
 from .config import CONTINUE_PROMPT_CONTENT, AppConfig, SpellingReplacement
@@ -532,7 +532,7 @@ class InferenceRuntime:
             return None
         try:
             backend = self.configuration.backend(ref.backend_id)
-            if backend.kind is not BackendKind.LM_STUDIO:
+            if not backend.kind.supports_reasoning_controls:
                 return None
             model = backend.model(ref.model_id)
         except KeyError:
@@ -623,7 +623,7 @@ class InferenceRuntime:
                 config.parameter_support,
                 profile.parameters,
                 registered.resolve_reasoning(profile.reasoning)[0]
-                if config.kind is BackendKind.LM_STUDIO
+                if config.kind.supports_reasoning_controls
                 else None,
             )
             job = GenerationJob(
@@ -819,6 +819,8 @@ class InferenceRuntime:
             job.cancelled = True
         except BackendError as exc:
             job.error = exc
+            if isinstance(exc, UnsafeContextError):
+                job.has_text = False
             if exc.category is BackendErrorCategory.OFFLINE:
                 runtime.health = BackendHealth(
                     BackendReachability.OFFLINE, datetime.now(UTC)
@@ -1091,12 +1093,16 @@ class InferenceRuntime:
                 previous.enabled,
                 previous.concurrency_limit,
                 previous.model_management,
+                previous.lmstudio_transport,
+                previous.ollama_idle_unload_minutes,
             ) != (
                 candidate.kind,
                 candidate.base_url,
                 candidate.enabled,
                 candidate.concurrency_limit,
                 candidate.model_management,
+                candidate.lmstudio_transport,
+                candidate.ollama_idle_unload_minutes,
             )
             runtime = self._backends.get(candidate.id)
             if disruptive and runtime is not None and runtime.busy:

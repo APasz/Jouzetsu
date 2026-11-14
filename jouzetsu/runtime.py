@@ -35,7 +35,7 @@ class ConnectionState(Enum):
     OFFLINE = "offline"
 
 
-ReasoningOption = Literal["off", "on", "low", "medium", "high"]
+ReasoningOption = Literal["off", "on", "low", "medium", "high", "max"]
 ModelFormat = Literal["gguf", "mlx"]
 REASONING_OPTIONS: Final[tuple[ReasoningOption, ...]] = (
     "off",
@@ -43,6 +43,7 @@ REASONING_OPTIONS: Final[tuple[ReasoningOption, ...]] = (
     "low",
     "medium",
     "high",
+    "max",
 )
 MODEL_FORMATS: Final[tuple[ModelFormat, ...]] = ("gguf", "mlx")
 

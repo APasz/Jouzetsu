@@ -32,7 +32,7 @@ from ..backend_models import (
     BackendId,
     BackendKind,
     GenerationProfile,
-    ModelManagementSettings,
+    LMStudioTransport,
     ModelRef,
 )
 from ..backend_protocol import BackendReachability
@@ -690,7 +690,7 @@ def _register_chat_routes(context: RouteContext) -> None:
                 elif action == "reasoning-level":
                     value = form.required_text("reasoning_level")
                     backend = context.state.config.backends.backend(selected)
-                    if backend.kind is not BackendKind.LM_STUDIO:
+                    if not backend.kind.supports_reasoning_controls:
                         raise ValueError(
                             "reasoning controls are unavailable for this backend"
                         )
@@ -1236,14 +1236,15 @@ def _register_backend_routes(context: RouteContext) -> None:
                     await runtime.load_model(model)
                 else:
                     await runtime.unload_model(model)
+                await runtime.refresh_backend(backend_id)
                 return
             runtime.validate_backend_snapshot(
                 backend, form.required_text("backend_fingerprint")
             )
             if action == "save":
                 management = (
-                    ModelManagementSettings(
-                        automatic_loading=form.flag("automatic_loading"),
+                    replace(
+                        backend.model_management,
                         idle_unload_minutes=_optional_integer(
                             form.text("idle_unload_minutes"),
                             field_name="idle unload minutes",
@@ -1258,6 +1259,18 @@ def _register_backend_routes(context: RouteContext) -> None:
                     base_url=form.required_text("base_url").strip(),
                     enabled=form.flag("enabled"),
                     concurrency_limit=int(form.required_text("concurrency_limit")),
+                    lmstudio_transport=LMStudioTransport(
+                        form.text(
+                            "lmstudio_transport",
+                            default=backend.lmstudio_transport.value,
+                        )
+                    ),
+                    ollama_idle_unload_minutes=_optional_integer(
+                        form.text("ollama_idle_unload_minutes"),
+                        field_name="idle unload minutes",
+                    )
+                    if backend.kind is BackendKind.OLLAMA
+                    else None,
                     defaults=GenerationProfile(
                         model_id=form.text("model") or None, parameters=_sampling(form)
                     ),
@@ -1268,7 +1281,7 @@ def _register_backend_routes(context: RouteContext) -> None:
                     form.required_text("model_id"), form.text("alias").strip()
                 )
                 if form.has("reasoning_default"):
-                    if backend.kind is not BackendKind.LM_STUDIO:
+                    if not backend.kind.supports_reasoning_controls:
                         raise ValueError(
                             "reasoning controls are unavailable for this backend"
                         )

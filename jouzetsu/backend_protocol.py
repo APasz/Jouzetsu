@@ -69,6 +69,17 @@ class BackendError(RuntimeError):
         super().__init__(message)
 
 
+class UnsafeContextError(BackendError):
+    """The backend cannot confirm that it preserved the full conversation."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            BackendErrorCategory.INCOMPATIBLE,
+            "LM Studio did not confirm that conversation truncation is disabled. "
+            "Responses generation was blocked to preserve the full history.",
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class InferenceMessage:
     """One ordered prompt entry, including original image references."""

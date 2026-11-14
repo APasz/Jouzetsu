@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from ..backend_models import BackendKind, GenerationProfile
+from ..backend_models import GenerationProfile
 from ..backend_protocol import BackendReachability
 from ..runtime import RuntimePhase
 from ..state import AppState
@@ -32,7 +32,7 @@ def chat_view(state: AppState, chat_id: str) -> ChatView:
             ),
             None,
         )
-        if backend and backend.kind is BackendKind.LM_STUDIO
+        if backend and backend.kind.supports_reasoning_controls
         else None
     )
     if not session.is_generating and session.latest_error is None:

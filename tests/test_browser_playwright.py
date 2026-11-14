@@ -1642,6 +1642,118 @@ def test_reasoning_control_updates_chat_profile(
     )
 
 
+@pytest.mark.parametrize("automatic_loading", [True, False])
+def test_lmstudio_responses_transport_can_be_selected_and_saved(
+    browser_page: Page, browser_server: BrowserServer, automatic_loading: bool
+) -> None:
+    from jouzetsu.backend_models import (
+        BackendKind,
+        LMStudioTransport,
+        ModelManagementSettings,
+    )
+
+    state = browser_server.state
+    configuration = state.config.backends
+    original = configuration.backends[0]
+    backend = replace(
+        original,
+        kind=BackendKind.LM_STUDIO,
+        model_management=ModelManagementSettings(automatic_loading=automatic_loading),
+    )
+    state.config.backends = replace(configuration, backends=(backend,))
+    browser_page.goto("/chats?dialog=global&tab=backends")
+    browser_page.locator(f"#backend-{backend.id} > summary").click()
+    form = browser_page.locator(f'form[action="/settings/backends/{backend.id}/save"]')
+    expect(form.locator('[name="automatic_loading"]')).to_have_count(0)
+    select = form.locator('select[name="lmstudio_transport"]')
+    expect(select).to_have_value("chat_completions")
+    select.select_option("responses")
+    with browser_page.expect_response(
+        f"**/settings/backends/{backend.id}/save"
+    ) as saved:
+        form.get_by_role("button", name="Save backend").click()
+    assert saved.value.ok
+    assert (
+        state.config.backends.backend(backend.id).lmstudio_transport
+        is LMStudioTransport.RESPONSES
+    )
+    assert (
+        ConfigStore.for_paths(state.config.paths)
+        .load()
+        .backends.backend(backend.id)
+        .lmstudio_transport
+        is LMStudioTransport.RESPONSES
+    )
+    saved_backend = (
+        ConfigStore.for_paths(state.config.paths).load().backends.backend(backend.id)
+    )
+    assert saved_backend.model_management is not None
+    assert saved_backend.model_management.automatic_loading is automatic_loading
+
+
+def test_ollama_backend_can_be_added(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    from jouzetsu.backend_models import BackendKind
+
+    browser_page.goto("/chats?dialog=global&tab=backends")
+    form = browser_page.get_by_test_id("add-backend-form")
+    form.locator('[name="name"]').fill("Ollama")
+    form.locator('[name="kind"]').select_option("ollama")
+    form.locator('[name="base_url"]').fill("http://127.0.0.1:11434")
+    with browser_page.expect_navigation():
+        form.get_by_role("button", name="Add backend").click()
+    backend = next(
+        item
+        for item in browser_server.state.config.backends.backends
+        if item.name == "Ollama"
+    )
+    assert backend.kind is BackendKind.OLLAMA
+    assert (
+        ConfigStore.for_paths(browser_server.state.config.paths)
+        .load()
+        .backends.backend(backend.id)
+        .base_url
+        == "http://127.0.0.1:11434"
+    )
+    browser_page.locator(f"#backend-{backend.id} > summary").click()
+    settings = browser_page.locator(
+        f'form[action="/settings/backends/{backend.id}/save"]'
+    )
+    settings.locator('[name="ollama_idle_unload_minutes"]').fill("12")
+    with browser_page.expect_response(
+        f"**/settings/backends/{backend.id}/save"
+    ) as saved:
+        settings.get_by_role("button", name="Save backend").click()
+    assert saved.value.ok
+    assert (
+        ConfigStore.for_paths(browser_server.state.config.paths)
+        .load()
+        .backends.backend(backend.id)
+        .ollama_idle_unload_minutes
+        == 12
+    )
+
+
+def test_ollama_model_management_controls_are_visible(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    from jouzetsu.backend_models import BackendKind
+
+    state = browser_server.state
+    config = state.config.backends
+    backend = replace(config.backends[0], kind=BackendKind.OLLAMA)
+    state.config.backends = replace(config, backends=(backend,))
+    browser_page.goto("/chats?dialog=global&tab=backends")
+    browser_page.locator(f"#backend-{backend.id} > summary").click()
+    model_form = browser_page.locator(
+        f'form[action="/settings/backends/{backend.id}/alias"]'
+    ).first
+    expect(model_form.get_by_text("Load state unknown")).to_be_visible()
+    expect(model_form.get_by_role("button", name="Load", exact=True)).to_be_visible()
+    expect(model_form.get_by_role("button", name="Unload", exact=True)).to_be_visible()
+
+
 def test_unknown_reasoning_capabilities_do_not_erase_model_default(
     browser_page: Page, browser_server: BrowserServer
 ) -> None:

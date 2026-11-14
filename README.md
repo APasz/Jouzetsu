@@ -129,6 +129,29 @@ provide options, configure them on the model there. Automatic leaves the choice
 to LM Studio. Message details records the requested level or a level reported by
 the server. LM Studio's Chat Completions handling can vary by model and version.
 
+LM Studio backends also offer an experimental **Responses** chat API in their
+backend settings. Chat Completions remains the default. Responses sends the full
+Jouzetsu transcript and images on each request with server-side storage disabled;
+edits, forks, regeneration, and continuation continue to use Jouzetsu's saved
+history. It streams reasoning separately and maps Off/On to `none`/`medium`.
+Model and LM Studio versions can differ in how they apply reasoning effort.
+Changing the API is blocked while that backend has queued or active work.
+Responses is blocked unless LM Studio confirms truncation is disabled; it does
+not fall back to Chat Completions. The tested LM Studio version reported automatic
+truncation despite the request, so Responses is blocked on that version. Chat
+Completions also silently omitted older messages when its context limit was reached.
+
+Ollama can be added as a backend using its server URL, usually
+`http://127.0.0.1:11434`. Jouzetsu discovers local models and their advertised
+vision and reasoning controls, streams thinking separately, and disables both
+history truncation and context shifting. Ollama 0.14.0 or later is required for
+these context controls. Ollama automatically loads models as
+needed and manages their lifetime. Jouzetsu can display loaded models and load or
+unload them manually. Set idle unload minutes in the backend settings; a blank
+field keeps models loaded until manually unloaded or Ollama needs the memory.
+The setting applies on the next load or generation. Reasoning values outside Jouzetsu's supported
+Off, On, Low, Medium, High and Max choices are not exposed.
+
 **Access & Logs** is available from localhost. Set an approval phrase there and
 enter it in each new remote browser. The phrase is the sole enrollment path;
 localhost administrators can revoke devices but cannot directly approve them.

@@ -7,7 +7,13 @@ from contextlib import aclosing
 from datetime import UTC, datetime
 from typing import cast, override
 
-from .backend_models import BackendConfig, BackendId, BackendKind, validate_model_id
+from .backend_models import (
+    BackendConfig,
+    BackendId,
+    BackendKind,
+    LMStudioTransport,
+    validate_model_id,
+)
 from .backend_protocol import (
     BackendError,
     BackendErrorCategory,
@@ -108,6 +114,7 @@ class LMStudioBackend(ChatCompletionsBackend):
         self, config: BackendConfig, *, images: ImageStorage | None = None
     ) -> None:
         super().__init__(config, images=images)
+        self._responses: bool = config.lmstudio_transport is LMStudioTransport.RESPONSES
         self._native_root: str = (
             f"{lmstudio_server_root(config.base_url)}/api/v1/models"
         )
@@ -188,7 +195,9 @@ class LMStudioBackend(ChatCompletionsBackend):
                 BackendErrorCategory.INCOMPATIBLE, "The selected model is not loaded."
             )
         async with aclosing(
-            self._transport.stream(request, self._ready(model), native=True)
+            self._transport.stream(
+                request, self._ready(model), native=True, responses=self._responses
+            )
         ) as events:
             async for event in events:
                 yield event
@@ -200,5 +209,9 @@ def create_backend(
     match config.kind:
         case BackendKind.LM_STUDIO:
             return LMStudioBackend(config, images=images)
+        case BackendKind.OLLAMA:
+            from .ollama_backend import OllamaBackend
+
+            return OllamaBackend(config, images=images)
         case BackendKind.OPENAI_COMPATIBLE:
             return ChatCompletionsBackend(config, images=images)
