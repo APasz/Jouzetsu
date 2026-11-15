@@ -44,12 +44,9 @@ _SCROLL_RESTORE_TOLERANCE_PX: Final[float] = 2.0
 _MANUAL_SCROLL_OFFSET_PX: Final[float] = 17.0
 _BROWSER_ACTION_TIMEOUT_MS: Final[float] = 5_000
 _LONG_MESSAGE: Final[str] = " ".join(
-    "This deliberately long browser-test message keeps the transcript scrollable."
-    for _ in range(20)
+    "This deliberately long browser-test message keeps the transcript scrollable." for _ in range(20)
 )
-_STREAMING_RESPONSE: Final[str] = "\n\n".join(
-    (_LONG_MESSAGE, _LONG_MESSAGE, " ".join("extra" for _ in range(70)))
-)
+_STREAMING_RESPONSE: Final[str] = "\n\n".join((_LONG_MESSAGE, _LONG_MESSAGE, " ".join("extra" for _ in range(70))))
 pytestmark = pytest.mark.browser
 
 
@@ -83,9 +80,7 @@ def chromium_browser() -> Iterator[Browser]:
             browser = playwright.chromium.launch()
         except Error as error:
             pytest.skip(
-                "Playwright Chromium is unavailable; run "
-                "`uv run --group dev playwright install chromium` "
-                f"({error})"
+                f"Playwright Chromium is unavailable; run `uv run --group dev playwright install chromium` ({error})"
             )
         try:
             yield browser
@@ -105,9 +100,7 @@ def browser_server(tmp_path: Path) -> Iterator[BrowserServer]:
 
 
 @pytest.fixture()
-def browser_page(
-    chromium_browser: Browser, browser_server: BrowserServer
-) -> Iterator[Page]:
+def browser_page(chromium_browser: Browser, browser_server: BrowserServer) -> Iterator[Page]:
     """Create a desktop page whose same-origin requests target the test server."""
 
     context = chromium_browser.new_context(
@@ -124,9 +117,7 @@ def browser_page(
 
 
 @pytest.fixture()
-def touch_browser_page(
-    chromium_browser: Browser, browser_server: BrowserServer
-) -> Iterator[Page]:
+def touch_browser_page(chromium_browser: Browser, browser_server: BrowserServer) -> Iterator[Page]:
     with chromium_browser.new_context(
         base_url=browser_server.base_url,
         viewport={"width": 390, "height": 844},
@@ -226,10 +217,7 @@ def test_narrow_message_actions_use_the_full_footer_width_before_wrapping(
     layout = _message_action_layout_metrics(browser_page, selector)
 
     assert layout["footer_width"] <= 250
-    assert (
-        abs(layout["actions_width"] - layout["footer_width"])
-        <= _SCROLL_RESTORE_TOLERANCE_PX
-    )
+    assert abs(layout["actions_width"] - layout["footer_width"]) <= _SCROLL_RESTORE_TOLERANCE_PX
     assert layout["row_count"] == 1
 
 
@@ -253,34 +241,20 @@ def test_new_messages_snap_to_bottom_then_stream_to_top_on_narrow_viewport(
             "?.innerText.includes('deliberately long')",
         )
         _wait_for_animation_frames(browser_page)
-        assistant_turn = _message_position_metrics(
-            browser_page, "article.is-streaming[data-message-id]"
-        )
+        assistant_turn = _message_position_metrics(browser_page, "article.is-streaming[data-message-id]")
         assert abs(assistant_turn["message_top"]) <= _SCROLL_RESTORE_TOLERANCE_PX
         assert assistant_turn["gap"] > _MANUAL_SCROLL_OFFSET_PX
 
         manual_scroll_top = assistant_turn["top"] + _MANUAL_SCROLL_OFFSET_PX
         _set_message_scroll_top(browser_page, manual_scroll_top)
-        manual_position = _message_position_metrics(
-            browser_page, "article.is-streaming[data-message-id]"
-        )
-        assert (
-            abs(manual_position["top"] - manual_scroll_top)
-            <= _SCROLL_RESTORE_TOLERANCE_PX
-        )
+        manual_position = _message_position_metrics(browser_page, "article.is-streaming[data-message-id]")
+        assert abs(manual_position["top"] - manual_scroll_top) <= _SCROLL_RESTORE_TOLERANCE_PX
         completion_gate.set()
-        browser_page.wait_for_function(
-            "() => !document.querySelector('article.is-streaming[data-message-id]')"
-        )
+        browser_page.wait_for_function("() => !document.querySelector('article.is-streaming[data-message-id]')")
         _wait_for_animation_frames(browser_page)
-        completed = _message_position_metrics(
-            browser_page, "article.is-assistant[data-message-id]:last-child"
-        )
+        completed = _message_position_metrics(browser_page, "article.is-assistant[data-message-id]:last-child")
 
-        assert (
-            abs(completed["message_top"] - manual_position["message_top"])
-            <= _SCROLL_RESTORE_TOLERANCE_PX
-        )
+        assert abs(completed["message_top"] - manual_position["message_top"]) <= _SCROLL_RESTORE_TOLERANCE_PX
     finally:
         completion_gate.set()
 
@@ -298,25 +272,19 @@ def test_regenerate_button_replaces_its_reply_using_only_the_previous_history(
     _ = chat.add_message("user", "Latest question")
     if continuation:
         _ = chat.add_message("assistant", "Keep this response before continuing")
-    history: list[tuple[str, str]] = [
-        (message.role, message.content) for message in chat.messages
-    ]
+    history: list[tuple[str, str]] = [(message.role, message.content) for message in chat.messages]
     previous_ids: list[str] = [message.id for message in chat.messages]
     target = chat.add_message("assistant", "Replace this reply")
     browser_server.client.response_content = "Regenerated answer"
     _open_chat_page(browser_page)
-    expect(
-        browser_page.get_by_test_id(f"regenerate-message-{earlier_reply.id}")
-    ).to_have_count(0)
+    expect(browser_page.get_by_test_id(f"regenerate-message-{earlier_reply.id}")).to_have_count(0)
     browser_page.get_by_test_id("message-input").fill("Keep this unsent draft")
     browser_page.get_by_test_id(f"regenerate-message-{target.id}").click()
 
     expect(browser_page.get_by_text("Regenerated answer", exact=True)).to_be_visible()
     expect(browser_page.locator(_message_selector(target.id))).to_have_count(1)
     expect(browser_page.locator(_MESSAGE_SELECTOR)).to_have_count(len(previous_ids) + 1)
-    expect(browser_page.get_by_test_id("message-input")).to_have_value(
-        "Keep this unsent draft"
-    )
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("Keep this unsent draft")
     requests = browser_server.client.requests
     assert len(requests) == 1
     expected_history: list[tuple[str, str]] = [
@@ -325,9 +293,7 @@ def test_regenerate_button_replaces_its_reply_using_only_the_previous_history(
     ]
     if continuation:
         expected_history.append(("user", CONTINUE_PROMPT_CONTENT))
-    assert [
-        (message.role, message.content) for message in requests[0].messages
-    ] == expected_history
+    assert [(message.role, message.content) for message in requests[0].messages] == expected_history
     assert [message.id for message in chat.messages[:-1]] == previous_ids
     assert chat.messages[-1].id == target.id
     assert chat.messages[-1].content == "Regenerated answer"
@@ -347,19 +313,13 @@ def test_continue_streams_a_new_message_and_preserves_the_original_on_reload(
     try:
         _open_chat_page(browser_page)
         browser_page.get_by_test_id(f"continue-message-{original.id}").click()
-        expect(browser_page.locator("article.is-streaming")).to_contain_text(
-            "The next part"
-        )
+        expect(browser_page.locator("article.is-streaming")).to_contain_text("The next part")
         expect(browser_page.locator(_MESSAGE_SELECTOR)).to_have_count(3)
-        expect(browser_page.locator(_message_selector(original.id))).to_contain_text(
-            "An unfinished story"
-        )
+        expect(browser_page.locator(_message_selector(original.id))).to_contain_text("An unfinished story")
         assert original.to_dict() == original_record
         assert len(chat.messages) == 2
         gate.set()
-        browser_page.wait_for_function(
-            "() => !document.querySelector('article.is-streaming')"
-        )
+        browser_page.wait_for_function("() => !document.querySelector('article.is-streaming')")
         assert len(chat.messages) == 3
         assert chat.messages[-2] is original
         assert chat.messages[-1].id != original.id
@@ -367,9 +327,7 @@ def test_continue_streams_a_new_message_and_preserves_the_original_on_reload(
         assert original.to_dict() == original_record
         browser_page.reload()
         expect(browser_page.locator(_MESSAGE_SELECTOR)).to_have_count(3)
-        expect(
-            browser_page.get_by_text("An unfinished story", exact=True)
-        ).to_be_visible()
+        expect(browser_page.get_by_text("An unfinished story", exact=True)).to_be_visible()
         expect(browser_page.get_by_text("The next part", exact=True)).to_be_visible()
     finally:
         gate.set()
@@ -491,9 +449,7 @@ def test_cancel_edit_returns_to_the_chat_and_preserves_the_unsent_draft(
     _open_chat_page(browser_page)
     browser_page.get_by_test_id("message-input").fill("Unsent draft")
     browser_page.get_by_test_id(f"edit-message-{message.id}").click()
-    expect(
-        browser_page.get_by_role("textbox", name="Edit message", exact=True)
-    ).to_have_value("Original message")
+    expect(browser_page.get_by_role("textbox", name="Edit message", exact=True)).to_have_value("Original message")
     browser_page.get_by_test_id("message-input").fill("Discard this edit")
     browser_page.get_by_test_id("cancel-edit-button").click()
     expect(browser_page).to_have_url(f"{browser_server.base_url}/chats/{chat.id}")
@@ -508,9 +464,7 @@ def test_spelling_settings_collapse_without_losing_values_or_hiding_errors(
     browser_page: Page, browser_server: BrowserServer, viewport_width: int
 ) -> None:
     browser_page.set_viewport_size({"width": viewport_width, "height": 844})
-    original_replacements = list(
-        browser_server.state.config.generation.british_spelling_replacements
-    )
+    original_replacements = list(browser_server.state.config.generation.british_spelling_replacements)
     browser_page.goto("/chats?dialog=global")
     details = browser_page.get_by_test_id("spelling-replacements-details")
     expect(details).to_have_js_property("open", False)
@@ -520,10 +474,7 @@ def test_spelling_settings_collapse_without_losing_values_or_hiding_errors(
     assert bounds is not None and bounds["y"] + bounds["height"] <= 844
     with browser_page.expect_navigation(wait_until="load"):
         save.click()
-    assert (
-        browser_server.state.config.generation.british_spelling_replacements
-        == original_replacements
-    )
+    assert browser_server.state.config.generation.british_spelling_replacements == original_replacements
     details.locator("summary").click()
     source = details.locator("[data-spelling-source]").first
     source.fill("two words")
@@ -540,9 +491,7 @@ def test_message_context_menu_copies_and_forks_at_the_selected_message(
     """The shared context menu applies actions to its selected transcript message."""
 
     _ = browser_server.state.chats[0].add_message("user", "Fork source")
-    selected = browser_server.state.chats[0].add_message(
-        "assistant", "Copy this selected reply"
-    )
+    selected = browser_server.state.chats[0].add_message("assistant", "Copy this selected reply")
     _ = browser_server.state.chats[0].add_message("user", "Excluded after fork")
     browser_page.add_init_script(
         """
@@ -560,19 +509,15 @@ def test_message_context_menu_copies_and_forks_at_the_selected_message(
     selected_message.click(button="right")
     menu = browser_page.get_by_test_id("message-context-menu")
     expect(menu).to_be_visible()
-    expect(
-        browser_page.get_by_test_id("message-fork-context-action")
-    ).to_have_attribute("action", f"/messages/{selected.id}/fork")
+    expect(browser_page.get_by_test_id("message-fork-context-action")).to_have_attribute(
+        "action", f"/messages/{selected.id}/fork"
+    )
 
     browser_page.get_by_test_id("message-copy-context-action").click()
-    browser_page.wait_for_function(
-        "() => window.__browserTestClipboard === 'Copy this selected reply'"
-    )
+    browser_page.wait_for_function("() => window.__browserTestClipboard === 'Copy this selected reply'")
     expect(menu).not_to_be_visible()
 
-    previous_chat_id = browser_page.locator("#chat-fragment").get_attribute(
-        "data-chat-id"
-    )
+    previous_chat_id = browser_page.locator("#chat-fragment").get_attribute("data-chat-id")
     assert previous_chat_id is not None
     selected_message.click(button="right")
     fork_action = browser_page.get_by_test_id("message-fork-context-action")
@@ -586,9 +531,7 @@ def test_message_context_menu_copies_and_forks_at_the_selected_message(
 
     expect(browser_page.locator(_MESSAGE_SELECTOR)).to_have_count(2)
     expect(browser_page.get_by_text("Fork source", exact=True)).to_be_visible()
-    expect(
-        browser_page.get_by_text("Copy this selected reply", exact=True)
-    ).to_be_visible()
+    expect(browser_page.get_by_text("Copy this selected reply", exact=True)).to_be_visible()
     expect(browser_page.get_by_text("Excluded after fork")).to_have_count(0)
 
 
@@ -622,26 +565,20 @@ def test_thinking_disclosure_stays_open_through_reasoning_and_draft_refreshes(
         reasoning_bounds = reasoning.bounding_box()
         input_bounds = browser_page.get_by_test_id("message-input").bounding_box()
         assert reasoning_bounds and input_bounds
-        assert (
-            reasoning_bounds["y"] + reasoning_bounds["height"] <= input_bounds["y"] + 1
-        )
+        assert reasoning_bounds["y"] + reasoning_bounds["height"] <= input_bounds["y"] + 1
         _ = reasoning.evaluate("element => { window.reasoningElement = element; }")
         browser_page.get_by_test_id("message-input").fill("My next message")
         browser_page.wait_for_function(
             "() => document.querySelector('.jouzetsu-composer-form input[name=draft_revision]').value === '2'"
         )
         expect(reasoning).to_have_js_property("open", True)
-        assert browser_page.evaluate(
-            "window.reasoningElement === document.getElementById('generation-reasoning')"
-        )
+        assert browser_page.evaluate("window.reasoningElement === document.getElementById('generation-reasoning')")
         chat_id = browser_server.state.chats[0].id
         browser_server.state.session(chat_id).live_reasoning = "A later reasoning step"
         _create_chat_in_background(browser_page)
         expect(reasoning.locator("pre")).to_have_text("A later reasoning step")
         expect(reasoning).to_have_js_property("open", True)
-        assert browser_page.evaluate(
-            "window.reasoningElement === document.getElementById('generation-reasoning')"
-        )
+        assert browser_page.evaluate("window.reasoningElement === document.getElementById('generation-reasoning')")
         reasoning.locator("summary").click()
         expect(reasoning).to_have_js_property("open", False)
     finally:
@@ -659,9 +596,7 @@ def _dispatch_touch(
         "Input.dispatchTouchEvent",
         {
             "type": phase,
-            "touchPoints": [{"x": x, "y": y}]
-            if phase in {"touchStart", "touchMove"}
-            else [],
+            "touchPoints": [{"x": x, "y": y}] if phase in {"touchStart", "touchMove"} else [],
         },
     )
 
@@ -675,9 +610,7 @@ def test_mobile_long_press_opens_message_menu_and_details(
     _open_chat_page(page)
     page.clock.install()
     session = page.context.new_cdp_session(page)
-    bounds = page.locator(
-        _message_selector(message.id) + " .jouzetsu-message-text"
-    ).bounding_box()
+    bounds = page.locator(_message_selector(message.id) + " .jouzetsu-message-text").bounding_box()
     assert bounds
     _dispatch_touch(session, "touchStart", bounds["x"] + 20, bounds["y"] + 10)
     page.clock.run_for(600)
@@ -685,9 +618,7 @@ def test_mobile_long_press_opens_message_menu_and_details(
     menu = page.get_by_test_id("message-context-menu")
     expect(menu).to_be_visible()
     page.get_by_role("menuitem", name="Message details", exact=True).tap()
-    expect(page.get_by_test_id("message-details-reasoning")).to_have_text(
-        "Saved reasoning"
-    )
+    expect(page.get_by_test_id("message-details-reasoning")).to_have_text("Saved reasoning")
 
 
 @pytest.mark.parametrize("gesture", ["tap", "move", "cancel"])
@@ -701,9 +632,7 @@ def test_mobile_message_long_press_cancels_without_blocking_the_next_hold(
     _open_chat_page(page)
     page.clock.install()
     session = page.context.new_cdp_session(page)
-    bounds = page.locator(
-        _message_selector(message.id) + " .jouzetsu-message-text"
-    ).bounding_box()
+    bounds = page.locator(_message_selector(message.id) + " .jouzetsu-message-text").bounding_box()
     assert bounds
     x, y = bounds["x"] + 20, bounds["y"] + 10
     _dispatch_touch(session, "touchStart", x, y)
@@ -721,9 +650,7 @@ def test_mobile_message_long_press_cancels_without_blocking_the_next_hold(
     assert not browser_server.client.requests
 
 
-def test_fragment_replacement_reconciles_unchanged_messages(
-    browser_page: Page, browser_server: BrowserServer
-) -> None:
+def test_fragment_replacement_reconciles_unchanged_messages(browser_page: Page, browser_server: BrowserServer) -> None:
     """A full update keeps the transcript container and unchanged message nodes intact."""
 
     edited = browser_server.state.chats[0].add_message("user", "Original message")
@@ -765,9 +692,7 @@ def _open_chat_page(page: Page) -> None:
     """Open the browser workspace after its live refresh connection is established."""
 
     with page.expect_response(
-        lambda response: response.url.split("?", maxsplit=1)[0].endswith(
-            "/fragments/chat"
-        )
+        lambda response: response.url.split("?", maxsplit=1)[0].endswith("/fragments/chat")
     ) as initial_fragment:
         page.goto("/chats")
     assert initial_fragment.value.ok
@@ -820,31 +745,23 @@ def test_colourway_editor_updates_owned_ui_and_light_mode(
         "system": "rgb(68, 136, 238)",
     }
     assert _rendered_colourways(browser_page) == expected
-    expect(browser_page.locator(".jouzetsu-composer-primary")).to_have_css(
-        "background-color", expected["user"]
-    )
+    expect(browser_page.locator(".jouzetsu-composer-primary")).to_have_css("background-color", expected["user"])
 
     browser_page.get_by_test_id("theme-user-accent-color").fill("#22bbdd")
     save()
     expected["user"] = "rgb(34, 187, 221)"
     assert _rendered_colourways(browser_page) == expected
-    expect(browser_page.locator(".jouzetsu-composer-primary")).to_have_css(
-        "background-color", expected["user"]
-    )
+    expect(browser_page.locator(".jouzetsu-composer-primary")).to_have_css("background-color", expected["user"])
 
     browser_page.get_by_test_id("appearance-dark-mode").uncheck()
     save()
     assert _rendered_colourways(browser_page) == expected
-    expect(browser_page.locator("body")).to_have_css(
-        "background-color", "rgb(255, 255, 255)"
-    )
+    expect(browser_page.locator("body")).to_have_css("background-color", "rgb(255, 255, 255)")
     expect(browser_page.locator("html")).to_have_css("color-scheme", "light")
     _ = browser_page.screenshot(path=str(tmp_path / "appearance-light.png"))
 
 
-def test_reset_keeps_its_action_after_a_draft_flush(
-    browser_page: Page, browser_server: BrowserServer
-) -> None:
+def test_reset_keeps_its_action_after_a_draft_flush(browser_page: Page, browser_server: BrowserServer) -> None:
     """A reset submitter remains the target after preserving a pending composer draft."""
 
     expected_prompt = browser_server.state.config.generation.system_prompt
@@ -1025,9 +942,7 @@ def _message_position_metrics(page: Page, selector: str) -> MessagePositionMetri
     }
 
 
-def _message_action_layout_metrics(
-    page: Page, selector: str
-) -> MessageActionLayoutMetrics:
+def _message_action_layout_metrics(page: Page, selector: str) -> MessageActionLayoutMetrics:
     """Read the available width and wrapped rows of a message action group."""
 
     result: object = page.locator(selector).evaluate(
@@ -1090,9 +1005,7 @@ def _insert_test_style_rules(page: Page, rules: tuple[str, ...]) -> None:
 def _constrain_message_list_width(page: Page, width: int) -> None:
     """Give a browser test a narrow transcript without depending on window sizing."""
 
-    _insert_test_style_rules(
-        page, (f".jouzetsu-messages {{ width: {width}px !important; }}",)
-    )
+    _insert_test_style_rules(page, (f".jouzetsu-messages {{ width: {width}px !important; }}",))
     _wait_for_animation_frames(page)
 
 
@@ -1129,14 +1042,10 @@ def test_two_browsers_keep_independent_urls_and_history(
         expect(browser_page).not_to_have_url(first_url)
         second_url = browser_page.url.split("?", 1)[0]
         expect(other).to_have_url(first_url)
-        expect(other.get_by_test_id("message-input")).to_have_value(
-            "Draft in first chat"
-        )
+        expect(other.get_by_test_id("message-input")).to_have_value("Draft in first chat")
         browser_page.go_back()
         expect(browser_page).to_have_url(first_url)
-        expect(browser_page.get_by_test_id("message-input")).to_have_value(
-            "Draft in first chat"
-        )
+        expect(browser_page.get_by_test_id("message-input")).to_have_value("Draft in first chat")
         browser_page.go_forward()
         expect(browser_page).to_have_url(second_url)
         browser_page.reload()
@@ -1167,21 +1076,13 @@ def test_shared_draft_updates_idle_browser_and_preserves_rejected_local_text(
         browser_page.wait_for_function(
             "() => Number(document.getElementById('chat-fragment').dataset.draftRevision) > 0"
         )
-        expect(browser_page.get_by_test_id("message-input")).to_have_value(
-            "Keep my unsaved text"
-        )
+        expect(browser_page.get_by_test_id("message-input")).to_have_value("Keep my unsaved text")
         browser_page.unroute("**/chat/draft")
         browser_page.get_by_test_id("message-input").fill("Keep my local correction")
-        expect(browser_page.locator("#notice-area")).to_contain_text(
-            "changed elsewhere"
-        )
-        expect(browser_page.get_by_test_id("message-input")).to_have_value(
-            "Keep my local correction"
-        )
+        expect(browser_page.locator("#notice-area")).to_contain_text("changed elsewhere")
+        expect(browser_page.get_by_test_id("message-input")).to_have_value("Keep my local correction")
         browser_page.reload()
-        expect(browser_page.get_by_test_id("message-input")).to_have_value(
-            "Saved by other browser"
-        )
+        expect(browser_page.get_by_test_id("message-input")).to_have_value("Saved by other browser")
     finally:
         context.close()
 
@@ -1197,14 +1098,10 @@ def test_incoming_edit_preserves_focused_editor_and_stale_save_is_visible(
     browser_page.get_by_test_id("message-input").fill("My unsaved edit")
     _edit_message_in_background(browser_page, message.id, "Other committed edit")
     _wait_for_message_text(browser_page, message.id, "Other committed edit")
-    expect(browser_page.get_by_test_id("message-input")).to_have_value(
-        "My unsaved edit"
-    )
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("My unsaved edit")
     browser_page.get_by_test_id("save-edit-button").click()
     expect(browser_page.locator("#notice-area")).to_contain_text("revision changed")
-    expect(browser_page.get_by_test_id("message-input")).to_have_value(
-        "My unsaved edit"
-    )
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("My unsaved edit")
     assert message.content == "Other committed edit"
 
 
@@ -1232,15 +1129,11 @@ def test_incoming_deletion_preserves_the_local_message_editor(
         == 200
     )
     expect(browser_page.locator("#notice-area")).to_contain_text("message was deleted")
-    expect(browser_page.get_by_test_id("message-input")).to_have_value(
-        "Keep my local edit"
-    )
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("Keep my local edit")
     browser_page.get_by_test_id("save-edit-button").click()
     expect(browser_page.locator("#notice-area")).to_contain_text("revision changed")
     assert not chat.messages
-    expect(browser_page.get_by_test_id("message-input")).to_have_value(
-        "Keep my local edit"
-    )
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("Keep my local edit")
     browser_page.get_by_test_id("cancel-edit-button").click()
     expect(browser_page.get_by_test_id("message-input")).to_have_value("")
 
@@ -1270,17 +1163,11 @@ def test_composer_menu_supports_keyboard_images_and_send_only(
     browser_page.get_by_test_id("message-input").click()
     expect(send_only).not_to_be_visible()
     toggle.click()
-    browser_page.evaluate(
-        "window.openComposerMenu = document.querySelector('[data-composer-menu]')"
-    )
+    browser_page.evaluate("window.openComposerMenu = document.querySelector('[data-composer-menu]')")
     browser_page.get_by_test_id("message-input").fill("Save this with an image")
-    browser_page.wait_for_function(
-        "() => document.getElementById('chat-fragment').dataset.draftRevision === '1'"
-    )
+    browser_page.wait_for_function("() => document.getElementById('chat-fragment').dataset.draftRevision === '1'")
     expect(menu).to_have_js_property("open", True)
-    assert browser_page.evaluate(
-        "openComposerMenu === document.querySelector('[data-composer-menu]')"
-    )
+    assert browser_page.evaluate("openComposerMenu === document.querySelector('[data-composer-menu]')")
     expect(send_only).to_be_enabled()
     assert browser_page.locator(".jouzetsu-composer-menu-options").evaluate("""menu => {
         const bounds = menu.getBoundingClientRect();
@@ -1289,14 +1176,10 @@ def test_composer_menu_supports_keyboard_images_and_send_only(
     _ = browser_page.screenshot(path=str(tmp_path / "composer-menu.png"))
     with browser_page.expect_file_chooser() as picker:
         browser_page.get_by_test_id("add-images-button").click()
-    picker.value.set_files(
-        {"name": "menu.png", "mimeType": "image/png", "buffer": image_bytes()}
-    )
+    picker.value.set_files({"name": "menu.png", "mimeType": "image/png", "buffer": image_bytes()})
     expect(menu).to_have_js_property("open", False)
     expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1)
-    expect(browser_page.get_by_test_id("message-input")).to_have_value(
-        "Save this with an image"
-    )
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("Save this with an image")
     _send_only(browser_page)
     expect(browser_page.get_by_test_id("message-input")).to_have_value("")
     expect(menu).to_have_js_property("open", False)
@@ -1323,16 +1206,12 @@ def test_quick_templates_insert_from_the_message_actions_menu(
     browser_page.get_by_test_id("composer-menu-toggle").press("Enter")
     templates = browser_page.get_by_role("group", name="Quick templates", exact=True)
     expect(templates).to_be_visible()
-    expect(
-        browser_page.locator(".jouzetsu-composer-footer [data-suggestion]")
-    ).to_have_count(0)
+    expect(browser_page.locator(".jouzetsu-composer-footer [data-suggestion]")).to_have_count(0)
     templates.get_by_role("button", name=prompt.label, exact=True).press("Enter")
     separator = "\n" if existing and not existing.endswith("\n") else ""
     expect(input_field).to_have_value(existing + separator + prompt.content)
     expect(input_field).to_be_focused()
-    expect(browser_page.locator("[data-composer-menu]")).to_have_js_property(
-        "open", False
-    )
+    expect(browser_page.locator("[data-composer-menu]")).to_have_js_property("open", False)
     assert not browser_server.state.chats[0].messages
     assert not browser_server.client.requests
 
@@ -1427,9 +1306,7 @@ def test_composer_menu_keeps_image_upload_available_during_generation(
         expect(browser_page.get_by_test_id("send-only-button")).not_to_be_visible()
         with browser_page.expect_file_chooser() as picker:
             browser_page.get_by_test_id("add-images-button").click()
-        picker.value.set_files(
-            {"name": "next.png", "mimeType": "image/png", "buffer": image_bytes()}
-        )
+        picker.value.set_files({"name": "next.png", "mimeType": "image/png", "buffer": image_bytes()})
         expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1)
         expect(browser_page.get_by_test_id("stop-generation-button")).to_be_enabled()
         assert len(browser_server.client.requests) == 1
@@ -1438,9 +1315,7 @@ def test_composer_menu_keeps_image_upload_available_during_generation(
         gate.set()
 
 
-def test_image_picker_survives_generation_finishing(
-    browser_page: Page, browser_server: BrowserServer
-) -> None:
+def test_image_picker_survives_generation_finishing(browser_page: Page, browser_server: BrowserServer) -> None:
     gate = _configure_paused_streaming_response(browser_server)
     try:
         _open_chat_page(browser_page)
@@ -1452,9 +1327,7 @@ def test_image_picker_survives_generation_finishing(
             browser_page.get_by_test_id("add-images-button").click()
         gate.set()
         expect(browser_page.get_by_test_id("send-message-button")).to_be_visible()
-        picker.value.set_files(
-            {"name": "next.png", "mimeType": "image/png", "buffer": image_bytes()}
-        )
+        picker.value.set_files({"name": "next.png", "mimeType": "image/png", "buffer": image_bytes()})
         expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1)
         assert len(browser_server.client.requests) == 1
         assert not browser_server.client.requests[0].messages[-1].images
@@ -1462,14 +1335,8 @@ def test_image_picker_survives_generation_finishing(
         gate.set()
 
 
-def _expect_message_action_colour(
-    page: Page, marker: str, action: MessageAction, style: MessageActionStyle
-) -> None:
-    field = (
-        action.color_field.replace("_", "-")
-        if style is MessageActionStyle.SEMANTIC
-        else "message-actions"
-    )
+def _expect_message_action_colour(page: Page, marker: str, action: MessageAction, style: MessageActionStyle) -> None:
+    field = action.color_field.replace("_", "-") if style is MessageActionStyle.SEMANTIC else "message-actions"
     expected = cast(
         str,
         page.evaluate(
@@ -1511,20 +1378,14 @@ def _expect_icons_painted(page: Page) -> None:
     }""")
 
 
-def _set_browser_models(
-    server: BrowserServer, models: tuple[RegisteredModel, ...]
-) -> None:
+def _set_browser_models(server: BrowserServer, models: tuple[RegisteredModel, ...]) -> None:
     configuration = server.state.config.backends
     backend = configuration.backends[0]
-    server.state.config.backends = replace(
-        configuration, backends=(replace(backend, models=models),)
-    )
+    server.state.config.backends = replace(configuration, backends=(replace(backend, models=models),))
     server.client.descriptors = tuple(model.descriptor for model in models)
 
 
-def test_reasoning_control_updates_chat_profile(
-    browser_page: Page, browser_server: BrowserServer
-) -> None:
+def test_reasoning_control_updates_chat_profile(browser_page: Page, browser_server: BrowserServer) -> None:
     from jouzetsu.backend_models import BackendKind, ModelManagementSettings
 
     state = browser_server.state
@@ -1535,9 +1396,7 @@ def test_reasoning_control_updates_chat_profile(
         model,
         descriptor=replace(
             model.descriptor,
-            capabilities=ModelCapabilities(
-                reasoning=True, reasoning_options=("off", "on")
-            ),
+            capabilities=ModelCapabilities(reasoning=True, reasoning_options=("off", "on")),
         ),
     )
     configured = replace(
@@ -1550,26 +1409,16 @@ def test_reasoning_control_updates_chat_profile(
     _open_chat_page(browser_page)
     toggle = browser_page.get_by_test_id("reasoning-level-toggle")
     expect(toggle).to_have_attribute("data-reasoning-state", "automatic")
-    expect(toggle).to_have_attribute(
-        "aria-label", "Reasoning level: Model default (Automatic)"
-    )
+    expect(toggle).to_have_attribute("aria-label", "Reasoning level: Model default (Automatic)")
     reasoning_menu = browser_page.locator("[data-reasoning-menu]")
     actions_menu = browser_page.locator("[data-composer-menu]")
     toggle.click()
     expect(reasoning_menu).to_have_js_property("open", True)
-    browser_page.evaluate(
-        "window.reasoningMenu = document.querySelector('[data-reasoning-menu]')"
-    )
-    browser_page.get_by_test_id("message-input").fill(
-        "Draft updated while the menu is open"
-    )
-    browser_page.wait_for_function(
-        "() => document.getElementById('chat-fragment').dataset.draftRevision === '1'"
-    )
+    browser_page.evaluate("window.reasoningMenu = document.querySelector('[data-reasoning-menu]')")
+    browser_page.get_by_test_id("message-input").fill("Draft updated while the menu is open")
+    browser_page.wait_for_function("() => document.getElementById('chat-fragment').dataset.draftRevision === '1'")
     expect(reasoning_menu).to_have_js_property("open", True)
-    assert browser_page.evaluate(
-        "window.reasoningMenu === document.querySelector('[data-reasoning-menu]')"
-    )
+    assert browser_page.evaluate("window.reasoningMenu === document.querySelector('[data-reasoning-menu]')")
     browser_page.get_by_test_id("message-input").click()
     expect(reasoning_menu).to_have_js_property("open", False)
     toggle.click()
@@ -1590,22 +1439,17 @@ def test_reasoning_control_updates_chat_profile(
     assert response.value.ok
     expect(toggle).to_have_attribute("data-reasoning-state", "off")
     expect(toggle).to_have_attribute("aria-label", "Reasoning level: Off")
-    assert (
-        toggle.evaluate("element => getComputedStyle(element, '::after').width")
-        == "22px"
-    )
-    expect(browser_page.locator("#chat-fragment")).to_have_attribute(
-        "data-revision", str(state.chats[0].revision)
-    )
+    assert toggle.evaluate("element => getComputedStyle(element, '::after').width") == "22px"
+    expect(browser_page.locator("#chat-fragment")).to_have_attribute("data-revision", str(state.chats[0].revision))
     profile = state.chats[0].inference.selected_profile
     assert profile is not None and profile.reasoning == "off"
     browser_page.reload()
     browser_page.get_by_test_id("reasoning-level-toggle").click()
     off = browser_page.get_by_role("button", name="Off", exact=True)
     expect(off).to_have_attribute("aria-pressed", "true")
-    expect(
-        browser_page.get_by_role("button", name="Model default", exact=True)
-    ).to_have_attribute("aria-pressed", "false")
+    expect(browser_page.get_by_role("button", name="Model default", exact=True)).to_have_attribute(
+        "aria-pressed", "false"
+    )
     with browser_page.expect_response("**/chat/reasoning-level") as on_response:
         browser_page.get_by_role("button", name="On", exact=True).click()
     assert on_response.value.ok
@@ -1614,32 +1458,21 @@ def test_reasoning_control_updates_chat_profile(
     browser_page.get_by_test_id("open-settings-button").click()
     browser_page.get_by_test_id("active-chat-model").click()
     with browser_page.expect_response("**/chat/model") as changed:
-        browser_page.locator(
-            '#active-chat-model-options [data-model-value="text-model"]'
-        ).click()
+        browser_page.locator('#active-chat-model-options [data-model-value="text-model"]').click()
     assert changed.value.ok
     profile = state.chats[0].inference.selected_profile
     assert profile is not None and profile.reasoning == "model_default"
     expect(browser_page.get_by_test_id("reasoning-level-toggle")).to_have_count(0)
-    browser_page.goto("/chats?dialog=global&tab=backends")
-    browser_page.locator(f"#backend-{configured.id} > summary").click()
-    model_form = browser_page.locator(
-        f'#backend-{configured.id} form[action$="/alias"]'
-    ).filter(
+    browser_page.goto("/chats?dialog=backends")
+    browser_page.get_by_role("button", name="Configure Browser test model", exact=True).click()
+    model_form = browser_page.locator(f'#backend-{configured.id} form[action$="/alias"]').filter(
         has=browser_page.locator('input[name="model_id"][value="browser-test-model"]')
     )
     model_form.locator('select[name="reasoning_default"]').select_option("on")
-    with browser_page.expect_response(
-        f"**/settings/backends/{configured.id}/alias"
-    ) as saved:
+    with browser_page.expect_response(f"**/settings/backends/{configured.id}/alias") as saved:
         model_form.get_by_role("button", name="Save model").click()
     assert saved.value.ok
-    assert (
-        state.config.backends.backend(configured.id)
-        .model("browser-test-model")
-        .reasoning_default
-        == "on"
-    )
+    assert state.config.backends.backend(configured.id).model("browser-test-model").reasoning_default == "on"
 
 
 @pytest.mark.parametrize("automatic_loading", [True, False])
@@ -1661,69 +1494,50 @@ def test_lmstudio_responses_transport_can_be_selected_and_saved(
         model_management=ModelManagementSettings(automatic_loading=automatic_loading),
     )
     state.config.backends = replace(configuration, backends=(backend,))
-    browser_page.goto("/chats?dialog=global&tab=backends")
-    browser_page.locator(f"#backend-{backend.id} > summary").click()
+    browser_page.goto("/chats?dialog=backends")
+    browser_page.locator(f"#backend-settings-{backend.id} > summary").click()
     form = browser_page.locator(f'form[action="/settings/backends/{backend.id}/save"]')
     expect(form.locator('[name="automatic_loading"]')).to_have_count(0)
     select = form.locator('select[name="lmstudio_transport"]')
+    help_text = form.locator("[data-backend-responses-help]")
     expect(select).to_have_value("chat_completions")
+    expect(help_text).to_be_hidden()
     select.select_option("responses")
-    with browser_page.expect_response(
-        f"**/settings/backends/{backend.id}/save"
-    ) as saved:
+    expect(help_text).to_be_visible()
+    with browser_page.expect_response(f"**/settings/backends/{backend.id}/save") as saved:
         form.get_by_role("button", name="Save backend").click()
     assert saved.value.ok
+    assert state.config.backends.backend(backend.id).lmstudio_transport is LMStudioTransport.RESPONSES
     assert (
-        state.config.backends.backend(backend.id).lmstudio_transport
+        ConfigStore.for_paths(state.config.paths).load().backends.backend(backend.id).lmstudio_transport
         is LMStudioTransport.RESPONSES
     )
-    assert (
-        ConfigStore.for_paths(state.config.paths)
-        .load()
-        .backends.backend(backend.id)
-        .lmstudio_transport
-        is LMStudioTransport.RESPONSES
-    )
-    saved_backend = (
-        ConfigStore.for_paths(state.config.paths).load().backends.backend(backend.id)
-    )
+    saved_backend = ConfigStore.for_paths(state.config.paths).load().backends.backend(backend.id)
     assert saved_backend.model_management is not None
     assert saved_backend.model_management.automatic_loading is automatic_loading
 
 
-def test_ollama_backend_can_be_added(
-    browser_page: Page, browser_server: BrowserServer
-) -> None:
+def test_ollama_backend_can_be_added(browser_page: Page, browser_server: BrowserServer) -> None:
     from jouzetsu.backend_models import BackendKind
 
-    browser_page.goto("/chats?dialog=global&tab=backends")
+    browser_page.goto("/chats?dialog=backends&tab=new")
     form = browser_page.get_by_test_id("add-backend-form")
     form.locator('[name="name"]').fill("Ollama")
     form.locator('[name="kind"]').select_option("ollama")
     form.locator('[name="base_url"]').fill("http://127.0.0.1:11434")
     with browser_page.expect_navigation():
         form.get_by_role("button", name="Add backend").click()
-    backend = next(
-        item
-        for item in browser_server.state.config.backends.backends
-        if item.name == "Ollama"
-    )
+    backend = next(item for item in browser_server.state.config.backends.backends if item.name == "Ollama")
     assert backend.kind is BackendKind.OLLAMA
     assert (
-        ConfigStore.for_paths(browser_server.state.config.paths)
-        .load()
-        .backends.backend(backend.id)
-        .base_url
+        ConfigStore.for_paths(browser_server.state.config.paths).load().backends.backend(backend.id).base_url
         == "http://127.0.0.1:11434"
     )
-    browser_page.locator(f"#backend-{backend.id} > summary").click()
-    settings = browser_page.locator(
-        f'form[action="/settings/backends/{backend.id}/save"]'
-    )
+    browser_page.get_by_test_id(f"backends-dialog-{backend.id}-tab").click()
+    browser_page.locator(f"#backend-settings-{backend.id} > summary").click()
+    settings = browser_page.locator(f'form[action="/settings/backends/{backend.id}/save"]')
     settings.locator('[name="ollama_idle_unload_minutes"]').fill("12")
-    with browser_page.expect_response(
-        f"**/settings/backends/{backend.id}/save"
-    ) as saved:
+    with browser_page.expect_response(f"**/settings/backends/{backend.id}/save") as saved:
         settings.get_by_role("button", name="Save backend").click()
     assert saved.value.ok
     assert (
@@ -1735,20 +1549,16 @@ def test_ollama_backend_can_be_added(
     )
 
 
-def test_ollama_model_management_controls_are_visible(
-    browser_page: Page, browser_server: BrowserServer
-) -> None:
+def test_ollama_model_management_controls_are_visible(browser_page: Page, browser_server: BrowserServer) -> None:
     from jouzetsu.backend_models import BackendKind
 
     state = browser_server.state
     config = state.config.backends
     backend = replace(config.backends[0], kind=BackendKind.OLLAMA)
     state.config.backends = replace(config, backends=(backend,))
-    browser_page.goto("/chats?dialog=global&tab=backends")
-    browser_page.locator(f"#backend-{backend.id} > summary").click()
-    model_form = browser_page.locator(
-        f'form[action="/settings/backends/{backend.id}/alias"]'
-    ).first
+    browser_page.goto("/chats?dialog=backends")
+    browser_page.get_by_role("button", name="Configure Browser test model", exact=True).click()
+    model_form = browser_page.locator("dialog[data-model-dialog][open]")
     expect(model_form.get_by_text("Load state unknown")).to_be_visible()
     expect(model_form.get_by_role("button", name="Load", exact=True)).to_be_visible()
     expect(model_form.get_by_role("button", name="Unload", exact=True)).to_be_visible()
@@ -1770,25 +1580,18 @@ def test_unknown_reasoning_capabilities_do_not_erase_model_default(
         models=(model, *backend.models[1:]),
     )
     state.config.backends = replace(configuration, backends=(configured,))
-    browser_page.goto("/chats?dialog=global&tab=backends")
-    browser_page.locator(f"#backend-{backend.id} > summary").click()
+    browser_page.goto("/chats?dialog=backends")
+    browser_page.get_by_role("button", name="Configure Browser test model", exact=True).click()
     form = browser_page.locator(f'#backend-{backend.id} form[action$="/alias"]').filter(
         has=browser_page.locator('input[name="model_id"][value="browser-test-model"]')
     )
     expect(form.locator('select[name="reasoning_default"]')).to_have_value("on")
     expect(form).to_contain_text("previous reasoning default is unavailable")
     form.locator('input[name="alias"]').fill("New alias")
-    with browser_page.expect_response(
-        f"**/settings/backends/{backend.id}/alias"
-    ) as response:
+    with browser_page.expect_response(f"**/settings/backends/{backend.id}/alias") as response:
         form.get_by_role("button", name="Save model").click()
     assert response.value.ok
-    assert (
-        state.config.backends.backend(backend.id)
-        .model("browser-test-model")
-        .reasoning_default
-        == "on"
-    )
+    assert state.config.backends.backend(backend.id).model("browser-test-model").reasoning_default == "on"
 
 
 @pytest.mark.parametrize("viewport_width", [390, 1280])
@@ -1809,9 +1612,7 @@ def test_capability_badges_render_and_follow_the_selected_model(
             model,
             descriptor=replace(
                 model.descriptor,
-                capabilities=supported
-                if index == 0
-                else ModelCapabilities(False, False, None),
+                capabilities=supported if index == 0 else ModelCapabilities(False, False, None),
             ),
         )
         for index, model in enumerate(backend.models)
@@ -1840,9 +1641,7 @@ def test_capability_badges_render_and_follow_the_selected_model(
     assert "Unknown" not in options.inner_text()
     assert "Vision" not in options.inner_text()
     assert panel_content.evaluate("element => element.scrollTop") == scroll_top
-    _ = browser_page.screenshot(
-        path=str(tmp_path / "capability-badges.png"), animations="disabled"
-    )
+    _ = browser_page.screenshot(path=str(tmp_path / "capability-badges.png"), animations="disabled")
     with browser_page.expect_response("**/chat/model") as saved:
         text_option.click()
     assert saved.value.ok
@@ -1857,51 +1656,40 @@ def test_capability_badges_render_and_follow_the_selected_model(
     }""")
     _expect_icons_painted(browser_page)
     browser_page.goto("/chats?dialog=global")
-    browser_page.get_by_test_id("global-settings-dialog-backends-tab").click()
+    browser_page.get_by_test_id("global-settings-dialog-close-button").click()
+    browser_page.get_by_test_id("open-nav-button").click()
+    browser_page.get_by_test_id("backends-button").click()
     backend_editor = browser_page.locator(f"#backend-{backend.id}")
-    backend_editor.locator(":scope > summary").click()
+    backend_editor.locator("summary", has_text="Backend settings").click()
     default_picker = browser_page.get_by_test_id(f"backend-model-{backend.id}")
     default_picker.click()
     default_options = browser_page.locator(f"#backend-model-{backend.id}-options")
-    expect(
-        default_options.locator(
-            '[data-model-value="browser-test-model"] .jouzetsu-capability-badge'
-        )
-    ).to_have_count(3)
+    expect(default_options.locator('[data-model-value="browser-test-model"] .jouzetsu-capability-badge')).to_have_count(
+        3
+    )
     default_picker.press("Escape")
     for label in ("Vision supported", "Tool use supported", "Reasoning supported"):
-        expect(
-            backend_editor.get_by_role("img", name=label, exact=True).first
-        ).to_be_visible()
+        expect(backend_editor.get_by_role("img", name=label, exact=True).first).to_be_visible()
     _expect_icons_painted(browser_page)
     default_picker.click()
     default_options.locator('[data-model-value="text-model"]').click()
     expect(default_picker).to_have_text("Text model")
-    expect(backend_editor.locator("[data-model-picker-value]")).to_have_value(
-        "text-model"
-    )
+    expect(backend_editor.locator("[data-model-picker-value]")).to_have_value("text-model")
     assert state.config.backends.backends[0].defaults.model_id == "browser-test-model"
-    with browser_page.expect_response(
-        f"**/settings/backends/{backend.id}/save"
-    ) as saved_default:
+    with browser_page.expect_response(f"**/settings/backends/{backend.id}/save") as saved_default:
         backend_editor.get_by_role("button", name="Save backend", exact=True).click()
     assert saved_default.value.ok
     assert state.config.backends.backends[0].defaults.model_id == "text-model"
 
 
-def test_model_picker_keyboard_selection_and_live_refresh(
-    browser_page: Page, browser_server: BrowserServer
-) -> None:
+def test_model_picker_keyboard_selection_and_live_refresh(browser_page: Page, browser_server: BrowserServer) -> None:
     chat = browser_server.state.chats[0]
     message = chat.add_message("user", "A message to edit in the background")
     backend = browser_server.state.config.backends.backends[0]
     _set_browser_models(
         browser_server,
         (
-            *(
-                RegisteredModel(ModelDescriptor(f"extra-{index}", f"Extra {index:02}"))
-                for index in range(30)
-            ),
+            *(RegisteredModel(ModelDescriptor(f"extra-{index}", f"Extra {index:02}")) for index in range(30)),
             *backend.models,
         ),
     )
@@ -1914,53 +1702,33 @@ def test_model_picker_keyboard_selection_and_live_refresh(
     picker.press("ArrowDown")
     expect(options).to_be_visible()
     picker.press("End")
-    expect(picker).to_have_attribute(
-        "aria-activedescendant", text_option.get_attribute("id") or ""
-    )
+    expect(picker).to_have_attribute("aria-activedescendant", text_option.get_attribute("id") or "")
     picker.press("Escape")
     expect(options).to_be_hidden()
-    expect(browser_page.locator("#settings-panel")).to_have_class(
-        re.compile(r"is-open")
-    )
+    expect(browser_page.locator("#settings-panel")).to_have_class(re.compile(r"is-open"))
     profile = chat.inference.selected_profile
     assert profile is not None and profile.model_id == "browser-test-model"
     picker.press("t")
-    expect(picker).to_have_attribute(
-        "aria-activedescendant", text_option.get_attribute("id") or ""
-    )
+    expect(picker).to_have_attribute("aria-activedescendant", text_option.get_attribute("id") or "")
     with browser_page.expect_response("**/chat/model") as saved:
         picker.press("Enter")
     assert saved.value.ok
-    expect(browser_page.locator("#chat-fragment")).to_have_attribute(
-        "data-revision", str(chat.revision)
-    )
+    expect(browser_page.locator("#chat-fragment")).to_have_attribute("data-revision", str(chat.revision))
     expect(picker).to_be_focused()
     expect(picker).to_have_text("Text model")
     picker.press("ArrowDown")
-    scroll_top = options.evaluate(
-        "element => { element.scrollTop = 400; return element.scrollTop; }"
-    )
-    browser_page.evaluate(
-        "window.previousModelPicker = document.getElementById('active-chat-model')"
-    )
-    _edit_message_in_background(
-        browser_page, message.id, "Updated while the picker is open"
-    )
-    browser_page.wait_for_function(
-        "() => window.previousModelPicker !== document.getElementById('active-chat-model')"
-    )
+    scroll_top = options.evaluate("element => { element.scrollTop = 400; return element.scrollTop; }")
+    browser_page.evaluate("window.previousModelPicker = document.getElementById('active-chat-model')")
+    _edit_message_in_background(browser_page, message.id, "Updated while the picker is open")
+    browser_page.wait_for_function("() => window.previousModelPicker !== document.getElementById('active-chat-model')")
     expect(picker).to_have_attribute("aria-expanded", "true")
     expect(options).to_be_visible()
     expect(picker).to_be_focused()
-    expect(picker).to_have_attribute(
-        "aria-activedescendant", text_option.get_attribute("id") or ""
-    )
+    expect(picker).to_have_attribute("aria-activedescendant", text_option.get_attribute("id") or "")
     _wait_for_message_text(browser_page, message.id, "Updated while the picker is open")
-    expect(
-        browser_page.locator(
-            '#settings-panel form[action="/chat/model"] input[name="revision"]'
-        )
-    ).to_have_value(str(chat.revision))
+    expect(browser_page.locator('#settings-panel form[action="/chat/model"] input[name="revision"]')).to_have_value(
+        str(chat.revision)
+    )
     assert options.evaluate("element => element.scrollTop") == scroll_top
     picker.press("Home")
     with browser_page.expect_response("**/chat/model") as cleared:
@@ -1972,9 +1740,7 @@ def test_model_picker_keyboard_selection_and_live_refresh(
     picker.press("ArrowDown")
     picker.press("Tab")
     expect(options).to_be_hidden()
-    expect(browser_page.locator("#settings-panel")).to_have_class(
-        re.compile(r"is-open")
-    )
+    expect(browser_page.locator("#settings-panel")).to_have_class(re.compile(r"is-open"))
 
 
 def test_model_picker_touch_selection_and_outside_dismissal(
@@ -2007,8 +1773,8 @@ def test_backend_model_picker_survives_configuration_refresh(
     """A dialog refresh retains focus, the popup, and any unsaved default model."""
 
     backend = browser_server.state.config.backends.backends[0]
-    browser_page.goto("/chats?dialog=global&tab=backends")
-    browser_page.locator(f"#backend-{backend.id} > summary").click()
+    browser_page.goto("/chats?dialog=backends")
+    browser_page.locator(f"#backend-settings-{backend.id} > summary").click()
     picker = browser_page.get_by_test_id(f"backend-model-{backend.id}")
     options = browser_page.locator(f"#backend-model-{backend.id}-options")
     picker.click()
@@ -2031,7 +1797,7 @@ def test_backend_model_picker_survives_configuration_refresh(
     )
     browser_page.wait_for_function("""() => {
         const dialog = document.getElementById('global-settings-dialog');
-        return dialog.open && dialog.querySelector('textarea[name="system_prompt"]')
+        return document.getElementById('backends-dialog').open && dialog.querySelector('textarea[name="system_prompt"]')
             .value === 'Changed in the background';
     }""")
     expect(picker).to_be_focused()
@@ -2049,10 +1815,7 @@ def test_model_picker_touch_scroll_does_not_select_or_dismiss(
         browser_server,
         (
             *backend.models,
-            *(
-                RegisteredModel(ModelDescriptor(f"extra-{index}", f"Extra {index:02}"))
-                for index in range(30)
-            ),
+            *(RegisteredModel(ModelDescriptor(f"extra-{index}", f"Extra {index:02}")) for index in range(30)),
         ),
     )
     _open_chat_page(page)
@@ -2068,9 +1831,7 @@ def test_model_picker_touch_scroll_does_not_select_or_dismiss(
     for distance in range(30, 181, 30):
         _dispatch_touch(session, "touchMove", x, y - distance)
     _dispatch_touch(session, "touchEnd")
-    page.wait_for_function(
-        "() => document.getElementById('active-chat-model-options').scrollTop > 0"
-    )
+    page.wait_for_function("() => document.getElementById('active-chat-model-options').scrollTop > 0")
     expect(picker).to_have_attribute("aria-expanded", "true")
     profile = browser_server.state.chats[0].inference.selected_profile
     assert profile is not None and profile.model_id == "browser-test-model"
@@ -2099,8 +1860,8 @@ def test_model_picker_fits_its_scroll_container(
         browser_page.get_by_test_id("open-settings-button").click()
         picker = browser_page.get_by_test_id("active-chat-model")
     else:
-        browser_page.goto("/chats?dialog=global&tab=backends")
-        browser_page.locator(f"#backend-{backend.id} > summary").click()
+        browser_page.goto("/chats?dialog=backends")
+        browser_page.locator(f"#backend-settings-{backend.id} > summary").click()
         picker = browser_page.get_by_test_id(f"backend-model-{backend.id}")
     picker.evaluate("element => element.scrollIntoView({block: 'end'})")
     picker.click()
@@ -2135,19 +1896,11 @@ def test_model_picker_typeahead_starts_after_the_current_selection(
     picker = browser_page.get_by_test_id("active-chat-model")
     picker.focus()
     picker.press("b")
-    alternative = browser_page.locator(
-        '#active-chat-model-options [data-model-value="text-model"]'
-    )
-    expect(picker).to_have_attribute(
-        "aria-activedescendant", alternative.get_attribute("id") or ""
-    )
+    alternative = browser_page.locator('#active-chat-model-options [data-model-value="text-model"]')
+    expect(picker).to_have_attribute("aria-activedescendant", alternative.get_attribute("id") or "")
     picker.press("b")
-    original = browser_page.locator(
-        '#active-chat-model-options [data-model-value="browser-test-model"]'
-    )
-    expect(picker).to_have_attribute(
-        "aria-activedescendant", original.get_attribute("id") or ""
-    )
+    original = browser_page.locator('#active-chat-model-options [data-model-value="browser-test-model"]')
+    expect(picker).to_have_attribute("aria-activedescendant", original.get_attribute("id") or "")
 
 
 @pytest.mark.parametrize("viewport_width", [390, 1280])
@@ -2159,9 +1912,7 @@ def test_phosphor_icons_render_and_continue_keeps_its_armed_variant(
     _ = chat.add_message("user", "Hello")
     reply = chat.add_message("assistant", "An example reply.")
     _open_chat_page(browser_page)
-    sprite_url = browser_page.locator('meta[name="jouzetsu-icons"]').get_attribute(
-        "content"
-    )
+    sprite_url = browser_page.locator('meta[name="jouzetsu-icons"]').get_attribute("content")
     assert sprite_url and sprite_url.startswith("/static/icons/sprite.svg?v=")
     sprite = browser_page.request.get(sprite_url)
     assert sprite.status == 200
@@ -2188,42 +1939,30 @@ def test_dynamically_added_controls_use_the_same_phosphor_sprite(
     browser_page.goto("/chats?dialog=global")
     details = browser_page.get_by_test_id("spelling-replacements-details")
     details.locator("summary").click()
-    original = details.locator(".jouzetsu-spelling-arrow use").first.get_attribute(
-        "href"
-    )
+    original = details.locator(".jouzetsu-spelling-arrow use").first.get_attribute("href")
     assert original and original.endswith("#arrow-right")
     details.get_by_role("button", name="Add replacement", exact=True).click()
-    expect(details.locator(".jouzetsu-spelling-arrow use").last).to_have_attribute(
-        "href", original
-    )
+    expect(details.locator(".jouzetsu-spelling-arrow use").last).to_have_attribute("href", original)
     _expect_icons_painted(browser_page)
     browser_page.goto("/characters")
     with browser_page.expect_navigation(wait_until="load"):
         browser_page.get_by_role("button", name="New character", exact=True).click()
     browser_page.get_by_role("button", name="Add custom field", exact=True).click()
     field_icon = browser_page.locator("[data-character-field-menu-toggle] svg use").last
-    expect(field_icon).to_have_attribute(
-        "href", original.replace("#arrow-right", "#more")
-    )
+    expect(field_icon).to_have_attribute("href", original.replace("#arrow-right", "#more"))
     _expect_icons_painted(browser_page)
 
 
 def test_phosphor_access_and_error_icons_preserve_their_behaviour(
     browser_page: Page, browser_server: BrowserServer
 ) -> None:
-    browser_server.state.config.access.devices["dvc_phosphor-test-0001"] = (
-        DeviceAccessSettings(label="Example phone")
-    )
+    browser_server.state.config.access.devices["dvc_phosphor-test-0001"] = DeviceAccessSettings(label="Example phone")
     browser_page.goto("/access/denied")
-    expect(browser_page.locator(".jouzetsu-access-icon use")).to_have_attribute(
-        "href", re.compile(r"#lock$")
-    )
+    expect(browser_page.locator(".jouzetsu-access-icon use")).to_have_attribute("href", re.compile(r"#lock$"))
     _expect_icons_painted(browser_page)
     browser_page.goto("/chats?dialog=access&error=Example%20error")
     _expect_icons_painted(browser_page)
-    expect(
-        browser_page.locator(".jouzetsu-dialog-feedback .jouzetsu-error-icon")
-    ).to_be_visible()
+    expect(browser_page.locator(".jouzetsu-dialog-feedback .jouzetsu-error-icon")).to_be_visible()
     card = browser_page.locator(".jouzetsu-device-card").first
     expect(card.locator(".jouzetsu-device-expand-icon")).to_be_visible()
     expect(card.locator(".jouzetsu-device-collapse-icon")).not_to_be_visible()
@@ -2292,29 +2031,19 @@ def test_every_message_action_icon_uses_its_configured_colour(
     browser_page.get_by_test_id("open-nav-button").click()
     browser_page.get_by_test_id("global-settings-button").click()
     browser_page.get_by_test_id("global-settings-dialog-appearance-tab").click()
-    expect(browser_page.get_by_test_id("message-action-style")).to_have_value(
-        "semantic"
-    )
+    expect(browser_page.get_by_test_id("message-action-style")).to_have_value("semantic")
 
 
-def test_send_only_and_shift_click_save_without_generating(
-    browser_page: Page, browser_server: BrowserServer
-) -> None:
+def test_send_only_and_shift_click_save_without_generating(browser_page: Page, browser_server: BrowserServer) -> None:
     _open_chat_page(browser_page)
     browser_page.get_by_test_id("message-input").fill("Send only")
     _send_only(browser_page)
-    expect(
-        browser_page.get_by_test_id("message-list").get_by_text("Send only", exact=True)
-    ).to_be_visible()
+    expect(browser_page.get_by_test_id("message-list").get_by_text("Send only", exact=True)).to_be_visible()
     expect(browser_page.get_by_test_id("message-input")).to_have_value("")
     assert not browser_server.client.requests
     browser_page.get_by_test_id("message-input").fill("Shift send")
     browser_page.get_by_test_id("send-message-button").click(modifiers=["Shift"])
-    expect(
-        browser_page.get_by_test_id("message-list").get_by_text(
-            "Shift send", exact=True
-        )
-    ).to_be_visible()
+    expect(browser_page.get_by_test_id("message-list").get_by_text("Shift send", exact=True)).to_be_visible()
     assert not browser_server.client.requests
 
 
@@ -2328,33 +2057,433 @@ def test_rejected_shift_click_does_not_change_the_next_keyboard_send(
         lambda route: route.fulfill(status=409, body="Controlled rejected send"),
     )
     browser_page.get_by_test_id("send-message-button").click(modifiers=["Shift"])
-    expect(browser_page.locator("#notice-area")).to_contain_text(
-        "Controlled rejected send"
-    )
+    expect(browser_page.locator("#notice-area")).to_contain_text("Controlled rejected send")
     browser_page.unroute("**/chat/send")
     browser_page.get_by_test_id("message-input").press("Shift+Enter")
     expect(browser_page.get_by_text("Browser test reply", exact=True)).to_be_visible()
     assert len(browser_server.client.requests) == 1
 
 
-def test_global_backend_controls_are_usable_on_mobile(browser_page: Page) -> None:
+def test_backend_controls_are_usable_on_mobile(browser_page: Page) -> None:
     browser_page.set_viewport_size({"width": 390, "height": 844})
-    browser_page.goto("/chats?dialog=global&tab=backends")
+    browser_page.goto("/chats?dialog=backends&tab=new")
     form = browser_page.get_by_test_id("add-backend-form")
     expect(form).to_be_visible()
     form.locator('[name="name"]').fill("Second local")
     form.locator('[name="base_url"]').fill("http://localhost:9000/v1")
     with browser_page.expect_navigation():
         form.get_by_role("button", name="Add backend").click()
-    expect(browser_page.locator("#global-settings-dialog")).to_be_visible()
+    expect(browser_page.locator("#backends-dialog")).to_be_visible()
+    expect(browser_page.get_by_role("tab", name="Second local", exact=False)).to_be_visible()
+
+
+def test_backends_menu_and_connection_tabs(browser_page: Page) -> None:
+    _open_chat_page(browser_page)
+    browser_page.get_by_test_id("open-nav-button").click()
+    browser_page.get_by_test_id("backends-button").click()
+    dialog = browser_page.locator("#backends-dialog")
+    expect(dialog).to_be_visible()
+    expect(dialog.locator(".jouzetsu-backend-default-form")).to_have_css("display", "grid")
+    tabs = dialog.get_by_role("tab")
+    expect(tabs).to_have_count(2)
+    expect(tabs.first).to_have_attribute("title", "Unknown")
+    expect(tabs.first.locator('[data-tab-indicator="warning"]')).to_be_visible()
+    expect(tabs.first).not_to_contain_text("Unknown")
+    tabs.last.focus()
+    tabs.last.press("Enter")
+    form = browser_page.get_by_test_id("add-backend-form")
+    form.locator('[name="name"]').fill("Second connection")
+    form.locator('[name="kind"]').select_option("openai_compatible")
+    form.locator('[name="base_url"]').fill("http://localhost:9000/v1")
+    with browser_page.expect_navigation():
+        form.get_by_role("button", name="Add backend").click()
+    second = dialog.get_by_role("tab", name="Second connection", exact=False)
+    expect(second).to_have_attribute("aria-selected", "true")
+    expect(dialog.get_by_role("tab")).to_have_count(3)
+    expect(dialog.get_by_role("tab").last).to_have_text("+ New Backend")
+    second.press("Home")
+    expect(dialog.get_by_role("tab").first).to_have_attribute("aria-selected", "true")
+    expect(dialog.get_by_role("tab").first).to_be_focused()
+    browser_page.get_by_test_id("backends-dialog-close-button").click()
+    browser_page.get_by_test_id("open-nav-button").click()
+    browser_page.get_by_test_id("global-settings-button").click()
+    expect(browser_page.locator('#global-settings-dialog [role="tab"]')).to_have_text(["Behaviour", "Appearance"])
+
+
+@pytest.mark.parametrize("viewport_width", [390, 1280])
+def test_model_dialog_preserves_edits_and_cancel_discards_them(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    tmp_path: Path,
+    viewport_width: int,
+) -> None:
+    browser_page.set_viewport_size({"width": viewport_width, "height": 844})
+    backend = browser_server.state.config.backends.backends[0]
+    browser_page.goto("/chats?dialog=backends")
+    parent = browser_page.locator("#backends-dialog")
+    card = parent.locator('[data-model-card="browser-test-model"]')
+    expect(card.get_by_role("button")).to_have_count(1)
+    expect(card.locator(".jouzetsu-model-identifier")).to_have_count(0)
+    assert parent.evaluate("element => element.scrollWidth <= element.clientWidth")
+    browser_page.screenshot(path=str(tmp_path / f"backends-{viewport_width}.png"))
+    card.get_by_role("button").click()
+    dialog = browser_page.locator("dialog[data-model-dialog][open]")
+    alias = dialog.locator('input[name="alias"]')
+    alias.fill("Unfinished alias")
+    browser_page.evaluate("window.originalBackends = document.getElementById('backends-dialog')")
+    token = browser_page.locator("[data-csrf-token]").get_attribute("data-csrf-token")
+    assert token is not None
+    response = browser_page.request.post(
+        "/settings/global/prompt",
+        headers={"X-Jouzetsu-CSRF": token},
+        form={"system_prompt": "Refresh while editing a model"},
+    )
+    assert response.ok
+    browser_page.wait_for_function("() => document.getElementById('backends-dialog') !== window.originalBackends")
+    expect(dialog).to_be_visible()
+    expect(alias).to_have_value("Unfinished alias")
+    expect(alias).to_be_focused()
+    browser_page.screenshot(path=str(tmp_path / f"model-dialog-{viewport_width}.png"))
+    dialog.get_by_role("button", name="Cancel", exact=True).click()
+    expect(browser_page.locator("dialog[data-model-dialog][open]")).to_have_count(0)
+    expect(parent).to_be_visible()
+    expect(card.get_by_role("button")).to_be_focused()
+    card.get_by_role("button").click()
+    expect(alias).to_have_value("")
+    alias.fill("Saved alias")
+    with browser_page.expect_response(f"**/settings/backends/{backend.id}/alias") as saved:
+        dialog.get_by_role("button", name="Save model", exact=True).click()
+    assert saved.value.ok
+    expect(browser_page.locator("dialog[data-model-dialog][open]")).to_have_count(0)
+    expect(card.get_by_role("button", name="Configure Saved alias")).to_be_visible()
+    assert browser_server.state.config.backends.backend(backend.id).model("browser-test-model").alias == "Saved alias"
+    assert browser_server.state.config.backends.backend(backend.id).defaults == backend.defaults
+
+
+def test_only_loaded_models_have_an_unload_action_on_the_card(
+    browser_page: Page, browser_server: BrowserServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from jouzetsu.backend_models import BackendKind, ModelManagementSettings
+    from jouzetsu.backend_protocol import ModelDiscovery
+
+    state = browser_server.state
+    backend = state.config.backends.backends[0]
+    state.config.backends = replace(
+        state.config.backends,
+        backends=(
+            replace(
+                backend,
+                kind=BackendKind.LM_STUDIO,
+                model_management=ModelManagementSettings(),
+            ),
+        ),
+    )
+    browser_server.client.native = True
+    browser_server.client.loaded = True
+
+    async def discover_models() -> ModelDiscovery:
+        first, *others = browser_server.client.descriptors
+        return ModelDiscovery(
+            True,
+            (
+                replace(
+                    first,
+                    loaded_instance_ids=("instance",) if browser_server.client.loaded else (),
+                ),
+                *others,
+            ),
+        )
+
+    monkeypatch.setattr(browser_server.client, "discover_models", discover_models)
+    browser_page.goto("/chats?dialog=backends")
+    cards = browser_page.locator(".jouzetsu-model-grid")
+    expect(cards.locator(".jouzetsu-model-load-state")).to_have_count(0)
+    expect(cards.get_by_role("button", name="Unload", exact=True)).to_have_count(0)
+    with browser_page.expect_response(f"**/settings/backends/{backend.id}/test"):
+        browser_page.get_by_role("button", name="Refresh models", exact=True).click()
+    loaded_card = cards.locator('[data-model-card="browser-test-model"]')
+    expect(loaded_card.get_by_role("button", name="Unload", exact=True)).to_be_visible()
+    expect(cards.get_by_role("button", name="Load", exact=True)).to_have_count(0)
+    expect(cards.locator('[data-model-card="text-model"]').get_by_role("button")).to_have_count(1)
+    loaded_card.get_by_role("button", name="Configure Browser test model").click()
+    dialog = browser_page.locator("dialog[data-model-dialog][open]")
+    expect(dialog.get_by_role("button", name="Load", exact=True)).to_be_visible()
+    expect(dialog.get_by_role("button", name="Unload", exact=True)).to_be_visible()
+    alias = dialog.locator('input[name="alias"]')
+    alias.fill("Keep this unfinished edit")
+    with browser_page.expect_response(f"**/settings/backends/{backend.id}/load") as loaded:
+        dialog.get_by_role("button", name="Load", exact=True).click()
+    assert loaded.value.ok
+    expect(alias).to_have_value("Keep this unfinished edit")
+    expect(dialog).to_be_visible()
+    assert state.config.backends.backend(backend.id).model("browser-test-model").alias == ""
+    dialog.get_by_role("button", name="Cancel", exact=True).click()
+    with browser_page.expect_response(f"**/settings/backends/{backend.id}/unload") as response:
+        loaded_card.get_by_role("button", name="Unload", exact=True).click()
+    assert response.value.ok
+    expect(loaded_card.get_by_role("button", name="Unload", exact=True)).to_have_count(0)
+    expect(loaded_card.get_by_text("Unloaded", exact=True)).to_have_count(0)
+    assert browser_server.client.unloads == ["instance"]
+    expect(browser_page.locator("dialog[data-model-dialog][open]")).to_have_count(0)
+    browser_server.client.loaded = True
+    token = browser_page.locator("[data-csrf-token]").get_attribute("data-csrf-token")
+    assert token is not None
+    response = browser_page.request.post(f"/settings/backends/{backend.id}/test", headers={"X-Jouzetsu-CSRF": token})
+    assert response.ok
+    expect(loaded_card.get_by_role("button", name="Unload", exact=True)).to_be_visible()
+
+
+def test_default_model_action_preserves_sampling_and_existing_chat_profile(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    state = browser_server.state
+    backend = state.config.backends.backends[0]
+    profile = state.chats[0].inference.selected_profile
+    browser_page.goto("/chats?dialog=backends")
+    browser_page.get_by_role("button", name="Configure Text model", exact=True).click()
+    dialog = browser_page.locator("dialog[data-model-dialog][open]")
+    alias = dialog.locator('input[name="alias"]')
+    alias.fill("My text model")
+    with browser_page.expect_response(f"**/settings/backends/{backend.id}/default-model") as saved:
+        dialog.get_by_role("button", name="Set as default", exact=True).click()
+    assert saved.value.ok
+    expect(dialog.get_by_text("Default model", exact=True)).to_be_visible()
+    current = state.config.backends.backend(backend.id)
+    assert current.defaults == replace(backend.defaults, model_id="text-model")
+    assert current.model("text-model").alias == ""
+    assert state.chats[0].inference.selected_profile == profile
+    expect(alias).to_have_value("My text model")
+    with browser_page.expect_response(f"**/settings/backends/{backend.id}/alias") as renamed:
+        dialog.get_by_role("button", name="Save model", exact=True).click()
+    assert renamed.value.ok
     expect(
-        browser_page.locator("#global-settings-dialog summary", has_text="Second local")
+        browser_page.locator('[data-model-card="text-model"]').get_by_text("Default model", exact=True)
     ).to_be_visible()
 
 
-def test_typing_during_send_keeps_the_next_draft_ordered(
+def test_backend_action_progress_and_errors_survive_live_refresh(
     browser_page: Page, browser_server: BrowserServer
 ) -> None:
+    from jouzetsu.backend_models import BackendKind, ModelManagementSettings
+
+    state = browser_server.state
+    backend = replace(
+        state.config.backends.backends[0],
+        kind=BackendKind.LM_STUDIO,
+        model_management=ModelManagementSettings(),
+    )
+    state.config.backends = replace(state.config.backends, backends=(backend,))
+    browser_server.client.native = True
+    browser_page.goto("/chats?dialog=backends")
+    browser_page.get_by_role("button", name="Configure Browser test model", exact=True).click()
+    dialog = browser_page.locator("dialog[data-model-dialog][open]")
+    alias = dialog.locator('input[name="alias"]')
+    alias.fill("Keep this edit")
+    pending: list[Route] = []
+
+    def hold_load(route: Route) -> None:
+        pending.append(route)
+
+    path = f"**/settings/backends/{backend.id}/load"
+    browser_page.route(path, hold_load)
+    dialog.get_by_role("button", name="Load", exact=True).click()
+    expect(dialog.get_by_role("button", name="Loading…", exact=True)).to_be_disabled()
+    expect(dialog.get_by_role("button", name="Unload", exact=True)).to_be_disabled()
+    browser_page.evaluate("window.originalBackends = document.getElementById('backends-dialog')")
+    token = browser_page.locator("[data-csrf-token]").get_attribute("data-csrf-token")
+    assert token is not None
+    assert browser_page.request.post(
+        "/settings/global/prompt",
+        headers={"X-Jouzetsu-CSRF": token},
+        form={"system_prompt": "Refresh during a model operation"},
+    ).ok
+    browser_page.wait_for_function("() => document.getElementById('backends-dialog') !== window.originalBackends")
+    expect(dialog.get_by_role("button", name="Loading…", exact=True)).to_be_disabled()
+    expect(dialog.get_by_role("button", name="Unload", exact=True)).to_be_disabled()
+    assert len(pending) == 1
+    pending.pop().fulfill(status=400, content_type="text/plain", body="The model could not be loaded.")
+    feedback = dialog.locator("[data-dialog-feedback]")
+    expect(feedback).to_contain_text("The model could not be loaded.")
+    expect(feedback).to_have_attribute("role", "alert")
+    assert feedback.evaluate("""element => {
+        const bounds = element.getBoundingClientRect();
+        return element.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+    }""")
+    expect(alias).to_have_value("Keep this edit")
+    expect(dialog.get_by_role("button", name="Load", exact=True)).to_be_enabled()
+    expect(dialog.get_by_role("button", name="Unload", exact=True)).to_be_enabled()
+    browser_page.unroute(path, hold_load)
+    with browser_page.expect_response(path) as loaded:
+        dialog.get_by_role("button", name="Load", exact=True).click()
+    assert loaded.value.ok
+    expect(feedback).to_have_text("Model loaded")
+    expect(feedback).to_have_attribute("role", "status")
+    expect(alias).to_have_value("Keep this edit")
+
+
+@pytest.mark.parametrize("viewport_width", [390, 1280])
+def test_backend_header_and_new_tab_remain_reachable(
+    browser_page: Page, browser_server: BrowserServer, viewport_width: int
+) -> None:
+    backend = browser_server.state.config.backends.backends[0]
+    _set_browser_models(
+        browser_server,
+        (
+            *backend.models,
+            *(RegisteredModel(ModelDescriptor(f"sample-{index}", f"Sample model {index}")) for index in range(18)),
+        ),
+    )
+    browser_page.set_viewport_size({"width": viewport_width, "height": 600})
+    browser_page.goto("/chats?dialog=backends")
+    _add_browser_backends(browser_page, 5)
+    dialog = browser_page.locator("#backends-dialog")
+    expect(dialog.get_by_role("tab")).to_have_count(7)
+    new_tab = dialog.get_by_role("tab", name="+ New Backend", exact=True)
+    assert new_tab.evaluate("""element => {
+        const tab = element.getBoundingClientRect();
+        const list = element.closest('[role=tablist]').getBoundingClientRect();
+        return tab.left >= list.left && tab.right <= list.right + 1;
+    }""")
+    dialog.evaluate("element => { element.scrollTop = element.scrollHeight; }")
+    close = browser_page.get_by_test_id("backends-dialog-close-button")
+    expect(close).to_be_in_viewport()
+    expect(new_tab).to_be_in_viewport()
+    assert close.evaluate("""element => {
+        const bounds = element.getBoundingClientRect();
+        return element.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+    }""")
+    new_tab.click()
+    expect(browser_page.get_by_test_id("add-backend-form")).to_be_visible()
+    close.click()
+    expect(dialog).to_be_hidden()
+
+
+@pytest.mark.parametrize(
+    "kind, example",
+    [
+        ("lm_studio", "http://localhost:1234/v1"),
+        ("ollama", "http://127.0.0.1:11434"),
+        ("openai_compatible", "http://localhost:8080/v1"),
+    ],
+)
+def test_backend_type_updates_hints_without_overwriting_entered_values(
+    browser_page: Page, kind: str, example: str
+) -> None:
+    browser_page.goto("/chats?dialog=backends&tab=new")
+    form = browser_page.get_by_test_id("add-backend-form")
+    name = form.get_by_role("textbox", name="Name", exact=True)
+    url = form.get_by_role("textbox", name="API base URL", exact=True)
+    name.fill("Custom connection")
+    url.fill("http://example.test:9090/v1")
+    form.get_by_role("combobox", name="Backend type", exact=True).select_option(kind)
+    expect(url).to_have_attribute("placeholder", example)
+    expect(form.locator("[data-backend-url-example]")).to_have_text(example)
+    expect(url).to_have_value("http://example.test:9090/v1")
+    expect(name).to_have_value("Custom connection")
+    expect(form.get_by_role("option", name="OpenAI-compatible API", exact=True)).to_have_count(1)
+
+
+def test_default_backend_can_be_saved_repeatedly_without_background_events(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    browser_page.add_init_script("delete window.EventSource;")
+    browser_page.goto("/chats?dialog=backends")
+    form = browser_page.locator(".jouzetsu-backend-default-form")
+    selection = form.get_by_role("combobox")
+    for backend_id in ("", browser_server.state.config.backends.backends[0].id):
+        selection.select_option(backend_id)
+        with browser_page.expect_response("**/settings/backends/default") as saved:
+            form.get_by_role("button", name="Save default", exact=True).click()
+        assert saved.value.ok
+        expect(form).not_to_have_attribute("aria-busy", "true")
+        assert browser_server.state.config.backends.default_backend_id == (backend_id or None)
+
+
+def test_model_default_action_cannot_silently_overwrite_dirty_backend_defaults(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    backend = browser_server.state.config.backends.backends[0]
+    browser_page.goto("/chats?dialog=backends")
+    settings = browser_page.locator(f"#backend-settings-{backend.id}")
+    settings.get_by_text("Backend settings", exact=True).click()
+    settings.get_by_role("textbox", name="Name", exact=True).fill("Unsaved name")
+    browser_page.get_by_role("button", name="Configure Text model", exact=True).click()
+    dialog = browser_page.locator("dialog[data-model-dialog][open]")
+    dialog.get_by_role("button", name="Set as default", exact=True).click()
+    expect(dialog.get_by_text("Default model", exact=True)).to_be_visible()
+    dialog.get_by_role("button", name="Cancel", exact=True).click()
+    with browser_page.expect_response(f"**/settings/backends/{backend.id}/save") as saved:
+        settings.get_by_role("button", name="Save backend", exact=True).click()
+    assert saved.value.status == 409
+    assert browser_server.state.config.backends.backend(backend.id).defaults.model_id == "text-model"
+    expect(settings.get_by_role("textbox", name="Name", exact=True)).to_have_value("Unsaved name")
+
+
+def test_backend_tab_scroll_survives_live_refresh(
+    browser_page: Page,
+) -> None:
+    browser_page.set_viewport_size({"width": 390, "height": 844})
+    browser_page.goto("/chats?dialog=backends")
+    _add_browser_backends(browser_page, 8)
+    expect(browser_page.locator("#backends-dialog [role=tab]")).to_have_count(10)
+    tabs = browser_page.locator("#backends-dialog [role=tablist]")
+    expected_scroll: float = tabs.evaluate("element => { element.scrollLeft = 120; return element.scrollLeft; }")
+    assert expected_scroll > 0
+    browser_page.evaluate("window.originalBackends = document.getElementById('backends-dialog')")
+    token = browser_page.locator("[data-csrf-token]").get_attribute("data-csrf-token")
+    assert token is not None
+    assert browser_page.request.post(
+        "/settings/global/prompt",
+        headers={"X-Jouzetsu-CSRF": token},
+        form={"system_prompt": "Refresh while browsing backend tabs"},
+    ).ok
+    browser_page.wait_for_function("() => document.getElementById('backends-dialog') !== window.originalBackends")
+    assert abs(tabs.evaluate("element => element.scrollLeft") - expected_scroll) <= 1
+
+
+def test_removing_backend_discards_only_its_own_unsaved_edits(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    browser_page.goto("/chats?dialog=backends")
+    _add_browser_backends(browser_page, 1)
+    dialog = browser_page.locator("#backends-dialog")
+    expect(dialog.get_by_role("tab")).to_have_count(3)
+    retained, target = browser_server.state.config.backends.backends
+    for backend in (retained, target):
+        dialog.get_by_test_id(f"backends-dialog-{backend.id}-tab").click()
+        settings = browser_page.locator(f"#backend-settings-{backend.id}")
+        settings.get_by_text("Backend settings", exact=True).click()
+        settings.get_by_role("textbox", name="Name", exact=True).fill(f"Unsaved {backend.name}")
+    browser_page.once("dialog", lambda confirmation: confirmation.accept())
+    with browser_page.expect_response(f"**/settings/backends/{target.id}/remove") as removed:
+        browser_page.locator(f"#backend-settings-{target.id}").get_by_role(
+            "button", name="Remove backend", exact=True
+        ).click()
+    assert removed.value.ok, removed.value.text()
+    expect(dialog.get_by_test_id(f"backends-dialog-{target.id}-tab")).to_have_count(0)
+    expect(dialog.get_by_role("tab")).to_have_count(2)
+    expect(browser_page.locator(f'#backend-settings-{retained.id} input[name="name"]')).to_have_value(
+        f"Unsaved {retained.name}"
+    )
+    assert browser_server.state.config.backends.backends == (retained,)
+
+
+def _add_browser_backends(page: Page, count: int) -> None:
+    token = page.locator("[data-csrf-token]").get_attribute("data-csrf-token")
+    assert token is not None
+    for index in range(count):
+        assert page.request.post(
+            "/settings/backends/new",
+            headers={"X-Jouzetsu-CSRF": token},
+            form={
+                "kind": "ollama",
+                "name": f"Additional backend {index}",
+                "base_url": "http://127.0.0.1:11434",
+            },
+        ).ok
+
+
+def test_typing_during_send_keeps_the_next_draft_ordered(browser_page: Page, browser_server: BrowserServer) -> None:
     _open_chat_page(browser_page)
     browser_page.evaluate("""() => {
         const original = fetch.bind(window);
@@ -2369,16 +2498,12 @@ def test_typing_during_send_keeps_the_next_draft_ordered(
     browser_page.wait_for_function("() => typeof window.releaseSend === 'function'")
     browser_page.get_by_test_id("message-input").fill("The next unsent draft")
     browser_page.evaluate("window.releaseSend()")
-    expect(browser_page.get_by_test_id("message-input")).to_have_value(
-        "The next unsent draft"
-    )
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("The next unsent draft")
     browser_page.wait_for_function(
         "() => document.querySelector('.jouzetsu-composer-form input[name=draft_revision]').value === '3'"
     )
     assert browser_server.state.chats[0].draft == "The next unsent draft"
-    assert [message.content for message in browser_server.state.chats[0].messages] == [
-        "First submission"
-    ]
+    assert [message.content for message in browser_server.state.chats[0].messages] == ["First submission"]
 
 
 def test_rejected_attachment_stays_available_for_explicit_retry(
@@ -2406,9 +2531,7 @@ def test_incoming_settings_preserve_focused_unsaved_form(
     browser_page: Page, browser_server: BrowserServer, chromium_browser: Browser
 ) -> None:
     browser_page.goto("/chats?dialog=global")
-    prompt = browser_page.locator(
-        '#global-settings-dialog textarea[name="system_prompt"]'
-    )
+    prompt = browser_page.locator('#global-settings-dialog textarea[name="system_prompt"]')
     prompt.fill("Keep this unsaved prompt")
     context = chromium_browser.new_context(base_url=browser_server.base_url)
     other = context.new_page()
@@ -2420,38 +2543,28 @@ def test_incoming_settings_preserve_focused_unsaved_form(
             return response.status;
         }""")
         assert status == 200
-        browser_page.wait_for_function(
-            "() => document.querySelector('#global-settings-dialog').open"
-        )
+        browser_page.wait_for_function("() => document.querySelector('#global-settings-dialog').open")
         expect(prompt).to_have_value("Keep this unsaved prompt")
         expect(prompt).to_be_focused()
-        assert (
-            browser_server.state.config.generation.system_prompt == "Other saved prompt"
-        )
+        assert browser_server.state.config.generation.system_prompt == "Other saved prompt"
     finally:
         context.close()
 
 
-def test_missing_original_renders_unavailable_placeholder(
-    browser_page: Page, browser_server: BrowserServer
-) -> None:
+def test_missing_original_renders_unavailable_placeholder(browser_page: Page, browser_server: BrowserServer) -> None:
     image = browser_server.state.images.store(image_bytes(), "missing-original.png")
     message = browser_server.state.chats[0].add_message("user", "Retained reference")
     message.images = (image,)
     browser_server.state.images.path_for(image).unlink()
     _open_chat_page(browser_page)
-    expect(
-        browser_page.get_by_text("Image unavailable: missing-original.png", exact=True)
-    ).to_be_visible()
+    expect(browser_page.get_by_text("Image unavailable: missing-original.png", exact=True)).to_be_visible()
     assert message.images == (image,)
 
 
 def test_send_uses_secure_fallback_when_random_uuid_is_unavailable(
     browser_page: Page, browser_server: BrowserServer
 ) -> None:
-    browser_page.add_init_script(
-        "Object.defineProperty(Crypto.prototype, 'randomUUID', {value: undefined});"
-    )
+    browser_page.add_init_script("Object.defineProperty(Crypto.prototype, 'randomUUID', {value: undefined});")
     _open_chat_page(browser_page)
     browser_page.get_by_test_id("message-input").fill("HTTP LAN submission")
     browser_page.get_by_test_id("send-message-button").click()
@@ -2477,9 +2590,7 @@ def test_continuous_typing_publishes_shared_drafts_without_a_pause(
     assert browser_server.state.chats[0].draft.startswith("Continuous input")
 
 
-def test_slow_draft_requests_coalesce_continued_typing(
-    browser_page: Page, browser_server: BrowserServer
-) -> None:
+def test_slow_draft_requests_coalesce_continued_typing(browser_page: Page, browser_server: BrowserServer) -> None:
     _open_chat_page(browser_page)
     browser_page.clock.install()
     browser_page.clock.pause_at("2030-01-01T00:00:00Z")
@@ -2574,9 +2685,7 @@ def test_delayed_draft_echo_keeps_mobile_keyboard_input_connected(
             keyboardInput.setSelectionRange = (...args) => { window.selectionWrites += 1; setSelection(...args); };
             window.releaseComposer();
         }""")
-        page.wait_for_function(
-            "() => document.getElementById('chat-fragment').dataset.draftRevision === '1'"
-        )
+        page.wait_for_function("() => document.getElementById('chat-fragment').dataset.draftRevision === '1'")
         assert page.evaluate("""() => (
             keyboardInput === document.querySelector('[data-testid=message-input]')
             && document.activeElement === keyboardInput && !keyboardBlurred
@@ -2709,9 +2818,7 @@ def test_delayed_send_acknowledgement_does_not_reverse_chat_navigation(
 
 def test_refreshed_dialog_retains_backdrop_dismissal(browser_page: Page) -> None:
     browser_page.goto("/chats?dialog=global")
-    browser_page.wait_for_function(
-        "() => document.getElementById('global-settings-dialog').open"
-    )
+    browser_page.wait_for_function("() => document.getElementById('global-settings-dialog').open")
     assert (
         browser_page.evaluate("""async () => {
         window.originalDialog = document.getElementById('global-settings-dialog');
@@ -2723,19 +2830,15 @@ def test_refreshed_dialog_retains_backdrop_dismissal(browser_page: Page) -> None
     }""")
         == 200
     )
-    browser_page.wait_for_function(
-        "() => document.getElementById('global-settings-dialog') !== window.originalDialog"
+    browser_page.wait_for_function("() => document.getElementById('global-settings-dialog') !== window.originalDialog")
+    expect(browser_page.locator('#global-settings-dialog textarea[name="system_prompt"]')).to_have_value(
+        "Refresh the dialog"
     )
-    expect(
-        browser_page.locator('#global-settings-dialog textarea[name="system_prompt"]')
-    ).to_have_value("Refresh the dialog")
     browser_page.mouse.click(1, 1)
     expect(browser_page.locator("#global-settings-dialog")).not_to_be_visible()
 
 
-def test_storage_warning_survives_transient_notice_updates(
-    browser_page: Page, browser_server: BrowserServer
-) -> None:
+def test_storage_warning_survives_transient_notice_updates(browser_page: Page, browser_server: BrowserServer) -> None:
     storage = browser_server.state.storage
     (storage.directory / "damaged.json").write_text("{broken", encoding="utf-8")
     storage.load_all()
@@ -2778,18 +2881,10 @@ def test_lost_send_response_can_retry_the_same_submission(
     }""")
     browser_page.get_by_test_id("message-input").fill("Retry this accepted submission")
     _send_only(browser_page)
-    expect(browser_page.locator("#notice-area")).to_contain_text(
-        "Could not save this change"
-    )
-    browser_page.wait_for_function(
-        "() => document.getElementById('chat-fragment').dataset.revision === '1'"
-    )
-    expect(browser_page.get_by_test_id("message-input")).to_have_value(
-        "Retry this accepted submission"
-    )
-    expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(
-        1 if with_image else 0
-    )
+    expect(browser_page.locator("#notice-area")).to_contain_text("Could not save this change")
+    browser_page.wait_for_function("() => document.getElementById('chat-fragment').dataset.revision === '1'")
+    expect(browser_page.get_by_test_id("message-input")).to_have_value("Retry this accepted submission")
+    expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1 if with_image else 0)
     _send_only(browser_page)
     expect(browser_page.get_by_test_id("message-input")).to_have_value("")
     chat = browser_server.state.chats[0]
@@ -2840,12 +2935,8 @@ def test_appearance_changes_refresh_another_browsers_styles(
         other.get_by_test_id("appearance-dark-mode").uncheck()
         with other.expect_navigation():
             other.get_by_test_id("save-global-appearance-button").click()
-        expect(browser_page.locator("body")).to_have_css(
-            "background-color", "rgb(255, 255, 255)"
-        )
-        expect(browser_page.locator(".jouzetsu-composer-primary")).to_have_css(
-            "background-color", "rgb(34, 187, 221)"
-        )
+        expect(browser_page.locator("body")).to_have_css("background-color", "rgb(255, 255, 255)")
+        expect(browser_page.locator(".jouzetsu-composer-primary")).to_have_css("background-color", "rgb(34, 187, 221)")
     finally:
         context.close()
 
@@ -2860,47 +2951,33 @@ def test_two_browsers_reject_stale_backend_settings_without_losing_edits(
     other.set_default_timeout(_BROWSER_ACTION_TIMEOUT_MS)
     try:
         for page in (browser_page, other):
-            page.goto("/chats?dialog=global&tab=backends")
-            page.locator(f"#backend-{configured.id} > summary").click()
+            page.goto("/chats?dialog=backends")
+            page.locator(f"#backend-settings-{configured.id} > summary").click()
         form_a = browser_page.locator(f'form[action="{path}"]')
         form_b = other.locator(f'form[action="{path}"]')
         token = form_b.locator('[name="backend_fingerprint"]').input_value()
         form_a.locator('[name="name"]').fill("First browser saved")
         form_b.locator('[name="name"]').fill("Second browser unsaved")
-        with browser_page.expect_response(
-            lambda response: response.url.endswith(path)
-        ) as accepted:
+        with browser_page.expect_response(lambda response: response.url.endswith(path)) as accepted:
             form_a.get_by_role("button", name="Save backend", exact=True).click()
         assert accepted.value.status == 200
-        expect(other.locator(f"#backend-{configured.id} > summary")).to_contain_text(
-            "First browser saved"
-        )
+        expect(other.get_by_test_id(f"backends-dialog-{configured.id}-tab")).to_contain_text("First browser saved")
         expect(form_b.locator('[name="backend_fingerprint"]')).to_have_value(token)
-        with other.expect_response(
-            lambda response: response.url.endswith(path)
-        ) as rejected:
+        with other.expect_response(lambda response: response.url.endswith(path)) as rejected:
             form_b.get_by_role("button", name="Save backend", exact=True).click()
         assert rejected.value.status == 409
-        expect(other.locator("#notice-area")).to_contain_text("changed elsewhere")
+        expect(other.locator("#backends-dialog [data-dialog-feedback]").first).to_contain_text("changed elsewhere")
         expect(form_b.locator('[name="name"]')).to_have_value("Second browser unsaved")
-        assert (
-            browser_server.state.config.backends.backend(configured.id).name
-            == "First browser saved"
-        )
+        assert browser_server.state.config.backends.backend(configured.id).name == "First browser saved"
         loaded = ConfigStore.for_paths(browser_server.state.config.paths).load()
         assert loaded.backends.backend(configured.id).name == "First browser saved"
         expect(form_a.locator('[name="backend_fingerprint"]')).not_to_have_value(token)
         form_a.locator('[name="name"]').fill("Subsequent valid edit")
-        with browser_page.expect_response(
-            lambda response: response.url.endswith(path)
-        ) as valid:
+        with browser_page.expect_response(lambda response: response.url.endswith(path)) as valid:
             form_a.get_by_role("button", name="Save backend", exact=True).click()
         assert valid.value.status == 200
         expect(form_b.locator('[name="name"]')).to_have_value("Second browser unsaved")
-        assert (
-            browser_server.state.config.backends.backend(configured.id).name
-            == "Subsequent valid edit"
-        )
+        assert browser_server.state.config.backends.backend(configured.id).name == "Subsequent valid edit"
     finally:
         context.close()
 
@@ -2926,9 +3003,7 @@ def test_chats_workspace_restores_independent_browser_selections(
             arg=second.id,
         )
         second_url = browser_page.url
-        _edit_message_in_background(
-            other, message.id, "Make the first chat globally newest"
-        )
+        _edit_message_in_background(other, message.id, "Make the first chat globally newest")
         assert browser_server.state.chats[0] is first
         for page, expected in ((browser_page, second_url), (other, first_url)):
             page.goto("/characters")
@@ -2988,17 +3063,11 @@ def test_long_transcript_draft_updates_only_refresh_composers(
         browser_page.get_by_test_id("message-input").fill("Keep my unsaved local text")
         expect(browser_page.locator("#notice-area")).to_contain_text("Could not save")
         other.get_by_test_id("message-input").fill("Newer shared text")
-        browser_page.wait_for_function(
-            "() => document.getElementById('chat-fragment').dataset.draftRevision === '5'"
-        )
-        expect(browser_page.get_by_test_id("message-input")).to_have_value(
-            "Keep my unsaved local text"
-        )
+        browser_page.wait_for_function("() => document.getElementById('chat-fragment').dataset.draftRevision === '5'")
+        expect(browser_page.get_by_test_id("message-input")).to_have_value("Keep my unsaved local text")
         browser_page.unroute("**/chat/draft")
         browser_page.get_by_test_id("message-input").fill("Keep my rejected correction")
-        expect(browser_page.locator("#notice-area")).to_contain_text(
-            "changed elsewhere"
-        )
+        expect(browser_page.locator("#notice-area")).to_contain_text("changed elsewhere")
         expect(browser_page.get_by_test_id("remove-draft-image")).to_have_count(1)
         for page in (browser_page, other):
             assert page.evaluate("window.transcriptMutations") == 0
@@ -3033,20 +3102,14 @@ def test_focused_draft_refresh_preserves_running_generation_status(
         expect(browser_page.locator("article.is-streaming")).to_be_visible()
         _open_chat_page(other)
         other.get_by_test_id("message-input").fill("Draft during held generation")
-        expect(browser_page.get_by_test_id("message-input")).to_have_value(
-            "Draft during held generation"
-        )
+        expect(browser_page.get_by_test_id("message-input")).to_have_value("Draft during held generation")
         for page in (browser_page, other):
             expect(page.get_by_test_id("stop-generation-button")).to_be_enabled()
-            expect(page.locator("article.is-streaming")).to_contain_text(
-                "deliberately long"
-            )
+            expect(page.locator("article.is-streaming")).to_contain_text("deliberately long")
         gate.set()
         for page in (browser_page, other):
             expect(page.get_by_test_id("send-message-button")).to_be_visible()
-            expect(page.get_by_test_id("message-input")).to_have_value(
-                "Draft during held generation"
-            )
+            expect(page.get_by_test_id("message-input")).to_have_value("Draft during held generation")
         assert len(browser_server.client.requests) == 1
     finally:
         gate.set()

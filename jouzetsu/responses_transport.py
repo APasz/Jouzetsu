@@ -53,9 +53,7 @@ class InputMessage(TypedDict):
     content: str | list[InputText | InputImage]
 
 
-def encode_request(
-    request: GenerationRequest, ready: ModelReady, images: ImageStorage | None
-) -> bytes:
+def encode_request(request: GenerationRequest, ready: ModelReady, images: ImageStorage | None) -> bytes:
     """Send ordered history and originals without storing a server-side conversation."""
     messages: list[InputMessage] = []
     for message in build_messages(request.messages, images):
@@ -68,13 +66,9 @@ def encode_request(
             if part["type"] == "text":
                 parts.append({"type": "input_text", "text": part["text"]})
             else:
-                parts.append(
-                    {"type": "input_image", "image_url": part["image_url"]["url"]}
-                )
+                parts.append({"type": "input_image", "image_url": part["image_url"]["url"]})
         messages.append({"role": message["role"], "content": parts})
-    parameters: dict[str, float | int] = {
-        name: value for name, value in request.wire_parameters.items()
-    }
+    parameters: dict[str, float | int] = {name: value for name, value in request.wire_parameters.items()}
     max_tokens = parameters.pop("max_tokens", None)
     payload: dict[str, object] = {
         "model": ready.instance_id or request.model.model_id,
@@ -143,9 +137,7 @@ async def response_events(
                 raise protocol_error()
             result = json_object(event.get("response"))
             if result.get("model") not in (wire_model, ready.model_key):
-                raise protocol_error(
-                    "The backend responded with an unexpected model instance."
-                )
+                raise protocol_error("The backend responded with an unexpected model instance.")
             identifier = result.get("id")
             if not isinstance(identifier, str) or not identifier.strip():
                 raise protocol_error()
@@ -164,9 +156,7 @@ async def response_events(
                 if first_token_at is None:
                     first_token_at = asyncio.get_running_loop().time()
                     yield FirstToken()
-                yield PredictionFragment(
-                    delta, None, kind == "response.reasoning_text.delta"
-                )
+                yield PredictionFragment(delta, None, kind == "response.reasoning_text.delta")
         elif kind in {"response.output_item.added", "response.output_item.done"}:
             _validate_output_item(event.get("item"))
         elif kind.startswith("response.refusal") or "function_call" in kind:
@@ -179,14 +169,10 @@ async def response_events(
             if result.get("id") != response_id:
                 raise protocol_error("The backend changed response identity.")
             if result.get("model") not in (wire_model, ready.model_key):
-                raise protocol_error(
-                    "The backend responded with an unexpected model instance."
-                )
+                raise protocol_error("The backend responded with an unexpected model instance.")
             if result.get("truncation") != "disabled":
                 raise UnsafeContextError()
-            expected_status = (
-                "completed" if kind == "response.completed" else "incomplete"
-            )
+            expected_status = "completed" if kind == "response.completed" else "incomplete"
             if result.get("status") != expected_status:
                 raise protocol_error()
             output = result.get("output")
@@ -194,24 +180,14 @@ async def response_events(
                 raise protocol_error()
             for raw_item in cast(list[object], output):
                 _validate_output_item(raw_item)
-            usage = (
-                json_object(result["usage"]) if result.get("usage") is not None else {}
-            )
+            usage = json_object(result["usage"]) if result.get("usage") is not None else {}
             output_tokens = token_count(usage, "output_tokens")
             input_tokens = token_count(usage, "input_tokens")
-            details = (
-                json_object(result["incomplete_details"])
-                if result.get("incomplete_details") is not None
-                else {}
-            )
+            details = json_object(result["incomplete_details"]) if result.get("incomplete_details") is not None else {}
             reason = details.get("reason")
             if reason is not None and not isinstance(reason, str):
                 raise protocol_error()
-            reasoning = (
-                json_object(result["reasoning"])
-                if result.get("reasoning") is not None
-                else {}
-            )
+            reasoning = json_object(result["reasoning"]) if result.get("reasoning") is not None else {}
             effort = reasoning.get("effort")
             reported: ReasoningOption | None = (
                 "off"
@@ -229,13 +205,9 @@ async def response_events(
                     output_tokens=output_tokens,
                     prompt_tokens=input_tokens,
                     tokens_per_second=output_tokens / duration
-                    if output_tokens is not None
-                    and duration is not None
-                    and duration > 0
+                    if output_tokens is not None and duration is not None and duration > 0
                     else None,
-                    time_to_first_token_seconds=first_token_at - started_at
-                    if first_token_at is not None
-                    else None,
+                    time_to_first_token_seconds=first_token_at - started_at if first_token_at is not None else None,
                     stop_reason=reason,
                     reasoning_level=reported,
                 )

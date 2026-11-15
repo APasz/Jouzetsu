@@ -85,9 +85,7 @@ def _chat_view(
     ("default", "state", "label"),
     [(None, "automatic", "Automatic"), ("off", "off", "Off"), ("on", "on", "On")],
 )
-def test_reasoning_button_reflects_the_model_default(
-    default: ReasoningOption | None, state: str, label: str
-) -> None:
+def test_reasoning_button_reflects_the_model_default(default: ReasoningOption | None, state: str, label: str) -> None:
     view = replace(
         _chat_view(Chat()),
         reasoning_options=("off", "on"),
@@ -276,9 +274,7 @@ def test_streaming_message_renders_commonmark_before_completion() -> None:
 
 
 def test_live_chat_fragment_contains_only_streaming_values() -> None:
-    assistant: Message = Message(
-        id="assistant-stream", role="assistant", content="Streamed response"
-    )
+    assistant: Message = Message(id="assistant-stream", role="assistant", content="Streamed response")
     view: ChatView = _chat_view(
         Chat(
             id="chat-stream",
@@ -302,9 +298,7 @@ def test_live_chat_fragment_contains_only_streaming_values() -> None:
     assert "Streamed response" in markup
     assert 'data-live-composer-status="true"' in markup
     assert 'data-live-generation-reasoning="true"' in markup
-    assert (
-        'data-live-generation-reasoning-text="Checking the requested details"' in markup
-    )
+    assert 'data-live-generation-reasoning-text="Checking the requested details"' in markup
     assert "jouzetsu-message-surface" not in markup
 
 
@@ -317,9 +311,7 @@ def test_generating_composer_exposes_a_collapsed_live_reasoning_panel() -> None:
     )
 
     markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
-    panel_opening: str = markup[
-        markup.index("<details") : markup.index(">", markup.index("<details"))
-    ]
+    panel_opening: str = markup[markup.index("<details") : markup.index(">", markup.index("<details"))]
 
     assert 'data-testid="generation-reasoning"' in markup
     assert "Thinking" in markup
@@ -328,9 +320,7 @@ def test_generating_composer_exposes_a_collapsed_live_reasoning_panel() -> None:
     assert "open" not in panel_opening
 
 
-def test_chat_fragment_exposes_the_active_chat_identity_for_stable_reconciliation() -> (
-    None
-):
+def test_chat_fragment_exposes_the_active_chat_identity_for_stable_reconciliation() -> None:
     view: ChatView = _chat_view(
         Chat(id="chat-stable"),
         runtime_status=RuntimeStatus(RuntimePhase.READY),
@@ -345,9 +335,7 @@ def test_chat_fragment_exposes_the_active_chat_identity_for_stable_reconciliatio
     assert "say hi." not in markup
 
 
-def test_streaming_message_exposes_its_unmodified_text_for_incremental_animation() -> (
-    None
-):
+def test_streaming_message_exposes_its_unmodified_text_for_incremental_animation() -> None:
     markup: str = _render_message(
         [Message(id="assistant-stream", role="assistant", content="First words")],
         0,
@@ -359,9 +347,7 @@ def test_streaming_message_exposes_its_unmodified_text_for_incremental_animation
     assert "data-streaming-pending" not in markup
 
 
-def test_notice_uses_explicit_status_and_error_semantics_with_a_dismiss_control() -> (
-    None
-):
+def test_notice_uses_explicit_status_and_error_semantics_with_a_dismiss_control() -> None:
     success_markup: str = repr(render_notice_area(notice="Chat saved", error=""))
     error_markup: str = repr(render_notice_area(notice="", error="Could not save chat"))
 
@@ -374,11 +360,7 @@ def test_notice_uses_explicit_status_and_error_semantics_with_a_dismiss_control(
 
 def test_message_actions_always_use_the_shared_action_group() -> None:
     markup: str = _render_message(
-        [
-            Message(
-                id="assistant-muted", role="assistant", content="A compact action bar"
-            )
-        ],
+        [Message(id="assistant-muted", role="assistant", content="A compact action bar")],
         0,
     )
 
@@ -398,9 +380,7 @@ def test_message_actions_enable_semantic_colours_only_when_selected() -> None:
     assert 'class="jouzetsu-message-actions is-semantic"' in markup
 
 
-def test_composer_places_the_message_input_before_actions_for_keyboard_navigation() -> (
-    None
-):
+def test_composer_places_the_message_input_before_actions_for_keyboard_navigation() -> None:
     view: ChatView = _chat_view(
         Chat(id="chat-composer"),
         runtime_status=RuntimeStatus(RuntimePhase.READY),
@@ -408,9 +388,7 @@ def test_composer_places_the_message_input_before_actions_for_keyboard_navigatio
 
     markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
 
-    assert markup.index('data-testid="message-input"') < markup.index(
-        'data-testid="send-message-button"'
-    )
+    assert markup.index('data-testid="message-input"') < markup.index('data-testid="send-message-button"')
     assert 'rows="1"' in markup
     assert "jouzetsu-composer-input-row" in markup
     assert "jouzetsu-composer-primary" in markup
@@ -429,11 +407,7 @@ def test_editing_composer_marks_the_auto_sized_edit_mode() -> None:
         runtime_status=RuntimeStatus(RuntimePhase.READY),
     )
 
-    markup: str = str(
-        render_composer(
-            view, edit_message_id=editing_message.id, editing_message=editing_message
-        )
-    )
+    markup: str = str(render_composer(view, edit_message_id=editing_message.id, editing_message=editing_message))
 
     assert 'data-composer-mode="edit"' in markup
     assert 'data-testid="save-edit-button"' in markup
@@ -444,29 +418,19 @@ def test_editing_composer_marks_the_auto_sized_edit_mode() -> None:
     assert "composer-resize-handle" in markup
 
 
-def test_editing_composer_disables_an_empty_edit_and_exposes_inline_validation() -> (
-    None
-):
+def test_editing_composer_disables_an_empty_edit_and_exposes_inline_validation() -> None:
     editing_message = Message(id="user-empty-edit", role="user", content="")
     view: ChatView = _chat_view(
         Chat(id="chat-empty-edit", messages=[editing_message]),
         runtime_status=RuntimeStatus(RuntimePhase.READY),
     )
 
-    markup: str = str(
-        render_composer(
-            view, edit_message_id=editing_message.id, editing_message=editing_message
-        )
-    )
+    markup: str = str(render_composer(view, edit_message_id=editing_message.id, editing_message=editing_message))
     input_test_id: int = markup.index('data-testid="message-input"')
-    input_opening: str = markup[
-        markup.rfind("<textarea", 0, input_test_id) : markup.index(">", input_test_id)
-    ]
+    input_opening: str = markup[markup.rfind("<textarea", 0, input_test_id) : markup.index(">", input_test_id)]
     save_button_start: int = markup.index('data-testid="save-edit-button"')
     save_button_opening: str = markup[
-        markup.rfind("<button", 0, save_button_start) : markup.index(
-            ">", save_button_start
-        )
+        markup.rfind("<button", 0, save_button_start) : markup.index(">", save_button_start)
     ]
 
     assert "required" in input_opening
@@ -475,9 +439,7 @@ def test_editing_composer_disables_an_empty_edit_and_exposes_inline_validation()
     assert "hidden" in markup
 
 
-def test_generating_composer_keeps_the_draft_input_available_and_uses_the_primary_stop_control() -> (
-    None
-):
+def test_generating_composer_keeps_the_draft_input_available_and_uses_the_primary_stop_control() -> None:
     view: ChatView = _chat_view(
         Chat(id="chat-generating", draft="Next question"),
         generating=True,
@@ -488,10 +450,7 @@ def test_generating_composer_keeps_the_draft_input_available_and_uses_the_primar
     input_end: int = markup.index("</textarea>")
 
     assert 'data-composer-generating="true"' in markup
-    assert (
-        "disabled"
-        not in markup[markup.index('data-testid="message-input"') : input_end]
-    )
+    assert "disabled" not in markup[markup.index('data-testid="message-input"') : input_end]
     assert "required" not in markup[markup.rfind("<textarea", 0, input_end) : input_end]
     assert "jouzetsu-generation-strip" in markup
     assert 'data-testid="stop-generation-button"' in markup
@@ -499,12 +458,7 @@ def test_generating_composer_keeps_the_draft_input_available_and_uses_the_primar
     assert 'data-testid="send-message-button"' not in markup
     stop_button_start: int = markup.index('data-testid="stop-generation-button"')
     assert (
-        "disabled"
-        not in markup[
-            markup.rfind("<button", 0, stop_button_start) : markup.index(
-                ">", stop_button_start
-            )
-        ]
+        "disabled" not in markup[markup.rfind("<button", 0, stop_button_start) : markup.index(">", stop_button_start)]
     )
 
 
@@ -532,9 +486,7 @@ def test_generating_chat_disables_every_generation_sensitive_setting() -> None:
         "active-chat-save-reasoning",
     ):
         marker_index: int = markup.index(f'data-testid="{marker}"')
-        opening_tag: str = markup[
-            markup.rfind("<", 0, marker_index) : markup.index(">", marker_index)
-        ]
+        opening_tag: str = markup[markup.rfind("<", 0, marker_index) : markup.index(">", marker_index)]
         assert "disabled" in opening_tag
 
 
@@ -591,24 +543,14 @@ def test_composer_status_distinguishes_model_loading_from_prompt_processing() ->
 
     markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
 
-    assert (
-        'data-composer-status-state="true" class="jouzetsu-composer-status-state">Loading'
-        in markup
-    )
-    assert (
-        'data-composer-status-detail="true" class="jouzetsu-composer-status-detail">Cold Model'
-        in markup
-    )
+    assert 'data-composer-status-state="true" class="jouzetsu-composer-status-state">Loading' in markup
+    assert 'data-composer-status-detail="true" class="jouzetsu-composer-status-detail">Cold Model' in markup
     assert "in progress" not in markup
     assert "Processing prompt" not in markup
     assert 'data-composer-status-progress="true"' in markup
     assert "data-composer-status-load-progress" not in markup
     progress_marker_index: int = markup.index('data-composer-status-progress="true"')
-    progress_tag: str = markup[
-        markup.rfind("<", 0, progress_marker_index) : markup.index(
-            ">", progress_marker_index
-        )
-    ]
+    progress_tag: str = markup[markup.rfind("<", 0, progress_marker_index) : markup.index(">", progress_marker_index)]
     assert "hidden" in progress_tag
     assert 'data-composer-status-timers="true"' in markup
     assert 'data-composer-status-stage-elapsed="true"' in markup
@@ -675,11 +617,7 @@ def test_loading_composer_status_renders_numeric_progress_bar() -> None:
     assert 'aria-label="Model loading progress"' in markup
     assert 'aria-valuenow="50.000"' in markup
     progress_marker_index = markup.index('data-composer-status-progress="true"')
-    progress_tag = markup[
-        markup.rfind("<", 0, progress_marker_index) : markup.index(
-            ">", progress_marker_index
-        )
-    ]
+    progress_tag = markup[markup.rfind("<", 0, progress_marker_index) : markup.index(">", progress_marker_index)]
     assert "hidden" not in progress_tag
     assert markup.count('aria-live="off"') == 2
     assert "--jouzetsu-composer-status-load-progress: 50.000%" in markup
@@ -705,9 +643,7 @@ def test_composer_groups_quick_templates_in_the_message_actions_menu() -> None:
     assert 'aria-label="Quick templates"' in markup
     assert 'data-testid="composer-suggestion-0"' in markup
     assert 'data-testid="composer-suggestion-1"' in markup
-    assert markup.index('data-testid="composer-suggestion-1"') < markup.index(
-        'class="jouzetsu-composer-footer"'
-    )
+    assert markup.index('data-testid="composer-suggestion-1"') < markup.index('class="jouzetsu-composer-footer"')
 
 
 def test_ready_composer_status_omits_model_name_but_keeps_completion_metrics() -> None:
@@ -745,18 +681,13 @@ def test_composer_rejects_an_unknown_runtime_phase() -> None:
 def test_unloaded_model_status_omits_redundant_not_loaded_detail() -> None:
     view: ChatView = _chat_view(
         Chat(id="chat-unloaded"),
-        runtime_status=RuntimeStatus(
-            RuntimePhase.MODEL_UNLOADED, model_name="PaintedFantasy"
-        ),
+        runtime_status=RuntimeStatus(RuntimePhase.MODEL_UNLOADED, model_name="PaintedFantasy"),
     )
 
     markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
 
     assert ">Unloaded<" in markup
-    assert (
-        'data-composer-status-detail="true" class="jouzetsu-composer-status-detail">PaintedFantasy'
-        in markup
-    )
+    assert 'data-composer-status-detail="true" class="jouzetsu-composer-status-detail">PaintedFantasy' in markup
     assert "Not loaded" not in markup
 
 
@@ -776,18 +707,10 @@ def test_composer_status_places_reasoning_and_output_in_the_state_column() -> No
             ),
         )
 
-        markup: str = str(
-            render_composer(view, edit_message_id="", editing_message=None)
-        )
+        markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
 
-        assert (
-            f'data-composer-status-state="true" class="jouzetsu-composer-status-state">{expected_state}'
-            in markup
-        )
-        assert (
-            'data-composer-status-detail="true" class="jouzetsu-composer-status-detail">12 tokens'
-            in markup
-        )
+        assert f'data-composer-status-state="true" class="jouzetsu-composer-status-state">{expected_state}' in markup
+        assert 'data-composer-status-detail="true" class="jouzetsu-composer-status-detail">12 tokens' in markup
         assert 'data-composer-status-timers="true"' in markup
 
 
@@ -802,14 +725,9 @@ def test_composer_status_labels_preparing_and_stopping_stages() -> None:
             runtime_status=RuntimeStatus(phase, model_name="Demo Model"),
         )
 
-        markup: str = str(
-            render_composer(view, edit_message_id="", editing_message=None)
-        )
+        markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
 
-        assert (
-            f'data-composer-status-state="true" class="jouzetsu-composer-status-state">{expected_state}'
-            in markup
-        )
+        assert f'data-composer-status-state="true" class="jouzetsu-composer-status-state">{expected_state}' in markup
         if expected_detail:
             assert expected_detail in markup
 
@@ -828,11 +746,7 @@ def test_pending_access_page_exposes_the_request_csrf_token() -> None:
         csrf_token="csrf-token-for-pending-browser",
     )
 
-    markup: str = str(
-        render_locked_access_page(
-            context, bootstrap_device=False, approval_phrase_enabled=True
-        )
-    )
+    markup: str = str(render_locked_access_page(context, bootstrap_device=False, approval_phrase_enabled=True))
 
     assert 'data-csrf-token="csrf-token-for-pending-browser"' in markup
     assert 'action="/access/current-device/pending"' in markup

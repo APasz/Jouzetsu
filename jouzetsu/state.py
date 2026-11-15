@@ -81,23 +81,17 @@ class AppState:
     ) -> None:
         self.config = config
         self.storage = storage
-        self.character_storage = character_storage or CharacterStorage(
-            config.characters_directory
-        )
+        self.character_storage = character_storage or CharacterStorage(config.characters_directory)
         self.images = image_storage or ImageStorage(config.paths.images_directory)
         self._character_lock = asyncio.Lock()
         self._closing = False
         self._notifier = StateNotifier()
         empty_messages = EmptyChatMessageProvider(config.data_dir)
         self.registry = ChatRegistry(empty_messages.choose)
-        self._characters = {
-            character.id: character for character in self.character_storage.load_all()
-        }
+        self._characters = {character.id: character for character in self.character_storage.load_all()}
         for chat in storage.load_all():
             self.registry.add(chat, runtime_status=RuntimeStatus(RuntimePhase.READY))
-        self.persistence = PersistenceController(
-            config, config_store or ConfigStore.for_paths(config.paths), storage
-        )
+        self.persistence = PersistenceController(config, config_store or ConfigStore.for_paths(config.paths), storage)
         self.inference = InferenceRuntime(
             self.registry,
             self.persistence,
@@ -106,11 +100,7 @@ class AppState:
         )
 
     async def _runtime_changed(self, change: RuntimeChange) -> None:
-        session = (
-            self.session(change.chat_id)
-            if change.chat_id and change.chat_id in self.registry
-            else None
-        )
+        session = self.session(change.chat_id) if change.chat_id and change.chat_id in self.registry else None
         kind = (
             StateChangeKind.STREAM
             if change.kind is ChangeKind.STATUS
@@ -211,9 +201,7 @@ class AppState:
         character: Character = self.character(character_id)
         if character.revision != expected_revision:
             raise ValueError("character changed elsewhere; reload before saving")
-        updated_character: Character = character.revised_profile(
-            name, fields, presets=presets
-        )
+        updated_character: Character = character.revised_profile(name, fields, presets=presets)
         if updated_character is character:
             return character
         await run_in_worker(self.character_storage.save, updated_character)
@@ -281,9 +269,7 @@ class AppState:
         chat = await self.inference.create_chat(chat)
         return chat
 
-    def _characters_for_cast(
-        self, character_ids: Sequence[str]
-    ) -> tuple[Character, ...]:
+    def _characters_for_cast(self, character_ids: Sequence[str]) -> tuple[Character, ...]:
         """Resolve a non-empty, duplicate-free ordered set of current profiles."""
 
         normalized_ids: list[str] = []
@@ -308,38 +294,26 @@ class AppState:
         for session in self.registry.sessions:
             for image in (
                 *session.chat.draft_images,
-                *(
-                    image
-                    for message in session.chat.messages
-                    for image in message.images
-                ),
+                *(image for message in session.chat.messages for image in message.images),
             ):
                 if image.id == image_id:
                     return image
         raise ValueError("unknown image")
 
     async def set_global_system_prompt(self, prompt: str) -> None:
-        await self.inference.update_settings(
-            lambda config: setattr(config.generation, "system_prompt", prompt.strip())
-        )
+        await self.inference.update_settings(lambda config: setattr(config.generation, "system_prompt", prompt.strip()))
 
     async def reset_global_system_prompt(self) -> None:
-        await self.set_global_system_prompt(
-            default_config(self.config.paths).generation.system_prompt
-        )
+        await self.set_global_system_prompt(default_config(self.config.paths).generation.system_prompt)
 
     async def set_generation_defaults(self, settings: GenerationSettings) -> None:
-        await self.inference.update_settings(
-            lambda config: setattr(config, "generation", settings)
-        )
+        await self.inference.update_settings(lambda config: setattr(config, "generation", settings))
 
     async def reset_generation_defaults(self) -> None:
         defaults = default_config(self.config.paths).generation
 
         def edit(config: AppConfig) -> None:
-            config.generation = replace(
-                defaults, system_prompt=config.generation.system_prompt
-            )
+            config.generation = replace(defaults, system_prompt=config.generation.system_prompt)
 
         await self.inference.update_settings(edit)
 
@@ -374,9 +348,7 @@ class AppState:
     async def reset_theme_colorway(self, colorway: ThemeColorway) -> None:
         def edit(config: AppConfig) -> None:
             defaults = default_config(config.paths).theme
-            config.theme = replace(
-                config.theme, **{colorway.value: getattr(defaults, colorway.value)}
-            )
+            config.theme = replace(config.theme, **{colorway.value: getattr(defaults, colorway.value)})
 
         await self.inference.update_settings(edit)
 
@@ -399,9 +371,7 @@ class AppState:
             )
             if approved:
                 access.set_device_label(config, device_id=device_id, label=label)
-                access.set_device_access(
-                    config, device_id=device_id, access_allowed=True
-                )
+                access.set_device_access(config, device_id=device_id, access_allowed=True)
 
         await self.inference.update_settings(edit, notify=approved)
 
@@ -428,26 +398,16 @@ class AppState:
 
     async def set_access_device_label(self, device_id: str, label: str) -> None:
         await self.inference.update_settings(
-            lambda config: access.set_device_label(
-                config, device_id=device_id, label=label
-            )
+            lambda config: access.set_device_label(config, device_id=device_id, label=label)
         )
 
-    async def set_device_access_allowed(
-        self, device_id: str, access_allowed: bool
-    ) -> None:
+    async def set_device_access_allowed(self, device_id: str, access_allowed: bool) -> None:
         await self.inference.update_settings(
-            lambda config: access.set_device_access(
-                config, device_id=device_id, access_allowed=access_allowed
-            )
+            lambda config: access.set_device_access(config, device_id=device_id, access_allowed=access_allowed)
         )
 
     async def forget_pending_access_device(self, device_id: str) -> None:
-        await self.inference.update_settings(
-            lambda config: access.forget_pending_device(config, device_id=device_id)
-        )
+        await self.inference.update_settings(lambda config: access.forget_pending_device(config, device_id=device_id))
 
     async def set_approval_phrase(self, phrase: str) -> None:
-        await self.inference.update_settings(
-            lambda config: setattr(config.access, "approval_phrase", phrase)
-        )
+        await self.inference.update_settings(lambda config: setattr(config.access, "approval_phrase", phrase))

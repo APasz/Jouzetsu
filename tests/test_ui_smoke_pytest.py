@@ -39,9 +39,7 @@ from jouzetsu.web.ui_events import UiEventBroker
 
 _LOCAL_DEVICE_ID: Final[str] = "dvc_localhost-device-0001"
 _REMOTE_DEVICE_ID: Final[str] = "dvc_remote-device-0001"
-_CHAT_CLIENT_DIRECTORY: Final[Path] = (
-    Path(__file__).parents[1] / "jouzetsu" / "web" / "static"
-)
+_CHAT_CLIENT_DIRECTORY: Final[Path] = Path(__file__).parents[1] / "jouzetsu" / "web" / "static"
 _THEME_DIRECTORY: Final[Path] = _CHAT_CLIENT_DIRECTORY / "theme"
 _THEME_STYLESHEETS: Final[tuple[str, ...]] = (
     "foundation.css",
@@ -68,10 +66,7 @@ def _chat_client_source() -> str:
 def _theme_styles() -> str:
     """Return the complete stylesheet in its cascade order."""
 
-    return "\n".join(
-        (_THEME_DIRECTORY / stylesheet).read_text(encoding="utf-8")
-        for stylesheet in _THEME_STYLESHEETS
-    )
+    return "\n".join((_THEME_DIRECTORY / stylesheet).read_text(encoding="utf-8") for stylesheet in _THEME_STYLESHEETS)
 
 
 def _build_state(
@@ -113,9 +108,7 @@ def test_ui_event_broker_preserves_a_pending_full_refresh() -> None:
         asyncio.run(scenario(Path(temporary_directory)))
 
 
-def test_ui_event_broker_preserves_character_changes_when_events_are_coalesced() -> (
-    None
-):
+def test_ui_event_broker_preserves_character_changes_when_events_are_coalesced() -> None:
     async def scenario(root: Path) -> None:
         state: AppState = _build_state(root, private=False)
         broker: UiEventBroker = UiEventBroker(state)
@@ -140,8 +133,7 @@ def test_character_client_refreshes_only_for_character_events() -> None:
     script: str = _chat_client_source()
 
     assert (
-        "payload?.characters_changed === true && characters.refreshIfNeeded(notices.announce.bind(notices))"
-        in script
+        "payload?.characters_changed === true && characters.refreshIfNeeded(notices.announce.bind(notices))" in script
     )
     assert "payload?.kind === 'characters'" in script
 
@@ -156,22 +148,15 @@ def test_device_activity_client_uses_visible_tab_heartbeats() -> None:
     assert "/access/current-device/activity" in script
 
 
-def test_character_client_adds_template_fields_without_duplicate_or_destructive_updates() -> (
-    None
-):
+def test_character_client_adds_template_fields_without_duplicate_or_destructive_updates() -> None:
     script: str = _chat_client_source()
 
     assert "export class CharacterEditorController" in script
     assert "handleClick(target)" in script
     assert "#applyPresets(button)" in script
     assert "const normalizedFieldLabel" in script
-    assert (
-        "const normalizedFieldLabel = (value) => value.trim().toLowerCase();" in script
-    )
-    assert (
-        "addedRows.push(...addPresetRows(fields, presetFields(selectedBase)));"
-        in script
-    )
+    assert "const normalizedFieldLabel = (value) => value.trim().toLowerCase();" in script
+    assert "addedRows.push(...addPresetRows(fields, presetFields(selectedBase)));" in script
     assert "removePresetRows" not in script
     assert "#syncPromptPreview(form)" in script
     assert "#syncPromptMode(form)" in script
@@ -200,36 +185,22 @@ def test_character_client_randomizes_an_unsaved_name() -> None:
 
 
 def test_character_name_parts_have_independent_randomizer_rows() -> None:
-    workspace_styles: str = (_THEME_DIRECTORY / "workspace.css").read_text(
-        encoding="utf-8"
-    )
+    workspace_styles: str = (_THEME_DIRECTORY / "workspace.css").read_text(encoding="utf-8")
 
+    assert (".jouzetsu-character-name-control {\n    display: flex;\n    flex-direction: column;") in workspace_styles
     assert (
-        ".jouzetsu-character-name-control {\n"
-        "    display: flex;\n"
-        "    flex-direction: column;"
+        ".jouzetsu-character-name-row {\n    display: grid;\n    grid-template-columns: minmax(0, 1fr);"
     ) in workspace_styles
     assert (
-        ".jouzetsu-character-name-row {\n"
-        "    display: grid;\n"
-        "    grid-template-columns: minmax(0, 1fr);"
-    ) in workspace_styles
-    assert (
-        ".jouzetsu-character-name-row.is-randomizable {\n"
-        "    grid-template-columns: minmax(0, 1fr) 34px;"
+        ".jouzetsu-character-name-row.is-randomizable {\n    grid-template-columns: minmax(0, 1fr) 34px;"
     ) in workspace_styles
 
 
-def test_character_client_preserves_literal_prompt_names_and_only_focuses_open_field_menus() -> (
-    None
-):
+def test_character_client_preserves_literal_prompt_names_and_only_focuses_open_field_menus() -> None:
     script: str = _chat_client_source()
 
     assert "nameTemplate.replace('{name}', () => primaryName)" in script
-    assert (
-        "if (!menu.hidden && style instanceof HTMLSelectElement) style.focus();"
-        in script
-    )
+    assert "if (!menu.hidden && style instanceof HTMLSelectElement) style.focus();" in script
 
 
 def test_character_client_resolves_field_menus_from_their_field_rows() -> None:
@@ -250,9 +221,7 @@ def test_character_client_keeps_template_fields_responsive() -> None:
 
 
 def test_character_library_can_shrink_to_the_mobile_viewport() -> None:
-    workspace_styles: str = (_THEME_DIRECTORY / "workspace.css").read_text(
-        encoding="utf-8"
-    )
+    workspace_styles: str = (_THEME_DIRECTORY / "workspace.css").read_text(encoding="utf-8")
 
     for selector in (
         ".jouzetsu-character-layout",
@@ -265,49 +234,25 @@ def test_character_library_can_shrink_to_the_mobile_viewport() -> None:
         )
 
 
-def test_character_field_actions_fill_desktop_rows_and_share_mobile_field_rows() -> (
-    None
-):
-    workspace_styles: str = (_THEME_DIRECTORY / "workspace.css").read_text(
-        encoding="utf-8"
-    )
-    responsive_styles: str = (_THEME_DIRECTORY / "responsive.css").read_text(
-        encoding="utf-8"
-    )
+def test_character_field_actions_fill_desktop_rows_and_share_mobile_field_rows() -> None:
+    workspace_styles: str = (_THEME_DIRECTORY / "workspace.css").read_text(encoding="utf-8")
+    responsive_styles: str = (_THEME_DIRECTORY / "responsive.css").read_text(encoding="utf-8")
 
     assert 'grid-template-areas: "field value actions";' in workspace_styles
-    assert (
-        ".jouzetsu-character-field-name {\n    grid-area: field;\n}" in workspace_styles
-    )
-    assert (
-        ".jouzetsu-character-field-value {\n    grid-area: value;\n}"
-        in workspace_styles
-    )
-    assert (
-        "grid-area: actions;\n    position: relative;\n    align-self: stretch;"
-        in workspace_styles
-    )
+    assert ".jouzetsu-character-field-name {\n    grid-area: field;\n}" in workspace_styles
+    assert ".jouzetsu-character-field-value {\n    grid-area: value;\n}" in workspace_styles
+    assert "grid-area: actions;\n    position: relative;\n    align-self: stretch;" in workspace_styles
     assert "height: 100%;" in workspace_styles
-    assert (
-        'grid-template-areas:\n            "field actions"\n            "value value";'
-        in responsive_styles
-    )
-    assert (
-        "height: var(--jouzetsu-character-field-menu-toggle-size);" in responsive_styles
-    )
+    assert 'grid-template-areas:\n            "field actions"\n            "value value";' in responsive_styles
+    assert "height: var(--jouzetsu-character-field-menu-toggle-size);" in responsive_styles
 
 
 def test_character_field_labels_use_a_fixed_vertical_rail() -> None:
-    workspace_styles: str = (_THEME_DIRECTORY / "workspace.css").read_text(
-        encoding="utf-8"
-    )
+    workspace_styles: str = (_THEME_DIRECTORY / "workspace.css").read_text(encoding="utf-8")
 
     assert "--jouzetsu-character-field-label-rail-size: 18px;" in workspace_styles
     assert "display: block;" in workspace_styles
-    assert (
-        "padding-left: calc(var(--jouzetsu-character-field-label-rail-size) + 4px);"
-        in workspace_styles
-    )
+    assert "padding-left: calc(var(--jouzetsu-character-field-label-rail-size) + 4px);" in workspace_styles
     assert "position: absolute;" in workspace_styles
     assert "transform: translate(-50%, -50%) rotate(-90deg);" in workspace_styles
 
@@ -320,29 +265,16 @@ def test_chat_client_anchors_new_and_live_chats_to_bottom() -> None:
     assert "snapListToBottom(messages)" in script
     assert "scrollStreamingMessageUntilTop(messages, message)" in script
     assert "const scrollRoomBeforeMessageTop" in script
-    assert (
-        "const currentMessage = currentContent.closest('[data-message-id]');" in script
-    )
-    assert (
-        "if (stickToBottom) this.#messages.scrollStreamingMessageUntilTop(messageList, currentMessage);"
-        in script
-    )
-    assert (
-        "if (!messages.restoreScrollAfterNavigation()) messages.scrollListToBottom(byId('message-list'));"
-        in script
-    )
+    assert "const currentMessage = currentContent.closest('[data-message-id]');" in script
+    assert "if (stickToBottom) this.#messages.scrollStreamingMessageUntilTop(messageList, currentMessage);" in script
+    assert "if (!messages.restoreScrollAfterNavigation()) messages.scrollListToBottom(byId('message-list'));" in script
 
 
-def test_chat_client_follows_explicit_generation_actions_without_disrupting_passive_updates() -> (
-    None
-):
+def test_chat_client_follows_explicit_generation_actions_without_disrupting_passive_updates() -> None:
     script: str = _chat_client_source()
 
     assert "LATEST_MESSAGE_ACTION_PATTERN" in script
-    assert (
-        "const followLatest = action === '/chat/send' || LATEST_MESSAGE_ACTION_PATTERN.test(action);"
-        in script
-    )
+    assert "const followLatest = action === '/chat/send' || LATEST_MESSAGE_ACTION_PATTERN.test(action);" in script
 
 
 def test_chat_client_ignores_stale_full_and_live_fragment_responses() -> None:
@@ -355,9 +287,7 @@ def test_chat_client_ignores_stale_full_and_live_fragment_responses() -> None:
         "const markup = await response.text();\n            if (fullRefreshAtRequestStart !== this.#latestFullRefreshRequest) return;"
     )
 
-    assert full_response_body < script.index(
-        "const next = parseFragment(markup, 'chat-fragment');", full_response_body
-    )
+    assert full_response_body < script.index("const next = parseFragment(markup, 'chat-fragment');", full_response_body)
     assert live_response_body < script.index(
         "const next = parseFragment(markup, 'chat-live-fragment');", live_response_body
     )
@@ -372,9 +302,7 @@ def test_chat_client_keeps_the_stop_generation_control_enabled() -> None:
 
 def test_chat_client_settles_message_snaps_before_streaming_follows() -> None:
     script: str = _chat_client_source()
-    streaming_scroll: int = script.index(
-        "scrollStreamingMessageUntilTop(messages, message)"
-    )
+    streaming_scroll: int = script.index("scrollStreamingMessageUntilTop(messages, message)")
 
     assert "snapListToBottom(messages)" in script
     assert "#bottomSnapFrame = 0;" in script
@@ -384,14 +312,10 @@ def test_chat_client_settles_message_snaps_before_streaming_follows() -> None:
     )
 
 
-def test_chat_client_preserves_message_scroll_when_generation_completion_replaces_the_composer() -> (
-    None
-):
+def test_chat_client_preserves_message_scroll_when_generation_completion_replaces_the_composer() -> None:
     script: str = _chat_client_source()
 
-    scroll_capture: int = script.index(
-        "const messageScrollTop = sameChat ? currentMessages.scrollTop : null;"
-    )
+    scroll_capture: int = script.index("const messageScrollTop = sameChat ? currentMessages.scrollTop : null;")
     composer_replacement: int = script.index(
         "this.#reconcileComposer(currentComposer, nextComposer, next.dataset.draftRevision);"
     )
@@ -402,17 +326,12 @@ def test_chat_client_preserves_message_scroll_when_generation_completion_replace
     assert "streamingMessageAnchor," in script
     assert "#restoreScrollPosition(messages, scrollTop, messageAnchor)" in script
     assert "&& !streamingMessageAnchor" in script
-    assert (
-        "#recordScrollContainerPosition(messages, suppressBottomPinning = false)"
-        in script
-    )
+    assert "#recordScrollContainerPosition(messages, suppressBottomPinning = false)" in script
     assert "!suppressBottomPinning" in script
     assert scroll_capture < composer_replacement < scroll_restore
 
 
-def test_chat_client_cancels_stale_scroll_restoration_before_explicit_navigation() -> (
-    None
-):
+def test_chat_client_cancels_stale_scroll_restoration_before_explicit_navigation() -> None:
     script: str = _chat_client_source()
 
     assert "#scrollRestoreFrame = 0;" in script
@@ -420,19 +339,14 @@ def test_chat_client_cancels_stale_scroll_restoration_before_explicit_navigation
     assert "window.cancelAnimationFrame(this.#scrollRestoreFrame);" in script
 
 
-def test_chat_client_keeps_a_pinned_message_list_at_bottom_when_its_viewport_resizes() -> (
-    None
-):
+def test_chat_client_keeps_a_pinned_message_list_at_bottom_when_its_viewport_resizes() -> None:
     script: str = _chat_client_source()
 
     assert "watchScrollContainer()" in script
     assert "const ResizeObserverConstructor = window.ResizeObserver;" in script
     assert "new ResizeObserverConstructor(() => {" in script
     assert "this.#scrollContainerPinned && this.#scrollContainer === messages" in script
-    assert (
-        "messages.addEventListener('scroll', this.#handleScrollContainerScroll, { passive: true });"
-        in script
-    )
+    assert "messages.addEventListener('scroll', this.#handleScrollContainerScroll, { passive: true });" in script
     assert "this.#messages.watchScrollContainer();" in script
 
 
@@ -446,9 +360,7 @@ def test_chat_client_respects_reduced_motion_for_message_navigation() -> None:
 def test_message_list_contains_overscroll_to_the_chat_surface() -> None:
     styles: str = _theme_styles()
 
-    message_list_styles: str = styles.split(".jouzetsu-messages {", maxsplit=1)[
-        1
-    ].split("}", maxsplit=1)[0]
+    message_list_styles: str = styles.split(".jouzetsu-messages {", maxsplit=1)[1].split("}", maxsplit=1)[0]
     assert "overscroll-behavior: contain;" in message_list_styles
 
 
@@ -487,8 +399,7 @@ def test_chat_client_keeps_the_chat_shell_inside_the_visual_viewport() -> None:
     assert "app.style.setProperty('--jouzetsu-app-height'" in script
     assert "app.classList.toggle('is-keyboard-open', keyboardOpen);" in script
     assert (
-        "window.visualViewport?.addEventListener('scroll', () => composer.scheduleViewportReconciliation());"
-        in script
+        "window.visualViewport?.addEventListener('scroll', () => composer.scheduleViewportReconciliation());" in script
     )
     assert "this.#syncAppViewportHeight();" in script
     assert ".jouzetsu-app.is-keyboard-open .jouzetsu-composer-footer" in styles
@@ -518,9 +429,7 @@ def test_generation_panels_use_assistant_accents_and_app_surfaces() -> None:
         ".jouzetsu-generation-reasoning {",
         ".jouzetsu-generation-strip {",
     ):
-        panel_styles: str = styles.split(selector, maxsplit=1)[1].split(
-            "}", maxsplit=1
-        )[0]
+        panel_styles: str = styles.split(selector, maxsplit=1)[1].split("}", maxsplit=1)[0]
         assert "var(--jouzetsu-assistant-muted)" in panel_styles
         assert "var(--jouzetsu-app-surface-raised)" in panel_styles
         assert "var(--jouzetsu-user-" not in panel_styles
@@ -541,9 +450,7 @@ def test_chat_client_ticks_the_loading_status_elapsed_value() -> None:
     assert "this.#composer.syncLiveStatus(" in script
 
 
-def test_chat_client_updates_the_live_reasoning_panel_without_replacing_the_composer() -> (
-    None
-):
+def test_chat_client_updates_the_live_reasoning_panel_without_replacing_the_composer() -> None:
     script: str = _chat_client_source()
     styles: str = _theme_styles()
 
@@ -606,9 +513,7 @@ def test_chat_page_renders_the_message_details_context_menu_and_dialog() -> None
         chat = await state.new_chat()
         assistant: Message = chat.add_message("assistant", "A complete response")
         assistant.set_reasoning("Reviewed the available context.")
-        web: WebApplication = WebApplication(
-            state.config, state, on_startup=_noop, on_shutdown=_noop
-        )
+        web: WebApplication = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
         try:
             async with httpx.AsyncClient(
                 transport=_transport(web, client_ip="127.0.0.1"),
@@ -657,9 +562,7 @@ def test_cancelled_character_submission_does_not_clear_unsaved_editor_state() ->
 
     submitter: int = script.index("const submitter = event.submitter;")
     validation: int = script.index("if (!characters.validateForm(form, submitter))")
-    confirmation: int = script.index(
-        "if (confirmation && !window.confirm(confirmation))"
-    )
+    confirmation: int = script.index("if (confirmation && !window.confirm(confirmation))")
     submitting: int = script.index("characters.beginSubmit(form);")
 
     assert submitter < validation
@@ -672,9 +575,7 @@ def test_chat_client_exits_edit_mode_after_saving_or_cancelling() -> None:
 
     assert "#exitEditMode()" in script
     assert "url.searchParams.delete('edit');" in script
-    assert (
-        "currentUrl.searchParams.has('edit') && !url.searchParams.has('edit')" in script
-    )
+    assert "currentUrl.searchParams.has('edit') && !url.searchParams.has('edit')" in script
 
 
 def test_chat_client_focuses_an_open_panel_without_scrolling_the_chat_surface() -> None:
@@ -683,9 +584,7 @@ def test_chat_client_focuses_an_open_panel_without_scrolling_the_chat_surface() 
     assert "focusTarget.focus({ preventScroll: true })" in script
 
 
-def test_chat_settings_drawer_hides_its_scrollbar_and_uses_wide_desktop_fields() -> (
-    None
-):
+def test_chat_settings_drawer_hides_its_scrollbar_and_uses_wide_desktop_fields() -> None:
     styles: str = _theme_styles()
 
     assert ".jouzetsu-panel-content::-webkit-scrollbar" in styles
@@ -697,23 +596,15 @@ def test_chat_settings_drawer_hides_its_scrollbar_and_uses_wide_desktop_fields()
 def test_mobile_ui_hides_scrollbars_on_every_scrollable_surface() -> None:
     styles: str = _theme_styles()
 
-    assert (
-        "@media (max-width: 640px) {\n    * {\n        scrollbar-width: none;" in styles
-    )
+    assert "@media (max-width: 640px) {\n    * {\n        scrollbar-width: none;" in styles
     assert "*::-webkit-scrollbar {\n        display: none;" in styles
 
 
 def test_mobile_message_actions_fill_the_footer_before_wrapping() -> None:
-    responsive_styles: str = (_THEME_DIRECTORY / "responsive.css").read_text(
-        encoding="utf-8"
-    )
+    responsive_styles: str = (_THEME_DIRECTORY / "responsive.css").read_text(encoding="utf-8")
 
-    footer_styles = responsive_styles.partition(".jouzetsu-message-footer {")[
-        2
-    ].partition("}")[0]
-    action_styles = responsive_styles.partition(".jouzetsu-message-actions {")[
-        2
-    ].partition("}")[0]
+    footer_styles = responsive_styles.partition(".jouzetsu-message-footer {")[2].partition("}")[0]
+    action_styles = responsive_styles.partition(".jouzetsu-message-actions {")[2].partition("}")[0]
     assert "min-width: 0;" in footer_styles
     assert "width: 100%;" in action_styles
     assert "min-width: 0;" in action_styles
@@ -722,9 +613,7 @@ def test_mobile_message_actions_fill_the_footer_before_wrapping() -> None:
 def test_root_renders_the_workspace_launch_page() -> None:
     async def scenario(root: Path) -> None:
         state: AppState = _build_state(root, private=False)
-        web: WebApplication = WebApplication(
-            state.config, state, on_startup=_noop, on_shutdown=_noop
-        )
+        web: WebApplication = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
         try:
             async with httpx.AsyncClient(
                 transport=_transport(web, client_ip="127.0.0.1"),
@@ -742,19 +631,13 @@ def test_root_renders_the_workspace_launch_page() -> None:
         asyncio.run(scenario(Path(temporary_directory)))
 
 
-def test_character_workspace_persists_a_custom_field_schema_and_starts_a_snapshot_chat() -> (
-    None
-):
+def test_character_workspace_persists_a_custom_field_schema_and_starts_a_snapshot_chat() -> None:
     async def scenario(root: Path) -> None:
         state: AppState = _build_state(root, private=False)
-        web: WebApplication = WebApplication(
-            state.config, state, on_startup=_noop, on_shutdown=_noop
-        )
+        web: WebApplication = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
         transport: httpx.ASGITransport = _transport(web, client_ip="127.0.0.1")
         try:
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://testserver"
-            ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 library: httpx.Response = await client.get("/characters")
                 assert library.status_code == 200
                 assert 'data-testid="character-library"' in library.text
@@ -767,9 +650,7 @@ def test_character_workspace_persists_a_custom_field_schema_and_starts_a_snapsho
                 assert created.status_code == 303
                 character_url: str = created.headers["location"]
                 assert character_url.startswith("/characters/")
-                character_id: str = character_url.split("?", maxsplit=1)[0].rsplit(
-                    "/", maxsplit=1
-                )[1]
+                character_id: str = character_url.split("?", maxsplit=1)[0].rsplit("/", maxsplit=1)[1]
 
                 editor: httpx.Response = await client.get(character_url)
                 assert 'data-testid="character-base-preset"' in editor.text
@@ -802,9 +683,7 @@ def test_character_workspace_persists_a_custom_field_schema_and_starts_a_snapsho
                 ]
                 assert (root / "data" / "characters" / f"{character_id}.json").is_file()
 
-                character_page: httpx.Response = await client.get(
-                    saved.headers["location"]
-                )
+                character_page: httpx.Response = await client.get(saved.headers["location"])
                 assert 'data-character-field="true"' in character_page.text
                 assert "jouzetsu-character-field-name" in character_page.text
                 assert "jouzetsu-character-field-value" in character_page.text
@@ -831,9 +710,7 @@ def test_character_workspace_persists_a_custom_field_schema_and_starts_a_snapsho
                 assert state.chats[0].character is not None
                 assert state.chats[0].character.id == character_id
                 assert state.chats[0].character.revision == character.revision + 1
-                assert (
-                    "Occupation: Pilot and cartographer" in state.chats[0].system_prompt
-                )
+                assert "Occupation: Pilot and cartographer" in state.chats[0].system_prompt
         finally:
             await _close_web_application(web, state)
 
@@ -858,14 +735,10 @@ def test_character_editor_starts_an_ensemble_chat_from_selected_cast() -> None:
             name=CharacterName("Ren"),
             fields=[CharacterField(label="Role", value="Pilot")],
         )
-        web: WebApplication = WebApplication(
-            state.config, state, on_startup=_noop, on_shutdown=_noop
-        )
+        web: WebApplication = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
         transport: httpx.ASGITransport = _transport(web, client_ip="127.0.0.1")
         try:
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://testserver"
-            ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 editor: httpx.Response = await client.get(f"/characters/{mira.id}")
 
                 assert 'data-testid="character-cast-selector"' in editor.text
@@ -900,12 +773,8 @@ def test_character_editor_starts_an_ensemble_chat_from_selected_cast() -> None:
                 assert started.headers["location"].startswith("/chats/")
                 assert state.chats[0].title == "Mira & Ren"
                 assert state.chats[0].prompt_mode is ChatPromptMode.CUSTOM
-                assert tuple(
-                    binding.id for binding in state.chats[0].character_cast
-                ) == (mira.id, ren.id)
-                assert state.chats[0].system_prompt.startswith(
-                    "Use concise mission briefings."
-                )
+                assert tuple(binding.id for binding in state.chats[0].character_cast) == (mira.id, ren.id)
+                assert state.chats[0].system_prompt.startswith("Use concise mission briefings.")
                 assert "Mira:" in state.chats[0].system_prompt
                 assert "Ren:" in state.chats[0].system_prompt
 
@@ -924,9 +793,7 @@ def test_character_editor_starts_an_ensemble_chat_from_selected_cast() -> None:
 
                 assert story_started.status_code == 303
                 assert state.chats[0].prompt_mode is ChatPromptMode.STORY
-                assert (
-                    "A tense rescue on an ocean moon." in state.chats[0].system_prompt
-                )
+                assert "A tense rescue on an ocean moon." in state.chats[0].system_prompt
                 assert "Write in third person" in state.chats[0].system_prompt
         finally:
             await _close_web_application(web, state)
@@ -938,35 +805,25 @@ def test_character_editor_starts_an_ensemble_chat_from_selected_cast() -> None:
 def test_character_onboarding_ends_after_the_initial_profile_is_saved() -> None:
     async def scenario(root: Path) -> None:
         state: AppState = _build_state(root, private=False)
-        web: WebApplication = WebApplication(
-            state.config, state, on_startup=_noop, on_shutdown=_noop
-        )
+        web: WebApplication = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
         transport: httpx.ASGITransport = _transport(web, client_ip="127.0.0.1")
         try:
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://testserver"
-            ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 library: httpx.Response = await client.get("/characters")
                 created: httpx.Response = await client.post(
                     "/characters/new",
                     headers=_csrf_headers(library),
                     follow_redirects=False,
                 )
-                character_url: str = created.headers["location"].split("?", maxsplit=1)[
-                    0
-                ]
+                character_url: str = created.headers["location"].split("?", maxsplit=1)[0]
 
                 editor: httpx.Response = await client.get(character_url)
                 assert "Create character" in editor.text
                 assert "Quick start" in editor.text
                 assert 'data-testid="character-given-name-input"' in editor.text
                 assert 'data-testid="character-family-name-input"' in editor.text
-                assert re.search(
-                    r'<input[^>]*name="given_name"[^>]*value=""', editor.text
-                )
-                assert re.search(
-                    r'<input[^>]*name="family_name"[^>]*value=""', editor.text
-                )
+                assert re.search(r'<input[^>]*name="given_name"[^>]*value=""', editor.text)
+                assert re.search(r'<input[^>]*name="family_name"[^>]*value=""', editor.text)
                 assert 'data-testid="character-given-name-randomize"' in editor.text
                 assert 'data-testid="character-family-name-randomize"' in editor.text
                 assert 'data-character-randomize-name-part="given_name"' in editor.text
@@ -995,9 +852,7 @@ def test_character_onboarding_ends_after_the_initial_profile_is_saved() -> None:
                     .startswith("You are roleplaying as New character.\n\n")
                 )
 
-                updated_editor: httpx.Response = await client.get(
-                    saved.headers["location"]
-                )
+                updated_editor: httpx.Response = await client.get(saved.headers["location"])
                 assert "Create character" not in updated_editor.text
                 assert "New character" in updated_editor.text
                 assert "Profile templates" in updated_editor.text
@@ -1014,23 +869,17 @@ def test_character_onboarding_ends_after_the_initial_profile_is_saved() -> None:
 def test_character_field_actions_have_server_rendered_fallbacks() -> None:
     async def scenario(root: Path) -> None:
         state: AppState = _build_state(root, private=False)
-        web: WebApplication = WebApplication(
-            state.config, state, on_startup=_noop, on_shutdown=_noop
-        )
+        web: WebApplication = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
         transport: httpx.ASGITransport = _transport(web, client_ip="127.0.0.1")
         try:
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://testserver"
-            ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 library: httpx.Response = await client.get("/characters")
                 created: httpx.Response = await client.post(
                     "/characters/new",
                     headers=_csrf_headers(library),
                     follow_redirects=False,
                 )
-                character_url: str = created.headers["location"].split("?", maxsplit=1)[
-                    0
-                ]
+                character_url: str = created.headers["location"].split("?", maxsplit=1)[0]
                 character_id: str = character_url.rsplit("/", maxsplit=1)[1]
 
                 editor: httpx.Response = await client.get(character_url)
@@ -1047,21 +896,15 @@ def test_character_field_actions_have_server_rendered_fallbacks() -> None:
                 )
                 assert added.status_code == 303
                 character = state.character(character_id)
-                assert [(field.label, field.value) for field in character.fields] == [
-                    ("New field", "")
-                ]
+                assert [(field.label, field.value) for field in character.fields] == [("New field", "")]
                 assert character.is_draft is True
                 assert character.name_parts is None
 
                 editor = await client.get(added.headers["location"])
                 assert "Create character" in editor.text
                 assert "Quick start" in editor.text
-                assert re.search(
-                    r'<input[^>]*name="given_name"[^>]*value=""', editor.text
-                )
-                assert re.search(
-                    r'<input[^>]*name="family_name"[^>]*value=""', editor.text
-                )
+                assert re.search(r'<input[^>]*name="given_name"[^>]*value=""', editor.text)
+                assert re.search(r'<input[^>]*name="family_name"[^>]*value=""', editor.text)
                 assert 'data-testid="character-given-name-randomize"' in editor.text
                 assert 'data-testid="character-family-name-randomize"' in editor.text
                 csrf_token = _csrf_headers(editor)[CSRF_HEADER_NAME]
@@ -1093,9 +936,7 @@ def test_character_field_actions_have_server_rendered_fallbacks() -> None:
                 assert character.is_draft is True
                 assert character.name_parts is None
 
-                persisted_editor: httpx.Response = await client.get(
-                    applied.headers["location"]
-                )
+                persisted_editor: httpx.Response = await client.get(applied.headers["location"])
                 assert "Create character" in persisted_editor.text
                 assert re.search(
                     r'<input[^>]*name="given_name"[^>]*value=""',
@@ -1145,23 +986,17 @@ def test_character_workspace_loads_and_applies_a_private_preset_pack() -> None:
             encoding="utf-8",
         )
         state: AppState = _build_state(root, private=False)
-        web: WebApplication = WebApplication(
-            state.config, state, on_startup=_noop, on_shutdown=_noop
-        )
+        web: WebApplication = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
         transport: httpx.ASGITransport = _transport(web, client_ip="127.0.0.1")
         try:
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://testserver"
-            ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 library: httpx.Response = await client.get("/characters")
                 created: httpx.Response = await client.post(
                     "/characters/new",
                     headers=_csrf_headers(library),
                     follow_redirects=False,
                 )
-                character_url: str = created.headers["location"].split("?", maxsplit=1)[
-                    0
-                ]
+                character_url: str = created.headers["location"].split("?", maxsplit=1)[0]
                 character_id: str = character_url.rsplit("/", maxsplit=1)[1]
                 editor: httpx.Response = await client.get(character_url)
                 assert "Private notes" in editor.text
@@ -1178,9 +1013,7 @@ def test_character_workspace_loads_and_applies_a_private_preset_pack() -> None:
                 )
                 assert applied.status_code == 303
                 character = state.character(character_id)
-                assert [(field.label, field.kind) for field in character.fields] == [
-                    ("Private note", "long_text")
-                ]
+                assert [(field.label, field.kind) for field in character.fields] == [("Private note", "long_text")]
                 assert character.presets.extra_ids == ("private:notes",)
         finally:
             await _close_web_application(web, state)
@@ -1205,20 +1038,12 @@ def test_character_workspace_loads_user_supplied_name_suggestions() -> None:
             encoding="utf-8",
         )
         state: AppState = _build_state(root, private=False)
-        web: WebApplication = WebApplication(
-            state.config, state, on_startup=_noop, on_shutdown=_noop
-        )
+        web: WebApplication = WebApplication(state.config, state, on_startup=_noop, on_shutdown=_noop)
         transport: httpx.ASGITransport = _transport(web, client_ip="127.0.0.1")
         try:
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://testserver"
-            ) as client:
-                assert web.character_name_suggestions.suggestions.given_names == (
-                    "Ayla",
-                )
-                assert web.character_name_suggestions.suggestions.family_names == (
-                    "Khan",
-                )
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                assert web.character_name_suggestions.suggestions.given_names == ("Ayla",)
+                assert web.character_name_suggestions.suggestions.family_names == ("Khan",)
 
                 library: httpx.Response = await client.get("/characters")
                 created: httpx.Response = await client.post(

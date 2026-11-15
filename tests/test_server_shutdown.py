@@ -21,9 +21,7 @@ from jouzetsu.web.ui_events import UiEvent, stream_events
 
 
 @pytest.mark.parametrize("pending_event", [False, True])
-def test_broker_close_wakes_idle_streams_and_discards_pending_ui_events(
-    tmp_path: Path, pending_event: bool
-) -> None:
+def test_broker_close_wakes_idle_streams_and_discards_pending_ui_events(tmp_path: Path, pending_event: bool) -> None:
     async def exercise() -> None:
         h = WebHarness(tmp_path)
         broker = h.web._event_broker  # pyright: ignore[reportPrivateUsage]
@@ -96,10 +94,7 @@ def test_server_shutdown_finishes_open_sse_requests_and_flushes_drafts(
             httpx.Client(base_url=server.base_url, timeout=3) as client,
             ExitStack() as stack,
         ):
-            streams = [
-                stack.enter_context(client.stream("GET", "/events"))
-                for _ in range(connections)
-            ]
+            streams = [stack.enter_context(client.stream("GET", "/events")) for _ in range(connections)]
             lines = [response.iter_lines() for response in streams]
             for response, frames in zip(streams, lines, strict=True):
                 assert response.status_code == 200
@@ -120,11 +115,7 @@ def test_server_shutdown_finishes_open_sse_requests_and_flushes_drafts(
                 _ = tuple(frames)
         server.close()
         assert server.client.closed
-        assert (
-            server.state.storage.load_all()[0].draft == "Flush this draft on shutdown"
-        )
-        assert not [
-            record for record in caplog.records if record.levelno >= logging.ERROR
-        ]
+        assert server.state.storage.load_all()[0].draft == "Flush this draft on shutdown"
+        assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
     finally:
         server.close()

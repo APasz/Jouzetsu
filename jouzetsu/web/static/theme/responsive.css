@@ -185,11 +185,21 @@
     }
 
     .jouzetsu-dialog {
+        top: 6px;
         width: calc(100vw - 12px);
         max-height: calc(100dvh - 12px);
     }
 
     .jouzetsu-modal-card {
+        padding: 14px;
+    }
+
+    .jouzetsu-dialog-header {
+        padding-right: 14px;
+        padding-left: 14px;
+    }
+
+    .jouzetsu-dialog-body {
         padding: 14px;
     }
 

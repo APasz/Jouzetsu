@@ -47,16 +47,20 @@ _CAPABILITY_COLOURS: Final[tuple[tuple[str, str], ...]] = (
     ("tool-use", "#62adf2"),
     ("reasoning", "#5cc77b"),
 )
+_STATUS_COLOURS: Final[tuple[tuple[str, str], ...]] = (
+    ("success", "#22c55e"),
+    ("error", "#ef4444"),
+    ("warning", "#facc15"),
+    ("neutral", "#737373"),
+)
 
 
 def render_theme_css(config: AppConfig) -> str:
     """Generate base surfaces, role shades, and message-local colour assignments."""
 
     surfaces, colourways = _resolved_theme_colours(config)
-    variables: dict[str, str] = {
-        f"--jouzetsu-app-{name.replace('_', '-')}": value
-        for name, value in surfaces.items()
-    }
+    variables: dict[str, str] = {f"--jouzetsu-app-{name.replace('_', '-')}": value for name, value in surfaces.items()}
+    variables.update((f"--jouzetsu-status-{name}", colour) for name, colour in _STATUS_COLOURS)
     variables.update(
         (
             f"--jouzetsu-capability-{name}",
@@ -72,10 +76,7 @@ def render_theme_css(config: AppConfig) -> str:
         for action in MessageAction
     )
     for owner, shades in colourways.items():
-        variables.update(
-            (f"--jouzetsu-{owner.value}-{name}", value)
-            for name, value in shades.items()
-        )
+        variables.update((f"--jouzetsu-{owner.value}-{name}", value) for name, value in shades.items())
     variables.update(
         (
             f"--jouzetsu-app-{name}",
@@ -84,26 +85,18 @@ def render_theme_css(config: AppConfig) -> str:
         for name, opacity in _SHADOW_OPACITIES
     )
     declarations = [f"    {name}: {value};" for name, value in variables.items()]
-    declarations.append(
-        f"    color-scheme: {'dark' if config.ui.dark_mode else 'light'};"
-    )
+    declarations.append(f"    color-scheme: {'dark' if config.ui.dark_mode else 'light'};")
     rules = [":root {\n" + "\n".join(declarations) + "\n}"]
     rules.extend(
         (
             _scope_colorway(":root", "control", ThemeColorway.APP, _CONTROL_SHADES),
-            _scope_colorway(
-                ".jouzetsu-composer", "control", ThemeColorway.USER, _CONTROL_SHADES
-            ),
+            _scope_colorway(".jouzetsu-composer", "control", ThemeColorway.USER, _CONTROL_SHADES),
         )
     )
     for owner in ThemeColorway:
         if owner is ThemeColorway.APP:
             continue
-        rules.append(
-            _scope_colorway(
-                f".jouzetsu-message.is-{owner.value}", "message", owner, _MESSAGE_SHADES
-            )
-        )
+        rules.append(_scope_colorway(f".jouzetsu-message.is-{owner.value}", "message", owner, _MESSAGE_SHADES))
     return "\n".join(rules) + "\n"
 
 
@@ -111,9 +104,7 @@ def resolved_theme_colours(config: AppConfig) -> dict[ThemeColorway, dict[str, s
     """Return the effective colour behind each configurable theme setting."""
 
     surfaces, colourways = _resolved_theme_colours(config)
-    resolved: dict[ThemeColorway, dict[str, str]] = {
-        owner: dict(shades) for owner, shades in colourways.items()
-    }
+    resolved: dict[ThemeColorway, dict[str, str]] = {owner: dict(shades) for owner, shades in colourways.items()}
     resolved[ThemeColorway.APP].update(surfaces)
     return resolved
 
@@ -128,11 +119,7 @@ def _resolved_theme_colours(
     colourways = {
         owner: _colorway_shades(
             settings,
-            background=(
-                surfaces["surface"]
-                if owner is ThemeColorway.APP
-                else surfaces["canvas"]
-            ),
+            background=(surfaces["surface"] if owner is ThemeColorway.APP else surfaces["canvas"]),
             text=surfaces["text"],
         )
         for owner, settings in config.theme.colorways()
@@ -140,13 +127,8 @@ def _resolved_theme_colours(
     return surfaces, colourways
 
 
-def _scope_colorway(
-    selector: str, scope: str, owner: ThemeColorway, shades: tuple[str, ...]
-) -> str:
-    aliases = "\n".join(
-        f"    --jouzetsu-{scope}-{shade}: var(--jouzetsu-{owner.value}-{shade});"
-        for shade in shades
-    )
+def _scope_colorway(selector: str, scope: str, owner: ThemeColorway, shades: tuple[str, ...]) -> str:
+    aliases = "\n".join(f"    --jouzetsu-{scope}-{shade}: var(--jouzetsu-{owner.value}-{shade});" for shade in shades)
     return f"{selector} {{\n{aliases}\n}}"
 
 
@@ -171,28 +153,20 @@ def _app_surfaces(settings: AppColorwaySettings, *, dark_mode: bool) -> dict[str
     }
 
 
-def _message_action_color(
-    settings: AppColorwaySettings, action: MessageAction, *, surface: str
-) -> str:
+def _message_action_color(settings: AppColorwaySettings, action: MessageAction, *, surface: str) -> str:
     """Resolve one semantic action colour with accessible contrast on its surface."""
 
     configured: str | None = getattr(settings, action.color_field)
     return readable_accent(configured or builtin_message_action_color(action), surface)
 
 
-def _colorway_shades(
-    settings: ColorwaySettings, *, background: str, text: str
-) -> dict[str, str]:
+def _colorway_shades(settings: ColorwaySettings, *, background: str, text: str) -> dict[str, str]:
     accent = settings.accent
     neutral = contrasting_text(background)
     is_app = isinstance(settings, AppColorwaySettings)
     hover = settings.hover or mix_colors(accent, BLACK, 0.12)
-    subtle = settings.subtle or mix_colors(
-        background, text if is_app else accent, 0.06 if is_app else 0.09
-    )
-    muted = settings.muted or mix_colors(
-        background, text if is_app else accent, 0.2 if is_app else 0.5
-    )
+    subtle = settings.subtle or mix_colors(background, text if is_app else accent, 0.06 if is_app else 0.09)
+    muted = settings.muted or mix_colors(background, text if is_app else accent, 0.2 if is_app else 0.5)
     foreground = readable_accent(text, subtle)
     return {
         "accent": accent,

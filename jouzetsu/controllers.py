@@ -70,9 +70,7 @@ class PersistenceController:
         deleted_ids: set[str] = set(deleted_chat_ids)
         overlap: set[str] = set(records).intersection(deleted_ids)
         if overlap:
-            raise ValueError(
-                f"cannot save and delete the same chat: {sorted(overlap)!r}"
-            )
+            raise ValueError(f"cannot save and delete the same chat: {sorted(overlap)!r}")
         if not records and not deleted_ids:
             return
         now = time.monotonic()
@@ -84,9 +82,7 @@ class PersistenceController:
         if self._chat_write_task is None or self._chat_write_task.done():
             self._chat_write_task = asyncio.create_task(self._write_pending_chats())
 
-    def _queue_chat_write(
-        self, chat_id: str, record: ChatJSON | None, now: float
-    ) -> None:
+    def _queue_chat_write(self, chat_id: str, record: ChatJSON | None, now: float) -> None:
         previous = self._pending_chat_writes.get(chat_id)
         self._pending_chat_writes[chat_id] = _PendingChatWrite(
             record,
@@ -112,9 +108,7 @@ class PersistenceController:
 
         record = chat.to_dict()
         async with self._write_lock:
-            await complete_before_cancelling(
-                run_in_worker(self.storage.save_records, (record,))
-            )
+            await complete_before_cancelling(run_in_worker(self.storage.save_records, (record,)))
             self._discard_pending_chat(chat.id)
 
     async def delete_chat(self, chat_id: str) -> None:
@@ -122,9 +116,7 @@ class PersistenceController:
 
         async with self._write_lock:
             await complete_before_cancelling(
-                run_in_worker(
-                    self.storage.save_records, (), deleted_chat_ids=frozenset({chat_id})
-                )
+                run_in_worker(self.storage.save_records, (), deleted_chat_ids=frozenset({chat_id}))
             )
             self._discard_pending_chat(chat_id)
 
@@ -138,9 +130,7 @@ class PersistenceController:
 
         snapshot = deepcopy(candidate if candidate is not None else self.config)
         async with self._write_lock:
-            await complete_before_cancelling(
-                run_in_worker(self.config_store.save, snapshot)
-            )
+            await complete_before_cancelling(run_in_worker(self.config_store.save, snapshot))
 
     async def _write_pending_chats(self) -> None:
         """Coalesce each document independently, preserving newer writes on failure."""
@@ -158,16 +148,8 @@ class PersistenceController:
                         continue
                     for chat_id in writes:
                         del self._pending_chat_writes[chat_id]
-                    records = tuple(
-                        write.record
-                        for write in writes.values()
-                        if write.record is not None
-                    )
-                    deleted_ids = frozenset(
-                        chat_id
-                        for chat_id, write in writes.items()
-                        if write.record is None
-                    )
+                    records = tuple(write.record for write in writes.values() if write.record is not None)
+                    deleted_ids = frozenset(chat_id for chat_id, write in writes.items() if write.record is None)
                     try:
                         await complete_before_cancelling(
                             run_in_worker(
@@ -198,15 +180,10 @@ class PersistenceController:
     async def _wait_for_draft_pause(self) -> None:
         """Wake for the earliest quiet draft or continuous-typing deadline."""
         while self._pending_chat_writes and not self._flush_chats_event.is_set():
-            delay = (
-                min(write.deadline for write in self._pending_chat_writes.values())
-                - time.monotonic()
-            )
+            delay = min(write.deadline for write in self._pending_chat_writes.values()) - time.monotonic()
             if delay <= 0:
                 return
             try:
-                _ = await asyncio.wait_for(
-                    self._flush_chats_event.wait(), timeout=delay
-                )
+                _ = await asyncio.wait_for(self._flush_chats_event.wait(), timeout=delay)
             except TimeoutError:
                 continue

@@ -114,9 +114,7 @@ def _confirm_directories(*directories: Path) -> None:
         for directory in dict.fromkeys(directories):
             _sync_directory(directory)
     except OSError as exc:
-        raise CommitUncertainError(
-            "file changed but directory durability could not be confirmed"
-        ) from exc
+        raise CommitUncertainError("file changed but directory durability could not be confirmed") from exc
 
 
 def _sync_file(descriptor: int) -> None:

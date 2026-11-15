@@ -21,6 +21,7 @@ from ..html import (
 from ..icon import app_icon_url
 from ..navigation import LAST_CHAT_COOKIE_MAX_AGE, LAST_CHAT_COOKIE_NAME
 from .access import render_access_dialog
+from .backends import render_backends_dialog
 from .chat import (
     ChatSettingsView,
     ChatView,
@@ -44,6 +45,7 @@ from .icons import render_icon
 
 _DIALOG_ELEMENT_ID_BY_NAME: dict[str, str] = {
     "global": "global-settings-dialog",
+    "backends": "backends-dialog",
     "access": "access-dialog",
 }
 
@@ -104,6 +106,14 @@ def _workspace_dialogs(
 ) -> tuple[HTML, ...]:
     dialogs: list[HTML] = []
     if context.decision.can_use_global_settings:
+        dialogs.append(
+            render_backends_dialog(
+                state,
+                active_tab=active_dialog_tab if active_dialog == "backends" else "",
+                notice=notice if active_dialog == "backends" else "",
+                error=error if active_dialog == "backends" else "",
+            )
+        )
         dialogs.append(
             render_global_settings_dialog(
                 state,

@@ -20,9 +20,7 @@ def _is_non_blank_string(value: object) -> bool:
 
 
 def _is_valid_port(value: object) -> bool:
-    return (
-        isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535
-    )
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,9 +82,7 @@ class ConfigStore:
     paths: AppPaths
     overrides: EnvironmentOverrides
     _persisted: AppConfig | None = None
-    _write_guard: DurableWriteGuard = field(
-        default_factory=DurableWriteGuard, init=False, repr=False
-    )
+    _write_guard: DurableWriteGuard = field(default_factory=DurableWriteGuard, init=False, repr=False)
 
     @classmethod
     def for_home(cls, app_home: Path | None = None) -> ConfigStore:
@@ -135,18 +131,12 @@ class ConfigStore:
             raise ValueError("cannot save configuration using a different path set")
         previous: AppConfig | None = self._persisted
         if previous is None:
-            previous = (
-                self._read_persisted()
-                if self.paths.config_file.exists()
-                else default_config(self.paths)
-            )
+            previous = self._read_persisted() if self.paths.config_file.exists() else default_config(self.paths)
         persisted: AppConfig = self.overrides.remove(effective, persisted=previous)
         encoded: dict[str, object] = encode_config(persisted)
         self._ensure_directories(persisted)
         with self._write_guard.protect(self.paths.config_file):
-            atomic_write_text(
-                self.paths.config_file, json.dumps(encoded, indent=4) + "\n"
-            )
+            atomic_write_text(self.paths.config_file, json.dumps(encoded, indent=4) + "\n")
         self._persisted = deepcopy(persisted)
 
     def _ensure_directories(self, config: AppConfig) -> None:
@@ -158,11 +148,7 @@ class ConfigStore:
         try:
             raw: object = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            raise ConfigValidationError(
-                [ConfigIssue("config", f"invalid JSON: {exc.msg}")]
-            ) from exc
+            raise ConfigValidationError([ConfigIssue("config", f"invalid JSON: {exc.msg}")]) from exc
         except OSError as exc:
-            raise ConfigValidationError(
-                [ConfigIssue("config", f"cannot read file: {exc}")]
-            ) from exc
+            raise ConfigValidationError([ConfigIssue("config", f"cannot read file: {exc}")]) from exc
         return decode_config(raw, paths=self.paths)

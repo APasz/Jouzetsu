@@ -20,21 +20,13 @@ class LoggingConfigTests(unittest.TestCase):
             config = AppConfig(paths=AppPaths.for_home(Path(tmp_dir)))
             log_dir = config.log_directory
 
-            self.assertEqual(
-                log_dir / "system.log", Path(tmp_dir) / "data" / "logs" / "system.log"
-            )
-            self.assertEqual(
-                log_dir / "error.log", Path(tmp_dir) / "data" / "logs" / "error.log"
-            )
-            self.assertEqual(
-                log_dir / "chat.log", Path(tmp_dir) / "data" / "logs" / "chat.log"
-            )
+            self.assertEqual(log_dir / "system.log", Path(tmp_dir) / "data" / "logs" / "system.log")
+            self.assertEqual(log_dir / "error.log", Path(tmp_dir) / "data" / "logs" / "error.log")
+            self.assertEqual(log_dir / "chat.log", Path(tmp_dir) / "data" / "logs" / "chat.log")
 
     def test_codec_keeps_app_home_relative_log_directory_portable(self) -> None:
         paths = AppPaths.for_home(Path("/tmp") / "jouzetsu-test-home")
-        config = AppConfig(
-            paths=paths, logging=LoggingSettings(directory=paths.log_directory)
-        )
+        config = AppConfig(paths=paths, logging=LoggingSettings(directory=paths.log_directory))
 
         self.assertEqual(
             encode_config(config)["logging"],
@@ -47,14 +39,10 @@ class LoggingConfigTests(unittest.TestCase):
             config = AppConfig(logging=LoggingSettings(directory=log_dir))
             log_dir.mkdir()
             for log_name in ("system.log", "error.log", "chat.log"):
-                _ = (log_dir / log_name).write_text(
-                    "previous process log\n", encoding="utf-8"
-                )
+                _ = (log_dir / log_name).write_text("previous process log\n", encoding="utf-8")
             previous_log_dir = log_dir.with_name("logs.old")
             previous_log_dir.mkdir()
-            _ = (previous_log_dir / "obsolete.log").write_text(
-                "older process log\n", encoding="utf-8"
-            )
+            _ = (previous_log_dir / "obsolete.log").write_text("older process log\n", encoding="utf-8")
 
             configure_logging(config)
             try:
@@ -112,9 +100,7 @@ class LoggingConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             log_dir = Path(tmp_dir) / "logs"
             records = configure_bootstrap_logging()
-            logging.getLogger("jouzetsu.config").warning(
-                "bootstrap configuration warning"
-            )
+            logging.getLogger("jouzetsu.config").warning("bootstrap configuration warning")
 
             configure_logging(
                 AppConfig(logging=LoggingSettings(directory=log_dir)),

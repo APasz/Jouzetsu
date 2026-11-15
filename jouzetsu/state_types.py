@@ -21,9 +21,7 @@ class ChatSession:
     chat: Chat
     is_generating: bool = False
     generation_task: asyncio.Task[None] | None = None
-    runtime_status: RuntimeStatus = field(
-        default_factory=lambda: RuntimeStatus(RuntimePhase.CHECKING)
-    )
+    runtime_status: RuntimeStatus = field(default_factory=lambda: RuntimeStatus(RuntimePhase.CHECKING))
     live_reasoning: str = ""
     empty_state_message: str = ""
     live_response: Message | None = None

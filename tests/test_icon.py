@@ -28,9 +28,7 @@ def test_fallback_icon_uses_the_configured_palette() -> None:
     asset_directory: Path = Path(__file__).parents[1] / "jouzetsu" / "web" / "static"
     svg: str = configured_icon_svg(
         asset_directory / FALLBACK_ICON_FILENAME,
-        IconColorSettings(
-            linework_color="#112233", accent_color="#445566", surface_color="#778899"
-        ),
+        IconColorSettings(linework_color="#112233", accent_color="#445566", surface_color="#778899"),
     )
 
     assert 'stroke="#112233"' in svg

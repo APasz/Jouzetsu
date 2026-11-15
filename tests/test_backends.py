@@ -77,14 +77,10 @@ async def server(
 
 
 def config(url: str, *, native: bool = False) -> BackendConfig:
-    return BackendConfig.create(
-        BackendKind.LM_STUDIO if native else BackendKind.OPENAI_COMPATIBLE, "Test", url
-    )
+    return BackendConfig.create(BackendKind.LM_STUDIO if native else BackendKind.OPENAI_COMPATIBLE, "Test", url)
 
 
-@pytest.mark.parametrize(
-    "failure", ["overflow", "error", "interrupted", "tool_call", "wrong_role"]
-)
+@pytest.mark.parametrize("failure", ["overflow", "error", "interrupted", "tool_call", "wrong_role"])
 def test_ollama_generation_failures_are_safe(failure: str) -> None:
     async def exercise() -> None:
         async def handler(req: web.Request) -> web.Response:
@@ -96,15 +92,10 @@ def test_ollama_generation_failures_are_safe(failure: str) -> None:
                 return web.Response(text=json.dumps({"error": "SECRET"}) + "\n")
             if failure in ("tool_call", "wrong_role"):
                 message = (
-                    {"role": "user"}
-                    if failure == "wrong_role"
-                    else {"tool_calls": [{"function": {"name": "unknown"}}]}
+                    {"role": "user"} if failure == "wrong_role" else {"tool_calls": [{"function": {"name": "unknown"}}]}
                 )
                 return web.Response(
-                    text=json.dumps(
-                        {"model": "catalog-model", "message": message, "done": True}
-                    )
-                    + "\n"
+                    text=json.dumps({"model": "catalog-model", "message": message, "done": True}) + "\n"
                 )
             return web.Response(
                 text=json.dumps(
@@ -165,9 +156,7 @@ def test_ollama_discovery_and_stream_preserve_history_and_images(
             if req.path.endswith("/api/version"):
                 return web.json_response({"version": "0.40.16"})
             if req.path.endswith("/api/tags"):
-                return web.json_response(
-                    {"models": [{"name": "catalog-model", "size": 42}]}
-                )
+                return web.json_response({"models": [{"name": "catalog-model", "size": 42}]})
             if req.path.endswith("/api/ps"):
                 return web.json_response({"models": []})
             if req.path.endswith("/api/show"):
@@ -231,27 +220,17 @@ def test_ollama_discovery_and_stream_preserve_history_and_images(
                 ),
             )
             events = [item async for item in adapter.stream(prepared)]
-            assert [
-                (item.content, item.is_reasoning)
-                for item in events
-                if isinstance(item, PredictionFragment)
-            ] == [("Think", True), ("Answer", False)]
-            assert (
-                next(
-                    item for item in events if isinstance(item, PredictionComplete)
-                ).metrics.prompt_tokens
-                == 12
-            )
+            assert [(item.content, item.is_reasoning) for item in events if isinstance(item, PredictionFragment)] == [
+                ("Think", True),
+                ("Answer", False),
+            ]
+            assert next(item for item in events if isinstance(item, PredictionComplete)).metrics.prompt_tokens == 12
             payload = payloads[0]
             if idle_minutes is None:
                 assert payload["keep_alive"] == -1
             else:
                 assert payload["keep_alive"] == "7m"
-            assert (
-                payload["truncate"] is False
-                and payload["shift"] is False
-                and payload["think"] is True
-            )
+            assert payload["truncate"] is False and payload["shift"] is False and payload["think"] is True
             messages = cast(list[dict[str, object]], payload["messages"])
             assert [message["role"] for message in messages] == [
                 "user",
@@ -259,10 +238,7 @@ def test_ollama_discovery_and_stream_preserve_history_and_images(
                 "user",
             ]
             assert len(cast(list[str], messages[0]["images"])) == 1
-            assert (
-                cast(dict[str, object], payload["options"])["num_predict"]
-                == prepared.parameters.max_tokens
-            )
+            assert cast(dict[str, object], payload["options"])["num_predict"] == prepared.parameters.max_tokens
             await adapter.close()
 
     asyncio.run(exercise())
@@ -283,9 +259,7 @@ def request(backend: BackendConfig) -> GenerationRequest:
 )
 def test_lmstudio_reasoning_request_mapping(selection: str, wire_value: str) -> None:
     backend = config("http://localhost/v1", native=True)
-    generation = replace(
-        request(backend), reasoning=cast(Literal["off", "on", "low", "high"], selection)
-    )
+    generation = replace(request(backend), reasoning=cast(Literal["off", "on", "low", "high"], selection))
     ready = ModelReady("catalog-model", "catalog-model", 0)
     native_payload = json.loads(_encode_request(generation, ready, None, native=True))
     assert native_payload["reasoning_effort"] == wire_value
@@ -307,9 +281,7 @@ def test_reported_reasoning_level_is_retained() -> None:
             backend = config(url)
             adapter = ChatCompletionsBackend(backend)
             events = [event async for event in adapter.stream(request(backend))]
-            completion = next(
-                event for event in events if isinstance(event, PredictionComplete)
-            )
+            completion = next(event for event in events if isinstance(event, PredictionComplete))
             assert completion.metrics.reasoning_level == "high"
             await adapter.close()
 
@@ -320,14 +292,10 @@ def event(payload: object) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\r\n\r\n"
 
 
-def chunk(
-    content: object, *, model: str = "catalog-model", reasoning: str | None = None
-) -> dict[str, object]:
+def chunk(content: object, *, model: str = "catalog-model", reasoning: str | None = None) -> dict[str, object]:
     return {
         "model": model,
-        "choices": [
-            {"index": 0, "delta": {"content": content, "reasoning_content": reasoning}}
-        ],
+        "choices": [{"index": 0, "delta": {"content": content, "reasoning_content": reasoning}}],
     }
 
 
@@ -348,9 +316,7 @@ def test_generic_stream_preserves_roles_reasoning_usage_and_actual_identity() ->
                 + event(
                     {
                         "model": "actual-model",
-                        "choices": [
-                            {"delta": dict[str, object](), "finish_reason": "stop"}
-                        ],
+                        "choices": [{"delta": dict[str, object](), "finish_reason": "stop"}],
                         "usage": {"prompt_tokens": 8, "completion_tokens": 3},
                     }
                 )
@@ -372,9 +338,7 @@ def test_generic_stream_preserves_roles_reasoning_usage_and_actual_identity() ->
             ("café <think>ordinary</think>", False),
         ]
         complete = next(item for item in events if isinstance(item, PredictionComplete))
-        assert (
-            complete.metrics.prompt_tokens == 8 and complete.metrics.output_tokens == 3
-        )
+        assert complete.metrics.prompt_tokens == 8 and complete.metrics.output_tokens == 3
         assert payloads[0]["model"] == "catalog-model"
         assert payloads[0]["messages"] == [
             {"role": "user", "content": "first"},
@@ -425,9 +389,7 @@ def test_protocol_errors_are_visible_safe_and_never_retried(body: str) -> None:
 def test_partial_text_is_yielded_before_truncated_stream_error() -> None:
     async def exercise() -> None:
         async def handler(req: web.Request) -> web.Response:
-            return web.Response(
-                text=event(chunk("partial")), content_type="text/event-stream"
-            )
+            return web.Response(text=event(chunk("partial")), content_type="text/event-stream")
 
         async with server(handler) as url:
             backend = config(url)
@@ -465,9 +427,7 @@ def test_http_error_bodies_are_not_exposed_or_retried(status: int) -> None:
             assert "SECRET" not in str(error.value)
             assert calls == 1
             assert error.value.category is (
-                BackendErrorCategory.INCOMPATIBLE
-                if status in {400, 404, 422}
-                else BackendErrorCategory.PROTOCOL
+                BackendErrorCategory.INCOMPATIBLE if status in {400, 404, 422} else BackendErrorCategory.PROTOCOL
             )
             await adapter.close()
 
@@ -554,9 +514,7 @@ def test_native_management_uses_exact_catalog_and_instance_ids() -> None:
             _ = [item async for item in adapter.load_model("catalog-model")]
             events = [item async for item in adapter.stream(request(backend))]
             ready = next(item for item in events if isinstance(item, ModelReady))
-            assert (
-                ready.model_key == "catalog-model" and ready.instance_id == "instance-1"
-            )
+            assert ready.model_key == "catalog-model" and ready.instance_id == "instance-1"
             await adapter.unload_model("instance-1")
             assert requests[0] == (
                 "/api/v1/models/load",
@@ -636,9 +594,7 @@ def test_responses_transport_preserves_history_images_and_streamed_reasoning(
             )
 
         async with server(handler) as url:
-            backend = replace(
-                config(url, native=True), lmstudio_transport=LMStudioTransport.RESPONSES
-            )
+            backend = replace(config(url, native=True), lmstudio_transport=LMStudioTransport.RESPONSES)
             images = ImageStorage(tmp_path / "images")
             image = images.store(image_bytes(), "test.png")
             prepared = replace(
@@ -654,14 +610,11 @@ def test_responses_transport_preserves_history_images_and_streamed_reasoning(
             )
             adapter = LMStudioBackend(backend, images=images)
             events = [item async for item in adapter.stream(prepared)]
-            assert [
-                (item.content, item.is_reasoning)
-                for item in events
-                if isinstance(item, PredictionFragment)
-            ] == [("Thinking", True), ("Answer", False)]
-            complete = next(
-                item for item in events if isinstance(item, PredictionComplete)
-            )
+            assert [(item.content, item.is_reasoning) for item in events if isinstance(item, PredictionFragment)] == [
+                ("Thinking", True),
+                ("Answer", False),
+            ]
+            complete = next(item for item in events if isinstance(item, PredictionComplete))
             assert complete.metrics.reasoning_level == "on"
             assert (complete.metrics.prompt_tokens, complete.metrics.output_tokens) == (
                 12,
@@ -699,24 +652,14 @@ def test_responses_transport_preserves_history_images_and_streamed_reasoning(
         ("max", "max"),
     ],
 )
-def test_responses_encodes_only_supported_parameters(
-    selection: str | None, effort: str | None
-) -> None:
+def test_responses_encodes_only_supported_parameters(selection: str | None, effort: str | None) -> None:
     backend = config("http://localhost/v1", native=True)
     prepared = replace(
         request(backend),
-        reasoning=cast(
-            Literal["off", "on", "low", "medium", "high", "max"] | None, selection
-        ),
-        parameter_support=ParameterSupport(
-            temperature=True, top_p=False, max_tokens=False
-        ),
+        reasoning=cast(Literal["off", "on", "low", "medium", "high", "max"] | None, selection),
+        parameter_support=ParameterSupport(temperature=True, top_p=False, max_tokens=False),
     )
-    payload = json.loads(
-        encode_responses_request(
-            prepared, ModelReady("catalog-model", "Catalog", 0), None
-        )
-    )
+    payload = json.loads(encode_responses_request(prepared, ModelReady("catalog-model", "Catalog", 0), None))
     assert payload.get("reasoning") == ({"effort": effort} if effort else None)
     assert payload["temperature"] == prepared.parameters.temperature
     assert "top_p" not in payload and "max_output_tokens" not in payload
@@ -921,13 +864,9 @@ def test_responses_incomplete_stream_keeps_partial_text_and_stop_reason() -> Non
                     responses=True,
                 )
             ]
-            assert [
-                item.content for item in events if isinstance(item, PredictionFragment)
-            ] == ["Partial"]
+            assert [item.content for item in events if isinstance(item, PredictionFragment)] == ["Partial"]
             assert (
-                next(
-                    item for item in events if isinstance(item, PredictionComplete)
-                ).metrics.stop_reason
+                next(item for item in events if isinstance(item, PredictionComplete)).metrics.stop_reason
                 == "max_output_tokens"
             )
             await transport.close()
@@ -950,9 +889,7 @@ def test_known_unsupported_parameters_are_preserved_but_not_forwarded() -> None:
             backend = config(url)
             prepared = replace(
                 request(backend),
-                parameter_support=ParameterSupport(
-                    temperature=False, top_p=None, max_tokens=True
-                ),
+                parameter_support=ParameterSupport(temperature=False, top_p=None, max_tokens=True),
             )
             adapter = ChatCompletionsBackend(backend)
             _ = [item async for item in adapter.stream(prepared)]
@@ -1003,9 +940,7 @@ def test_sse_utf8_crlf_comments_and_multiple_data_lines_across_every_boundary() 
 @pytest.mark.parametrize("newline", [b"\n", b"\r\n", b"\r"])
 def test_sse_bom_and_all_line_endings_at_every_byte_boundary(newline: bytes) -> None:
     async def exercise() -> None:
-        payload = b"\xef\xbb\xbf" + newline.join(
-            ["data: café".encode(), b"", b"data: [DONE]", b"", b""]
-        )
+        payload = b"\xef\xbb\xbf" + newline.join(["data: café".encode(), b"", b"data: [DONE]", b"", b""])
         for boundary in range(1, len(payload)):
 
             async def chunks(split: int) -> AsyncIterator[bytes]:
@@ -1071,13 +1006,7 @@ def test_stream_rejects_content_after_a_terminal_choice() -> None:
     async def exercise() -> None:
         async def handler(req: web.Request) -> web.Response:
             body = (
-                event(
-                    {
-                        "choices": [
-                            {"delta": dict[str, object](), "finish_reason": "stop"}
-                        ]
-                    }
-                )
+                event({"choices": [{"delta": dict[str, object](), "finish_reason": "stop"}]})
                 + event(chunk("late content"))
                 + "data: [DONE]\n\n"
             )
@@ -1145,9 +1074,7 @@ def test_slow_request_encoding_leaves_the_event_loop_available() -> None:
             backend = config(url)
             adapter = ChatCompletionsBackend(backend)
             prepared = request(backend)
-            encoded = _encode_request(
-                prepared, ModelReady("catalog-model", "Model", 0), None
-            )
+            encoded = _encode_request(prepared, ModelReady("catalog-model", "Model", 0), None)
 
             def slow_encode(
                 request: GenerationRequest,
@@ -1182,9 +1109,7 @@ def runtime_for_backend(home: Path, backend: BackendConfig) -> InferenceRuntime:
     settings = store.load()
     settings.backends = BackendConfiguration((backend,), backend.id)
     store.save(settings)
-    persistence = PersistenceController(
-        settings, store, ChatStorage(settings.chats_file)
-    )
+    persistence = PersistenceController(settings, store, ChatStorage(settings.chats_file))
     return InferenceRuntime(ChatRegistry(lambda: ""), persistence)
 
 
@@ -1201,9 +1126,7 @@ def test_ollama_model_management_tracks_real_state(
             if req.path.endswith("/api/tags"):
                 return web.json_response({"models": [{"name": "catalog-model"}]})
             if req.path.endswith("/api/ps"):
-                return web.json_response(
-                    {"models": [{"name": "catalog-model"}] if loaded else []}
-                )
+                return web.json_response({"models": [{"name": "catalog-model"}] if loaded else []})
             if req.path.endswith("/api/show"):
                 return web.json_response({"capabilities": ["completion"]})
             assert req.path.endswith("/api/generate")
@@ -1230,9 +1153,7 @@ def test_ollama_model_management_tracks_real_state(
             await runtime.load_model(model)
             assert actions[-1]["keep_alive"] == keep_alive
             await runtime.refresh_backend(backend.id)
-            assert runtime.inventory(backend.id)[0].loaded_instance_ids == (
-                "catalog-model",
-            )
+            assert runtime.inventory(backend.id)[0].loaded_instance_ids == ("catalog-model",)
             await runtime.unload_model(model)
             assert actions[-1]["keep_alive"] == 0
             await runtime.refresh_backend(backend.id)
@@ -1246,14 +1167,10 @@ def test_ollama_model_management_tracks_real_state(
 def test_ollama_rejects_unconfirmed_model_management(operation: str) -> None:
     async def exercise() -> None:
         async def handler(req: web.Request) -> web.Response:
-            return web.json_response(
-                {"model": "catalog-model", "done": True, "done_reason": "unexpected"}
-            )
+            return web.json_response({"model": "catalog-model", "done": True, "done_reason": "unexpected"})
 
         async with server(handler) as url:
-            adapter = OllamaBackend(
-                BackendConfig.create(BackendKind.OLLAMA, "Ollama", url)
-            )
+            adapter = OllamaBackend(BackendConfig.create(BackendKind.OLLAMA, "Ollama", url))
             with pytest.raises(BackendError, match="did not confirm"):
                 if operation == "load":
                     _ = [event async for event in adapter.load_model("catalog-model")]
@@ -1297,14 +1214,8 @@ def test_responses_runtime_replays_edits_regeneration_continuation_and_forks(
             chunks: list[dict[str, object]] = [
                 {"type": "response.created", "response": response},
                 {
-                    "type": "response.reasoning_text.delta"
-                    if count == 6
-                    else "response.output_text.delta",
-                    "delta": "Thinking only"
-                    if count == 6
-                    else "Partial"
-                    if count == 7
-                    else f"Reply {count}",
+                    "type": "response.reasoning_text.delta" if count == 6 else "response.output_text.delta",
+                    "delta": "Thinking only" if count == 6 else "Partial" if count == 7 else f"Reply {count}",
                 },
             ]
             if count != 7:
@@ -1344,31 +1255,23 @@ def test_responses_runtime_replays_edits_regeneration_continuation_and_forks(
             ).register_model("catalog-model")
             runtime = runtime_for_backend(tmp_path, backend)
             chat = await runtime.create_chat()
-            first = await runtime.send_message(
-                chat.id, chat.revision, "first-id", "First"
-            )
+            first = await runtime.send_message(chat.id, chat.revision, "first-id", "First")
             assert first.job
             await first.job.wait()
-            second = await runtime.send_message(
-                chat.id, chat.revision, "second-id", "Second"
-            )
+            second = await runtime.send_message(chat.id, chat.revision, "second-id", "Second")
             assert second.job
             await second.job.wait()
-            regeneration = await runtime.generate(
-                chat.id, chat.revision, mode=GenerationMode.REGENERATE
-            )
+            regeneration = await runtime.generate(chat.id, chat.revision, mode=GenerationMode.REGENERATE)
             assert regeneration
             await regeneration.wait()
             assert chat.messages[-1].content == "Reply 3"
             messages = cast(list[dict[str, object]], payloads[-1]["input"])
-            assert [
-                (item["role"], item["content"])
-                for item in messages
-                if item["role"] != "system"
-            ] == [("user", "First"), ("assistant", "Reply 1"), ("user", "Second")]
-            continuation = await runtime.generate(
-                chat.id, chat.revision, mode=GenerationMode.CONTINUE
-            )
+            assert [(item["role"], item["content"]) for item in messages if item["role"] != "system"] == [
+                ("user", "First"),
+                ("assistant", "Reply 1"),
+                ("user", "Second"),
+            ]
+            continuation = await runtime.generate(chat.id, chat.revision, mode=GenerationMode.CONTINUE)
             assert continuation
             await continuation.wait()
             messages = cast(list[dict[str, object]], payloads[-1]["input"])
@@ -1389,37 +1292,28 @@ def test_responses_runtime_replays_edits_regeneration_continuation_and_forks(
             assert forked
             await forked.wait()
             messages = cast(list[dict[str, object]], payloads[-1]["input"])
-            assert [
-                (item["role"], item["content"])
-                for item in messages
-                if item["role"] != "system"
-            ] == [("user", "Edited"), ("assistant", "Reply 1"), ("user", "Second")]
+            assert [(item["role"], item["content"]) for item in messages if item["role"] != "system"] == [
+                ("user", "Edited"),
+                ("assistant", "Reply 1"),
+                ("user", "Second"),
+            ]
             assert fork.messages[-1].content == "Reply 5"
-            reasoning_only = await runtime.generate(
-                fork.id, fork.revision, mode=GenerationMode.REGENERATE
-            )
+            reasoning_only = await runtime.generate(fork.id, fork.revision, mode=GenerationMode.REGENERATE)
             assert reasoning_only
             await reasoning_only.wait()
             assert reasoning_only.phase is JobPhase.FAILED
             assert fork.messages[-1].content == "Reply 5"
-            interrupted = await runtime.generate(
-                fork.id, fork.revision, mode=GenerationMode.REGENERATE
-            )
+            interrupted = await runtime.generate(fork.id, fork.revision, mode=GenerationMode.REGENERATE)
             assert interrupted
             await interrupted.wait()
             assert interrupted.phase is JobPhase.FAILED
             assert fork.messages[-1].content == "Partial"
             for _ in range(2):
-                unsafe = await runtime.generate(
-                    fork.id, fork.revision, mode=GenerationMode.REGENERATE
-                )
+                unsafe = await runtime.generate(fork.id, fork.revision, mode=GenerationMode.REGENERATE)
                 assert unsafe
                 await unsafe.wait()
                 assert unsafe.phase is JobPhase.FAILED
-                assert (
-                    unsafe.error
-                    and unsafe.error.category is BackendErrorCategory.INCOMPATIBLE
-                )
+                assert unsafe.error and unsafe.error.category is BackendErrorCategory.INCOMPATIBLE
                 assert fork.messages[-1].content == "Partial"
             assert all(payload["store"] is False for payload in payloads)
             assert await runtime.shutdown()
@@ -1451,9 +1345,7 @@ def test_manual_model_generation_is_independent_of_inventory_endpoint(
             )
 
         async with server(handler) as url:
-            backend = replace(
-                config(url), defaults=GenerationProfile("catalog-model")
-            ).register_model("catalog-model")
+            backend = replace(config(url), defaults=GenerationProfile("catalog-model")).register_model("catalog-model")
             runtime = runtime_for_backend(tmp_path, backend)
             chat = await runtime.create_chat()
             sent = await runtime.send_message(chat.id, 0, "manual", "Hello")
@@ -1469,11 +1361,7 @@ def test_manual_model_generation_is_independent_of_inventory_endpoint(
                 assert error and error.category is BackendErrorCategory.PROTOCOL
                 assert "SECRET" not in str(error)
             assert calls == ["/v1/models", "/v1/chat/completions"]
-            assert (
-                runtime.configuration.backend(backend.id)
-                .model("catalog-model")
-                .manually_registered
-            )
+            assert runtime.configuration.backend(backend.id).model("catalog-model").manually_registered
             saved = runtime.persistence.storage.load_all()
             assert len(saved) == 1 and saved[0].to_dict() == chat.to_dict()
             assert await runtime.shutdown()
@@ -1500,17 +1388,12 @@ def test_unreachable_discovery_marks_backend_offline_without_attempting_inferenc
                 "stream",
                 side_effect=AssertionError("Must not infer offline"),
             ) as streaming:
-                sent = await runtime.send_message(
-                    chat.id, 0, "offline", "Saved offline"
-                )
+                sent = await runtime.send_message(chat.id, 0, "offline", "Saved offline")
                 assert sent.job
                 await sent.job.wait()
                 streaming.assert_not_called()
             assert sent.job.phase is JobPhase.FAILED
-            assert (
-                sent.job.error
-                and sent.job.error.category is BackendErrorCategory.OFFLINE
-            )
+            assert sent.job.error and sent.job.error.category is BackendErrorCategory.OFFLINE
             assert runtime.health(backend.id).state is BackendReachability.OFFLINE
             error = runtime.discovery_error(backend.id)
             assert error and error.category is BackendErrorCategory.OFFLINE
@@ -1521,9 +1404,7 @@ def test_unreachable_discovery_marks_backend_offline_without_attempting_inferenc
 
 
 @pytest.mark.parametrize("vision", [None, False])
-def test_discovery_failure_does_not_bypass_fail_closed_vision(
-    tmp_path: Path, vision: bool | None
-) -> None:
+def test_discovery_failure_does_not_bypass_fail_closed_vision(tmp_path: Path, vision: bool | None) -> None:
     async def exercise() -> None:
         posts = 0
 
@@ -1534,9 +1415,7 @@ def test_discovery_failure_does_not_bypass_fail_closed_vision(
             return web.json_response({"malformed": "inventory"})
 
         async with server(handler) as url:
-            backend = replace(
-                config(url), defaults=GenerationProfile("catalog-model")
-            ).register_model("catalog-model")
+            backend = replace(config(url), defaults=GenerationProfile("catalog-model")).register_model("catalog-model")
             registered = backend.model("catalog-model")
             backend = replace(
                 backend,
@@ -1554,12 +1433,8 @@ def test_discovery_failure_does_not_bypass_fail_closed_vision(
             with pytest.raises(BackendError):
                 await runtime.refresh_backend(backend.id)
             chat = await runtime.create_chat()
-            image = ImageAttachment(
-                "a" * 64, "original.png", ImageMediaType.PNG, 1, 1, 1
-            )
-            sent = await runtime.send_message(
-                chat.id, 0, "vision", "Look", images=(image,)
-            )
+            image = ImageAttachment("a" * 64, "original.png", ImageMediaType.PNG, 1, 1, 1)
+            sent = await runtime.send_message(chat.id, 0, "vision", "Look", images=(image,))
             assert sent.job is None
             assert posts == 0
             assert chat.messages[0].images == (image,)
@@ -1583,9 +1458,7 @@ def test_discovery_timeout_remains_visible_while_manual_inference_can_succeed(
             )
 
         async with server(handler) as url:
-            backend = replace(
-                config(url), defaults=GenerationProfile("catalog-model")
-            ).register_model("catalog-model")
+            backend = replace(config(url), defaults=GenerationProfile("catalog-model")).register_model("catalog-model")
             runtime = runtime_for_backend(tmp_path, backend)
             chat = await runtime.create_chat()
             with patch.object(

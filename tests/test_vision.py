@@ -41,9 +41,7 @@ def test_image_storage_preserves_originals_and_decodes_actual_format(
     assert image.media_type is media_type
     assert image.name == "picture.wrong-extension"
     assert storage.path_for(image).read_bytes() == data
-    transport_type = (
-        ImageMediaType.PNG if media_type is ImageMediaType.WEBP else media_type
-    )
+    transport_type = ImageMediaType.PNG if media_type is ImageMediaType.WEBP else media_type
     data_url = storage.data_url(image)
     assert data_url.startswith(f"data:{transport_type.value};base64,")
     with (
@@ -51,9 +49,7 @@ def test_image_storage_preserves_originals_and_decodes_actual_format(
         Image.open(BytesIO(data)) as original,
     ):
         assert transported.size == original.size
-        assert (
-            transported.convert("RGBA").tobytes() == original.convert("RGBA").tobytes()
-        )
+        assert transported.convert("RGBA").tobytes() == original.convert("RGBA").tobytes()
     with Image.open(storage.path_for(image, thumbnail=True)) as preview:
         assert preview.width <= 320 and preview.height <= 240
     assert storage.store(data, image.name) == image
@@ -62,27 +58,19 @@ def test_image_storage_preserves_originals_and_decodes_actual_format(
 
 def test_webp_transport_preserves_transparency(image_storage: ImageStorage) -> None:
     data = BytesIO()
-    Image.new("RGBA", (37, 29), (20, 40, 60, 128)).save(
-        data, format="WEBP", lossless=True
-    )
+    Image.new("RGBA", (37, 29), (20, 40, 60, 128)).save(data, format="WEBP", lossless=True)
     storage = image_storage
     image = storage.store(data.getvalue(), "transparent.webp")
     data_url = storage.data_url(image)
     assert data_url.startswith("data:image/png;base64,")
-    with Image.open(
-        BytesIO(base64.b64decode(data_url.split(",", 1)[1]))
-    ) as transported:
+    with Image.open(BytesIO(base64.b64decode(data_url.split(",", 1)[1]))) as transported:
         assert transported.size == (37, 29)
         assert transported.convert("RGBA").getpixel((0, 0)) == (20, 40, 60, 128)
     assert storage.path_for(image).read_bytes() == data.getvalue()
 
 
-@pytest.mark.parametrize(
-    "data", (b"not an image", b"<svg></svg>", image_bytes(format="GIF"))
-)
-def test_invalid_and_unsupported_images_never_reach_storage(
-    tmp_path: Path, data: bytes
-) -> None:
+@pytest.mark.parametrize("data", (b"not an image", b"<svg></svg>", image_bytes(format="GIF")))
+def test_invalid_and_unsupported_images_never_reach_storage(tmp_path: Path, data: bytes) -> None:
     with pytest.raises(ValueError, match="image|JPEG"):
         _ = ImageStorage(tmp_path).store(data, "image.png")
     assert list(tmp_path.iterdir()) == []
@@ -92,13 +80,9 @@ def test_image_limits_and_missing_originals_fail_explicitly(tmp_path: Path) -> N
     with pytest.raises(ValueError, match="positive integers"):
         _ = ImageLimits(max_images_per_message=0)
     with pytest.raises(ValueError, match="each image"):
-        _ = ImageStorage(tmp_path, ImageLimits(max_image_bytes=2)).store(
-            image_bytes(), "large.png"
-        )
+        _ = ImageStorage(tmp_path, ImageLimits(max_image_bytes=2)).store(image_bytes(), "large.png")
     with pytest.raises(ValueError, match="pixel limit"):
-        _ = ImageStorage(tmp_path, ImageLimits(max_image_pixels=2)).store(
-            image_bytes(), "large.png"
-        )
+        _ = ImageStorage(tmp_path, ImageLimits(max_image_pixels=2)).store(image_bytes(), "large.png")
     storage = ImageStorage(tmp_path)
     image = storage.store(image_bytes(), "original.png")
     _ = storage.path_for(image).write_bytes(b"damaged")

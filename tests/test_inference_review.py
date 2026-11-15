@@ -60,9 +60,7 @@ class ControlledBackend(FakeBackend):
         return await super().discover_models()
 
     @override
-    async def load_model(
-        self, model_id: str
-    ) -> AsyncGenerator[ModelLoadProgress | ModelReady]:
+    async def load_model(self, model_id: str) -> AsyncGenerator[ModelLoadProgress | ModelReady]:
         self.load_entered.set()
         await self.load_release.wait()
         async for event in super().load_model(model_id):
@@ -74,9 +72,7 @@ class ControlledBackend(FakeBackend):
         self.streams.append(iterator)
         return iterator
 
-    async def _stream(
-        self, request: GenerationRequest
-    ) -> AsyncGenerator[ChatStreamEvent]:
+    async def _stream(self, request: GenerationRequest) -> AsyncGenerator[ChatStreamEvent]:
         try:
             async with aclosing(super().stream(request)) as events:
                 async for event in events:
@@ -116,9 +112,7 @@ def test_shutdown_drains_user_commit_without_starting_late_generation(
             original(records, deleted_chat_ids=deleted_chat_ids)
 
         with patch.object(h.storage, "save_records", side_effect=slow):
-            sending = asyncio.create_task(
-                h.runtime.send_message(chat.id, 0, "send", "Durable")
-            )
+            sending = asyncio.create_task(h.runtime.send_message(chat.id, 0, "send", "Durable"))
             await worker_started(entered)
             stopping = asyncio.create_task(h.runtime.shutdown())
             await asyncio.sleep(0)
@@ -149,9 +143,7 @@ def test_shutdown_waits_for_adapter_replacement_publication(tmp_path: Path) -> N
             original(store, candidate)
 
         with patch.object(ConfigStore, "save", new=slow):
-            update = asyncio.create_task(
-                h.runtime.update_backend(replace(config, base_url="http://changed/v1"))
-            )
+            update = asyncio.create_task(h.runtime.update_backend(replace(config, base_url="http://changed/v1")))
             await worker_started(entered)
             replacement = h.adapters[config.id]
             stopping = asyncio.create_task(h.runtime.shutdown())
@@ -161,9 +153,7 @@ def test_shutdown_waits_for_adapter_replacement_publication(tmp_path: Path) -> N
             await update
             assert await stopping
         assert previous.closed and replacement.closed
-        assert (
-            h.store.load().backends.backend(config.id).base_url == "http://changed/v1"
-        )
+        assert h.store.load().backends.backend(config.id).base_url == "http://changed/v1"
 
     asyncio.run(exercise())
 
@@ -200,9 +190,7 @@ def test_unpublished_adapter_is_closed_when_configuration_save_fails(
             patch.object(ConfigStore, "save", side_effect=OSError("full")),
             pytest.raises(OSError),
         ):
-            await h.runtime.update_backend(
-                replace(config, base_url="http://changed/v1")
-            )
+            await h.runtime.update_backend(replace(config, base_url="http://changed/v1"))
         replacement = h.adapters[config.id]
         assert replacement is not previous and replacement.closed
         assert not previous.closed
@@ -244,10 +232,7 @@ def test_cancel_during_notification_closes_stream_before_unlocking_chat(
         notified = asyncio.Event()
 
         async def notify(change: RuntimeChange) -> None:
-            if (
-                change.kind is ChangeKind.STATUS
-                and h.registry.get(chat.id).live_response
-            ):
+            if change.kind is ChangeKind.STATUS and h.registry.get(chat.id).live_response:
                 notified.set()
                 await asyncio.Event().wait()
 
@@ -275,9 +260,7 @@ def test_save_retry_surfaces_the_new_failure_and_recovery_requirement(
     async def exercise() -> None:
         h = Harness(tmp_path, (backend(),))
         chat = await h.chat()
-        with patch.object(
-            h.storage, "save_records", side_effect=OSError("first failure")
-        ):
+        with patch.object(h.storage, "save_records", side_effect=OSError("first failure")):
             job = await h.runtime.generate(chat.id, chat.revision)
             assert job
             await job.wait()
@@ -305,9 +288,7 @@ def test_generation_does_not_race_a_model_unload_during_discovery(
         h = Harness(tmp_path, (config,), adapter_factory=lambda _: adapter)
         chat = await h.chat()
         adapter.discovery_release.clear()
-        unloading = asyncio.create_task(
-            h.runtime.unload_model(ModelRef(config.id, "model"))
-        )
+        unloading = asyncio.create_task(h.runtime.unload_model(ModelRef(config.id, "model")))
         await adapter.discovery_entered.wait()
         assert await h.runtime.generate(chat.id, chat.revision) is None
         assert "being unloaded" in str(h.registry.get(chat.id).latest_error)
@@ -336,9 +317,7 @@ def test_idle_unload_rechecks_last_use_after_waiting_for_management(
         adapter.load_entered.clear()
         adapter.load_release.clear()
         with patch("jouzetsu.inference.time.monotonic", return_value=120):
-            loading = asyncio.create_task(
-                h.runtime.load_model(ModelRef(config.id, "model"))
-            )
+            loading = asyncio.create_task(h.runtime.load_model(ModelRef(config.id, "model")))
             await adapter.load_entered.wait()
             unloading = asyncio.create_task(h.runtime.unload_idle_models(now=120))
             await asyncio.sleep(0)
@@ -376,9 +355,7 @@ def test_concurrent_start_owns_one_monitor_and_one_initial_discovery(
 def test_throttled_preview_flushes_even_when_the_backend_pauses(tmp_path: Path) -> None:
     class BurstBackend(ControlledBackend):
         @override
-        async def stream(
-            self, request: GenerationRequest
-        ) -> AsyncGenerator[ChatStreamEvent]:
+        async def stream(self, request: GenerationRequest) -> AsyncGenerator[ChatStreamEvent]:
             yield ModelReady("model", "Model", 4096)
             yield PredictionFragment("First", None, False)
             yield PredictionFragment(" tail", None, False)
@@ -428,10 +405,7 @@ def test_start_can_retry_after_a_cache_persistence_failure(tmp_path: Path) -> No
             discovery = await super().discover_models()
             return replace(
                 discovery,
-                models=tuple(
-                    replace(model, publisher="new metadata")
-                    for model in discovery.models
-                ),
+                models=tuple(replace(model, publisher="new metadata") for model in discovery.models),
             )
 
     async def exercise() -> None:
@@ -439,19 +413,12 @@ def test_start_can_retry_after_a_cache_persistence_failure(tmp_path: Path) -> No
         adapter = UpdatedMetadataBackend(config)
         h = Harness(tmp_path, (config,), adapter_factory=lambda _: adapter)
         with (
-            patch.object(
-                ConfigStore, "save", side_effect=OSError("cache storage full")
-            ),
+            patch.object(ConfigStore, "save", side_effect=OSError("cache storage full")),
             pytest.raises(OSError),
         ):
             await h.runtime.start()
         await h.runtime.start()
-        assert (
-            h.runtime.configuration.backend(config.id)
-            .model("model")
-            .descriptor.publisher
-            == "new metadata"
-        )
+        assert h.runtime.configuration.backend(config.id).model("model").descriptor.publisher == "new metadata"
         assert adapter.discoveries == 2
         assert await h.runtime.shutdown()
 
@@ -487,9 +454,7 @@ def test_finalisation_is_protected_before_its_first_await(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize("shutdown", [False, True])
-def test_cancelled_send_finishes_submission_and_acceptance_after_delayed_save(
-    tmp_path: Path, shutdown: bool
-) -> None:
+def test_cancelled_send_finishes_submission_and_acceptance_after_delayed_save(tmp_path: Path, shutdown: bool) -> None:
     async def exercise() -> None:
         config = backend()
         h = Harness(tmp_path, (config,))
@@ -509,9 +474,7 @@ def test_cancelled_send_finishes_submission_and_acceptance_after_delayed_save(
             original(records, deleted_chat_ids=deleted_chat_ids)
 
         with patch.object(h.storage, "save_records", side_effect=delayed_save):
-            sending = asyncio.create_task(
-                h.runtime.send_message(chat.id, 0, "submission", "Saved once")
-            )
+            sending = asyncio.create_task(h.runtime.send_message(chat.id, 0, "submission", "Saved once"))
             await worker_started(entered)
             _ = sending.cancel()
             duplicate = None
@@ -519,9 +482,7 @@ def test_cancelled_send_finishes_submission_and_acceptance_after_delayed_save(
             if shutdown:
                 stopping = asyncio.create_task(h.runtime.shutdown())
             else:
-                duplicate = asyncio.create_task(
-                    h.runtime.send_message(chat.id, 0, "submission", "Saved once")
-                )
+                duplicate = asyncio.create_task(h.runtime.send_message(chat.id, 0, "submission", "Saved once"))
             await asyncio.sleep(0)
             assert not sending.done()
             release.set()
@@ -570,9 +531,7 @@ def test_continuation_is_a_separate_message_in_preview_and_storage(
         plan = Plan(
             text="Continuation",
             hold=True,
-            error=BackendError(BackendErrorCategory.TIMEOUT, "Interrupted")
-            if outcome == "interrupted"
-            else None,
+            error=BackendError(BackendErrorCategory.TIMEOUT, "Interrupted") if outcome == "interrupted" else None,
         )
         h.adapters[config.id].plans.append(plan)
         job = await h.runtime.generate(chat.id, chat.revision, GenerationMode.CONTINUE)
@@ -618,9 +577,7 @@ class SlowCancellationBackend(FakeBackend):
         self.late_output = True
 
     @override
-    async def stream(
-        self, request: GenerationRequest
-    ) -> AsyncGenerator[ChatStreamEvent]:
+    async def stream(self, request: GenerationRequest) -> AsyncGenerator[ChatStreamEvent]:
         if self.requests:
             async with aclosing(super().stream(request)) as events:
                 async for event in events:
@@ -669,17 +626,13 @@ def test_cancellation_is_bounded_and_retains_locks_until_adapter_cleanup_finishe
         assert h.registry.get(first.id).is_generating
         assert not job.done.is_set() and queued.phase is JobPhase.QUEUED
         with pytest.raises(ChatBusy):
-            await h.runtime.edit_chat(
-                first.id, first.revision, lambda candidate: candidate.messages.clear()
-            )
+            await h.runtime.edit_chat(first.id, first.revision, lambda candidate: candidate.messages.clear())
         with pytest.raises(ChatBusy):
             await h.runtime.update_backend(replace(config, enabled=False))
         adapter.release.set()
         await adapter.cleanup_entered.wait()
         assert not adapter.terminated.is_set()
-        assert (
-            h.registry.get(first.id).is_generating and queued.phase is JobPhase.QUEUED
-        )
+        assert h.registry.get(first.id).is_generating and queued.phase is JobPhase.QUEUED
         assert len(adapter.requests) == 1
         assert len(h.reload(first).messages) == 1
         adapter.cleanup_release.set()

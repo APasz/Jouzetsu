@@ -1,4 +1,5 @@
 import { CharacterEditorController } from './character-editor.js';
+import { handleBackendControlChange, synchronizeBackendControls } from './backends.js';
 import { ChatController } from './chat.js';
 import { COMPOSER_MENU_SELECTOR, ComposerController, currentComposerDraft } from './composer.js';
 import { DeviceActivityController } from './device-activity.js';
@@ -178,6 +179,7 @@ export const startApplication = () => {
             if (dialog instanceof HTMLDialogElement && !dialog.open) {
                 panels.close(false);
                 dialog.showModal();
+                if (dialog.id === 'backends-dialog') void chat.refreshBackends();
             }
             return;
         }
@@ -301,6 +303,7 @@ export const startApplication = () => {
         if (control.closest('.jouzetsu-panel, dialog')) control.closest('form')?.setAttribute('data-local-dirty', 'true');
         images.handleChange(control);
         characters.handleChange(control);
+        handleBackendControlChange(control);
         if (control instanceof HTMLInputElement) {
             if (control.matches('[data-colour-override-picker]')) {
                 activateColourOverride(control);
@@ -418,6 +421,14 @@ export const startApplication = () => {
         const dialog = event.target;
         if (!(dialog instanceof HTMLDialogElement)) return;
         if (dialog.id === 'message-details-dialog') messages.clearDetailsRequest();
+        dialog.querySelectorAll('form[data-reset-on-close]').forEach((form) => {
+            form.reset();
+            delete form.dataset.localDirty;
+        });
+        if (dialog.dataset.modelDialog === 'true') {
+            byId(`${dialog.id}-open`)?.focus({preventScroll: true});
+            void chat.refreshBackends();
+        }
         panels.removeTransientParameters();
         const feedback = dialog.querySelector('.jouzetsu-dialog-feedback');
         if (feedback instanceof HTMLElement && feedback.textContent) {
@@ -427,6 +438,7 @@ export const startApplication = () => {
 
     composer.reconcileViewport();
     characters.initialize();
+    synchronizeBackendControls();
     document.querySelectorAll('[data-colour-override]').forEach(
         synchronizeColourOverride,
     );
@@ -477,6 +489,8 @@ export const startApplication = () => {
                     const theme = document.querySelector('link[data-live-theme]');
                     if (theme instanceof HTMLLinkElement) theme.href = `/theme.css?revision=${encodeURIComponent(payload.revision)}`;
                     void chat.refreshDialogs();
+                } else if ((payload?.kind === 'full' || payload?.kind === 'status') && byId('backends-dialog')?.open) {
+                    void chat.refreshBackends();
                 }
                 if (payload?.characters_changed === true && characters.refreshIfNeeded(notices.announce.bind(notices))) return;
                 if (payload?.kind === 'full' || payload?.kind === 'config') {

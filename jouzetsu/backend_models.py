@@ -32,23 +32,13 @@ def new_backend_id() -> BackendId:
 
 
 def validate_backend_id(backend_id: BackendId) -> None:
-    if not isinstance(
-        cast(object, backend_id), str
-    ) or not _BACKEND_ID_PATTERN.fullmatch(backend_id):
-        raise ValueError(
-            "backend id must be be_ followed by 32 lowercase hexadecimal digits"
-        )
+    if not isinstance(cast(object, backend_id), str) or not _BACKEND_ID_PATTERN.fullmatch(backend_id):
+        raise ValueError("backend id must be be_ followed by 32 lowercase hexadecimal digits")
 
 
 def validate_model_id(model_id: str) -> None:
-    if (
-        not isinstance(cast(object, model_id), str)
-        or not model_id
-        or model_id != model_id.strip()
-    ):
-        raise ValueError(
-            "model id must be non-empty text without surrounding whitespace"
-        )
+    if not isinstance(cast(object, model_id), str) or not model_id or model_id != model_id.strip():
+        raise ValueError("model id must be non-empty text without surrounding whitespace")
 
 
 class BackendKind(str, Enum):
@@ -129,14 +119,10 @@ class RegisteredModel:
             raise TypeError("reasoning default unavailable must be a boolean")
         if self.reasoning_default_unavailable and self.reasoning_default is not None:
             raise ValueError("an unavailable reasoning default must use Automatic")
-        if (
-            self.reasoning_default is not None
-            and self.reasoning_default not in REASONING_OPTIONS
-        ):
+        if self.reasoning_default is not None and self.reasoning_default not in REASONING_OPTIONS:
             raise ValueError("unknown model reasoning default")
         if not isinstance(cast(object, self.reasoning_options_override), tuple) or any(
-            option not in REASONING_OPTIONS
-            for option in self.reasoning_options_override
+            option not in REASONING_OPTIONS for option in self.reasoning_options_override
         ):
             raise ValueError("invalid reasoning options override")
         if not isinstance(cast(object, self.descriptor), ModelDescriptor):
@@ -145,13 +131,8 @@ class RegisteredModel:
         if not self.descriptor.display_name.strip():
             raise ValueError("model display name cannot be blank")
         if self.descriptor.loaded_instance_ids or self.descriptor.loaded_instances:
-            raise ValueError(
-                "registered metadata must not contain live model instances"
-            )
-        if (
-            not isinstance(cast(object, self.alias), str)
-            or self.alias != self.alias.strip()
-        ):
+            raise ValueError("registered metadata must not contain live model instances")
+        if not isinstance(cast(object, self.alias), str) or self.alias != self.alias.strip():
             raise ValueError("model alias must be text without surrounding whitespace")
         if type(self.manually_registered) is not bool:
             raise TypeError("manually_registered must be a boolean")
@@ -164,9 +145,7 @@ class RegisteredModel:
             if value is not None and (type(value) is not int or value < 1):
                 raise ValueError(f"{name} must be a positive integer or null")
         bits = self.descriptor.bits_per_weight
-        if bits is not None and (
-            isinstance(bits, bool) or not math.isfinite(bits) or bits <= 0
-        ):
+        if bits is not None and (isinstance(bits, bool) or not math.isfinite(bits) or bits <= 0):
             raise ValueError("bits_per_weight must be positive and finite or null")
 
     @classmethod
@@ -175,21 +154,12 @@ class RegisteredModel:
 
     @property
     def reasoning_options(self) -> tuple[ReasoningOption, ...]:
-        return (
-            self.reasoning_options_override
-            or self.descriptor.capabilities.reasoning_options
-        )
+        return self.reasoning_options_override or self.descriptor.capabilities.reasoning_options
 
-    def resolve_reasoning(
-        self, selection: ReasoningSelection
-    ) -> tuple[ReasoningOption | None, bool]:
+    def resolve_reasoning(self, selection: ReasoningSelection) -> tuple[ReasoningOption | None, bool]:
         """Return the request option and whether the selection remains available."""
         chosen = (
-            self.reasoning_default
-            if selection == "model_default"
-            else None
-            if selection == "automatic"
-            else selection
+            self.reasoning_default if selection == "model_default" else None if selection == "automatic" else selection
         )
         if chosen is None:
             return None, True
@@ -228,61 +198,38 @@ class BackendConfig(BackendIdentity):
         super(BackendConfig, self).__post_init__()
         if not isinstance(cast(object, self.lmstudio_transport), LMStudioTransport):
             raise TypeError("LM Studio transport must be an LMStudioTransport")
-        if (
-            self.kind is not BackendKind.LM_STUDIO
-            and self.lmstudio_transport is not LMStudioTransport.CHAT_COMPLETIONS
-        ):
+        if self.kind is not BackendKind.LM_STUDIO and self.lmstudio_transport is not LMStudioTransport.CHAT_COMPLETIONS:
             raise ValueError("Responses transport is only available for LM Studio")
         if self.ollama_idle_unload_minutes is not None:
             if self.kind is not BackendKind.OLLAMA:
                 raise ValueError("Ollama idle unload is only available for Ollama")
-            if (
-                type(self.ollama_idle_unload_minutes) is not int
-                or self.ollama_idle_unload_minutes < 1
-            ):
-                raise ValueError(
-                    "Ollama idle unload minutes must be a positive integer or null"
-                )
-        if not isinstance(cast(object, self.base_url), str) or any(
-            character.isspace() for character in self.base_url
-        ):
+            if type(self.ollama_idle_unload_minutes) is not int or self.ollama_idle_unload_minutes < 1:
+                raise ValueError("Ollama idle unload minutes must be a positive integer or null")
+        if not isinstance(cast(object, self.base_url), str) or any(character.isspace() for character in self.base_url):
             raise ValueError("base_url must be an HTTP API URL without whitespace")
         parsed = urlsplit(self.base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError("base_url must be an absolute HTTP or HTTPS URL")
-        if (
-            parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError(
-                "base_url must not contain credentials, a query, or a fragment"
-            )
+        if parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
+            raise ValueError("base_url must not contain credentials, a query, or a fragment")
         _ = parsed.port
         if type(self.enabled) is not bool:
             raise TypeError("backend enabled must be a boolean")
         if type(self.concurrency_limit) is not int or self.concurrency_limit < 1:
             raise ValueError("concurrency_limit must be a positive integer")
-        if not isinstance(
-            cast(object, self.defaults), GenerationProfile
-        ) or not isinstance(cast(object, self.parameter_support), ParameterSupport):
-            raise TypeError(
-                "backend defaults and parameter support must be typed values"
-            )
+        if not isinstance(cast(object, self.defaults), GenerationProfile) or not isinstance(
+            cast(object, self.parameter_support), ParameterSupport
+        ):
+            raise TypeError("backend defaults and parameter support must be typed values")
         if self.kind is BackendKind.LM_STUDIO:
             if not isinstance(self.model_management, ModelManagementSettings):
-                raise ValueError(
-                    "LM Studio requires explicit model management settings"
-                )
+                raise ValueError("LM Studio requires explicit model management settings")
         elif self.model_management is not None:
             raise ValueError("generic backends do not support model management")
         if not isinstance(cast(object, self.models), tuple) or not all(
             isinstance(cast(object, model), RegisteredModel) for model in self.models
         ):
-            raise TypeError(
-                "registered models must be a tuple of RegisteredModel values"
-            )
+            raise TypeError("registered models must be a tuple of RegisteredModel values")
         ids = [model.descriptor.key for model in self.models]
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate registered model id")
@@ -294,9 +241,7 @@ class BackendConfig(BackendIdentity):
             kind=kind,
             name=name,
             base_url=base_url,
-            model_management=ModelManagementSettings()
-            if kind is BackendKind.LM_STUDIO
-            else None,
+            model_management=ModelManagementSettings() if kind is BackendKind.LM_STUDIO else None,
         )
 
     def model(self, model_id: str) -> RegisteredModel:
@@ -306,15 +251,11 @@ class BackendConfig(BackendIdentity):
         raise KeyError(f"unregistered model: {model_id}")
 
     def support_for_model(self, model_id: str | None) -> ParameterSupport:
-        model = next(
-            (model for model in self.models if model.descriptor.key == model_id), None
-        )
+        model = next((model for model in self.models if model.descriptor.key == model_id), None)
         return (
             self.parameter_support
             if model is None
-            else self.parameter_support.restrict_by(
-                model.descriptor.capabilities.parameters
-            )
+            else self.parameter_support.restrict_by(model.descriptor.capabilities.parameters)
         )
 
     def register_model(self, model_id: str, *, alias: str = "") -> BackendConfig:
@@ -328,9 +269,7 @@ class BackendConfig(BackendIdentity):
         )
         return replace(self, models=(*self.models, model))
 
-    def merge_discovery(
-        self, descriptors: tuple[ModelDescriptor, ...]
-    ) -> BackendConfig:
+    def merge_discovery(self, descriptors: tuple[ModelDescriptor, ...]) -> BackendConfig:
         """Discovery updates metadata without removing omitted models or aliases."""
 
         models = {model.descriptor.key: model for model in self.models}
@@ -342,22 +281,17 @@ class BackendConfig(BackendIdentity):
             discovered = RegisteredModel.discovered(descriptor)
             previous = models.get(descriptor.key)
             models[descriptor.key] = (
-                replace(previous, descriptor=discovered.descriptor)
-                if previous is not None
-                else discovered
+                replace(previous, descriptor=discovered.descriptor) if previous is not None else discovered
             )
             model = models[descriptor.key]
             if (
                 model.reasoning_default is not None
                 and model.reasoning_default not in model.reasoning_options
                 and (
-                    model.descriptor.capabilities.reasoning is False
-                    or model.descriptor.capabilities.reasoning_options
+                    model.descriptor.capabilities.reasoning is False or model.descriptor.capabilities.reasoning_options
                 )
             ):
-                models[descriptor.key] = replace(
-                    model, reasoning_default=None, reasoning_default_unavailable=True
-                )
+                models[descriptor.key] = replace(model, reasoning_default=None, reasoning_default_unavailable=True)
         updated = tuple(models.values())
         return self if updated == self.models else replace(self, models=updated)
 
@@ -380,26 +314,18 @@ class BackendConfiguration:
 
     def __post_init__(self) -> None:
         if not isinstance(cast(object, self.backends), tuple) or not all(
-            isinstance(cast(object, backend), BackendConfig)
-            for backend in self.backends
+            isinstance(cast(object, backend), BackendConfig) for backend in self.backends
         ):
             raise TypeError("backends must be a tuple of BackendConfig values")
         if not isinstance(cast(object, self.retired_backends), tuple) or not all(
             type(backend) is BackendIdentity for backend in self.retired_backends
         ):
-            raise TypeError(
-                "retired backends must be a tuple of BackendIdentity values"
-            )
+            raise TypeError("retired backends must be a tuple of BackendIdentity values")
         active_ids = [backend.id for backend in self.backends]
         all_ids = [*active_ids, *(backend.id for backend in self.retired_backends)]
         if len(all_ids) != len(set(all_ids)):
-            raise ValueError(
-                "backend identity must be unique across active and retired entries"
-            )
-        if (
-            self.default_backend_id is not None
-            and self.default_backend_id not in active_ids
-        ):
+            raise ValueError("backend identity must be unique across active and retired entries")
+        if self.default_backend_id is not None and self.default_backend_id not in active_ids:
             raise ValueError("default backend must identify a configured backend")
 
     def backend(self, backend_id: BackendId) -> BackendConfig:
@@ -411,9 +337,7 @@ class BackendConfiguration:
     def with_backend(self, backend: BackendConfig) -> BackendConfiguration:
         if any(identity.id == backend.id for identity in self.retired_backends):
             raise ValueError("retired backend identity cannot be reused")
-        updated = tuple(
-            backend if item.id == backend.id else item for item in self.backends
-        )
+        updated = tuple(backend if item.id == backend.id else item for item in self.backends)
         if not any(item.id == backend.id for item in self.backends):
             updated = (*updated, backend)
         return replace(self, backends=updated)
@@ -437,9 +361,7 @@ class ChatInferenceSettings:
     """Independent profiles; global defaults are copied only on explicit actions."""
 
     selected_backend_id: BackendId | None = None
-    profiles: Mapping[BackendId, GenerationProfile] = field(
-        default_factory=dict[BackendId, GenerationProfile]
-    )
+    profiles: Mapping[BackendId, GenerationProfile] = field(default_factory=dict[BackendId, GenerationProfile])
 
     def __post_init__(self) -> None:
         for backend_id, profile in self.profiles.items():
@@ -461,26 +383,16 @@ class ChatInferenceSettings:
 
     @property
     def selected_profile(self) -> GenerationProfile | None:
-        return (
-            self.profiles.get(self.selected_backend_id)
-            if self.selected_backend_id is not None
-            else None
-        )
+        return self.profiles.get(self.selected_backend_id) if self.selected_backend_id is not None else None
 
     @property
     def selected_model(self) -> ModelRef | None:
         profile = self.selected_profile
-        if (
-            self.selected_backend_id is None
-            or profile is None
-            or profile.model_id is None
-        ):
+        if self.selected_backend_id is None or profile is None or profile.model_id is None:
             return None
         return ModelRef(self.selected_backend_id, profile.model_id)
 
-    def select_backend(
-        self, config: BackendConfiguration, backend_id: BackendId
-    ) -> ChatInferenceSettings:
+    def select_backend(self, config: BackendConfiguration, backend_id: BackendId) -> ChatInferenceSettings:
         if backend_id == self.selected_backend_id:
             return self
         backend = config.backend(backend_id)
@@ -505,9 +417,7 @@ class ChatInferenceSettings:
     def set_profile(self, profile: GenerationProfile) -> ChatInferenceSettings:
         if self.selected_backend_id is None:
             raise ValueError("select a backend before changing its profile")
-        return replace(
-            self, profiles={**self.profiles, self.selected_backend_id: profile}
-        )
+        return replace(self, profiles={**self.profiles, self.selected_backend_id: profile})
 
     def reset_to_defaults(self, config: BackendConfiguration) -> ChatInferenceSettings:
         if self.selected_backend_id is None:

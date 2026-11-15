@@ -53,11 +53,7 @@ _MINIMUM_OLLAMA_VERSION = (0, 14, 0)
 def _validate_version(payload: dict[str, object]) -> None:
     """Require a release known to implement both context-preservation flags."""
     version = payload.get("version")
-    match = (
-        re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
-        if isinstance(version, str)
-        else None
-    )
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version) if isinstance(version, str) else None
     if match is None or tuple(map(int, match.groups())) < _MINIMUM_OLLAMA_VERSION:
         raise BackendError(
             BackendErrorCategory.INCOMPATIBLE,
@@ -77,9 +73,7 @@ def _reasoning(value: object) -> ReasoningOption | None:
 
 def _descriptor(name: str, details: dict[str, object], size: object) -> ModelDescriptor:
     raw_caps = details.get("capabilities")
-    if not isinstance(raw_caps, list) or any(
-        not isinstance(v, str) for v in cast(list[object], raw_caps)
-    ):
+    if not isinstance(raw_caps, list) or any(not isinstance(v, str) for v in cast(list[object], raw_caps)):
         raise protocol_error("Ollama returned invalid model capabilities.")
     caps = cast(list[str], raw_caps)
     thinking = details.get("thinking")
@@ -91,11 +85,7 @@ def _descriptor(name: str, details: dict[str, object], size: object) -> ModelDes
         if not isinstance(values, list):
             raise protocol_error("Ollama returned invalid reasoning options.")
         options = tuple(
-            dict.fromkeys(
-                option
-                for value in cast(list[object], values)
-                if (option := _reasoning(value)) is not None
-            )
+            dict.fromkeys(option for value in cast(list[object], values) if (option := _reasoning(value)) is not None)
         )
         default = _reasoning(info.get("default"))
         if default not in options:
@@ -130,17 +120,9 @@ def _encode_request(
             messages.append({"role": message["role"], "content": content})
         else:
             text = "".join(part["text"] for part in content if part["type"] == "text")
-            image_data = [
-                part["image_url"]["url"].split(",", 1)[1]
-                for part in content
-                if part["type"] == "image_url"
-            ]
-            messages.append(
-                {"role": message["role"], "content": text, "images": image_data}
-            )
-    parameters: dict[str, object] = {
-        name: value for name, value in request.wire_parameters.items()
-    }
+            image_data = [part["image_url"]["url"].split(",", 1)[1] for part in content if part["type"] == "image_url"]
+            messages.append({"role": message["role"], "content": text, "images": image_data})
+    parameters: dict[str, object] = {name: value for name, value in request.wire_parameters.items()}
     if "max_tokens" in parameters:
         parameters["num_predict"] = parameters.pop("max_tokens")
     payload: dict[str, object] = {
@@ -152,9 +134,7 @@ def _encode_request(
         "shift": False,
     }
     if request.reasoning is not None:
-        payload["think"] = {"off": False, "on": True}.get(
-            request.reasoning, request.reasoning
-        )
+        payload["think"] = {"off": False, "on": True}.get(request.reasoning, request.reasoning)
     payload["keep_alive"] = _keep_alive(idle_unload_minutes)
     return encode_payload(payload)
 
@@ -166,9 +146,7 @@ def _keep_alive(minutes: int | None) -> str | int:
 class OllamaBackend(ChatCompletionsBackend):
     """Use Ollama's native API for capabilities, reasoning and full history."""
 
-    def __init__(
-        self, config: BackendConfig, *, images: ImageStorage | None = None
-    ) -> None:
+    def __init__(self, config: BackendConfig, *, images: ImageStorage | None = None) -> None:
         super().__init__(config, images=images)
         self._root = config.base_url.rstrip("/")
         self._idle_unload_minutes = config.ollama_idle_unload_minutes
@@ -206,9 +184,7 @@ class OllamaBackend(ChatCompletionsBackend):
                 validate_model_id(name)
             except ValueError as exc:
                 raise protocol_error("Ollama returned an invalid model id.") from exc
-            details = await self._transport.json_request(
-                "POST", f"{self._root}/api/show", payload={"model": name}
-            )
+            details = await self._transport.json_request("POST", f"{self._root}/api/show", payload={"model": name})
             assert details is not None
             descriptor = _descriptor(name, details, item.get("size"))
             if name in running_names:
@@ -219,9 +195,7 @@ class OllamaBackend(ChatCompletionsBackend):
         except ValueError as exc:
             raise protocol_error("Ollama returned duplicate model ids.") from exc
 
-    async def load_model(
-        self, model_id: str
-    ) -> AsyncGenerator[ModelLoadProgress | ModelReady]:
+    async def load_model(self, model_id: str) -> AsyncGenerator[ModelLoadProgress | ModelReady]:
         validate_model_id(model_id)
         yield ModelLoadProgress(None)
         response = await self._transport.json_request(
@@ -264,16 +238,12 @@ class OllamaBackend(ChatCompletionsBackend):
             raise protocol_error("Ollama did not confirm the model was unloaded.")
 
     @override
-    async def stream(
-        self, request: GenerationRequest
-    ) -> AsyncGenerator[ChatStreamEvent]:
+    async def stream(self, request: GenerationRequest) -> AsyncGenerator[ChatStreamEvent]:
         request.validate_backend(self.id)
         version = await self._transport.json_request("GET", f"{self._root}/api/version")
         assert version is not None
         _validate_version(version)
-        payload = await run_in_worker(
-            _encode_request, request, self._transport.images, self._idle_unload_minutes
-        )
+        payload = await run_in_worker(_encode_request, request, self._transport.images, self._idle_unload_minutes)
         session = await self._transport.session()
         started = asyncio.get_running_loop().time()
         first: float | None = None
@@ -306,14 +276,10 @@ class OllamaBackend(ChatCompletionsBackend):
                     if "error" in chunk:
                         raise protocol_error("Ollama reported a streaming error.")
                     if chunk.get("model") != request.model.model_id:
-                        raise protocol_error(
-                            "Ollama changed model identity during generation."
-                        )
+                        raise protocol_error("Ollama changed model identity during generation.")
                     message = json_object(chunk.get("message"))
                     if message.get("role") not in (None, "assistant"):
-                        raise protocol_error(
-                            "Ollama returned an invalid completion role."
-                        )
+                        raise protocol_error("Ollama returned an invalid completion role.")
                     if message.get("tool_calls") or message.get("images"):
                         raise BackendError(
                             BackendErrorCategory.INCOMPATIBLE,
@@ -344,25 +310,17 @@ class OllamaBackend(ChatCompletionsBackend):
                                 tokens_per_second=count * 1_000_000_000 / duration
                                 if count is not None and duration
                                 else None,
-                                time_to_first_token_seconds=first - started
-                                if first is not None
-                                else None,
+                                time_to_first_token_seconds=first - started if first is not None else None,
                                 stop_reason=reason,
                             )
                         )
                         completed = True
                         break
             if not completed:
-                raise protocol_error(
-                    "Ollama disconnected before completing its response."
-                )
+                raise protocol_error("Ollama disconnected before completing its response.")
         except TimeoutError as exc:
-            raise BackendError(
-                BackendErrorCategory.TIMEOUT, "Ollama stopped responding."
-            ) from exc
+            raise BackendError(BackendErrorCategory.TIMEOUT, "Ollama stopped responding.") from exc
         except aiohttp.ClientConnectionError as exc:
-            raise BackendError(
-                BackendErrorCategory.OFFLINE, "The Ollama connection was lost."
-            ) from exc
+            raise BackendError(BackendErrorCategory.OFFLINE, "The Ollama connection was lost.") from exc
         except (aiohttp.ClientError, ValueError) as exc:
             raise protocol_error() from exc

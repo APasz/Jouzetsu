@@ -114,9 +114,7 @@ def character_name_from_form(
         return fallback
     if allow_blank and not given_name.strip() and not family_name.strip():
         return None
-    return CharacterName(
-        given_name=form.required_text("given_name"), family_name=family_name
-    )
+    return CharacterName(given_name=form.required_text("given_name"), family_name=family_name)
 
 
 def character_fields_from_form(form: FormValues) -> list[CharacterField]:
@@ -127,9 +125,7 @@ def character_fields_from_form(form: FormValues) -> list[CharacterField]:
     kinds: list[str] = form.texts("field_kind")
     values: list[str] = form.texts("field_value")
     if not (len(ids) == len(labels) == len(kinds) == len(values)):
-        raise ValueError(
-            "character fields must include matching ids, labels, styles, and values"
-        )
+        raise ValueError("character fields must include matching ids, labels, styles, and values")
 
     fields: list[CharacterField] = []
     for field_id, label, kind, value in zip(ids, labels, kinds, values, strict=True):
@@ -142,9 +138,7 @@ def character_fields_from_form(form: FormValues) -> list[CharacterField]:
             raise ValueError("character field style must be short text or long text")
         field_kind: CharacterFieldKind = cast(CharacterFieldKind, kind)
         fields.append(
-            CharacterField(
-                id=field_id, label=trimmed_label, kind=field_kind, value=value
-            )
+            CharacterField(id=field_id, label=trimmed_label, kind=field_kind, value=value)
             if field_id
             else CharacterField(label=trimmed_label, kind=field_kind, value=value)
         )
@@ -208,18 +202,14 @@ def optional_integer(raw: str, *, field_name: str) -> int | None:
     return None if not raw.strip() else require_integer(raw, field_name=field_name)
 
 
-def updated_generation_settings(
-    state: AppState, form: FormValues, *, system_prompt: str
-) -> GenerationSettings:
+def updated_generation_settings(state: AppState, form: FormValues, *, system_prompt: str) -> GenerationSettings:
     """Construct the complete generation settings model from one form section."""
 
     current: GenerationSettings = state.config.generation
     return GenerationSettings(
         system_prompt=system_prompt.strip(),
         british_english=current.british_english,
-        british_spelling_replacements=_parse_spelling_replacements(
-            form.text("british_spelling_replacements")
-        ),
+        british_spelling_replacements=_parse_spelling_replacements(form.text("british_spelling_replacements")),
     )
 
 
@@ -228,34 +218,22 @@ def updated_icon_color_settings(state: AppState, form: FormValues) -> IconColorS
 
     current: IconColorSettings = state.config.ui.icon_colors
     colors: IconColorSettings = IconColorSettings(
-        linework_color=form.text(
-            "icon_linework_color", default=current.linework_color
-        ).strip(),
-        accent_color=form.text(
-            "icon_accent_color", default=current.accent_color
-        ).strip(),
-        surface_color=form.text(
-            "icon_surface_color", default=current.surface_color
-        ).strip(),
+        linework_color=form.text("icon_linework_color", default=current.linework_color).strip(),
+        accent_color=form.text("icon_accent_color", default=current.accent_color).strip(),
+        surface_color=form.text("icon_surface_color", default=current.surface_color).strip(),
     )
     colors.validate()
     return colors
 
 
-def message_action_style_from_form(
-    state: AppState, form: FormValues
-) -> MessageActionStyle:
+def message_action_style_from_form(state: AppState, form: FormValues) -> MessageActionStyle:
     """Read the finite message-action presentation choice from Appearance."""
 
-    raw: str = form.text(
-        "message_action_style", default=state.config.ui.message_action_style.value
-    ).strip()
+    raw: str = form.text("message_action_style", default=state.config.ui.message_action_style.value).strip()
     try:
         return MessageActionStyle(raw)
     except ValueError as exc:
-        raise ValueError(
-            "message_action_style must be a supported action style"
-        ) from exc
+        raise ValueError("message_action_style must be a supported action style") from exc
 
 
 def updated_theme_settings(state: AppState, form: FormValues) -> ThemeSettings:
@@ -271,35 +249,24 @@ def updated_theme_settings(state: AppState, form: FormValues) -> ThemeSettings:
     return theme
 
 
-def _updated_colorway[C: ColorwaySettings](
-    current: C, form: FormValues, *, prefix: str
-) -> C:
+def _updated_colorway[C: ColorwaySettings](current: C, form: FormValues, *, prefix: str) -> C:
     values: dict[str, str | None] = {}
     for name, value in current.values().items():
-        if (
-            isinstance(current, AppColorwaySettings)
-            and name in _APP_SPECIAL_COLOR_FIELDS
-        ):
+        if isinstance(current, AppColorwaySettings) and name in _APP_SPECIAL_COLOR_FIELDS:
             continue
         field_name: str = f"{prefix}_{name}"
         if name == "accent":
             values[name] = form.text(field_name, default=cast(str, value)).strip()
         else:
-            values[name] = _optional_colour_override_from_form(
-                form, field_name=field_name, current=value
-            )
+            values[name] = _optional_colour_override_from_form(form, field_name=field_name, current=value)
     if isinstance(current, AppColorwaySettings):
         main_colour: str = cast(str, values["accent"])
-        values["key_visual"] = key_visual_from_form(
-            current, form, prefix=prefix, main_colour=main_colour
-        )
+        values["key_visual"] = key_visual_from_form(current, form, prefix=prefix, main_colour=main_colour)
         values.update(_message_action_colours_from_form(current, form, prefix=prefix))
     return replace(current, **values)
 
 
-def _optional_colour_override_from_form(
-    form: FormValues, *, field_name: str, current: str | None
-) -> str | None:
+def _optional_colour_override_from_form(form: FormValues, *, field_name: str, current: str | None) -> str | None:
     """Read one optional colour, allowing its paired Auto control to clear it."""
 
     if _automatic_override_state(form, field_name=field_name) is True:
@@ -350,9 +317,7 @@ def _message_action_colours_from_form(
     """Read semantic action overrides while preserving unavailable controls."""
 
     return {
-        action.color_field: _message_action_colour_from_form(
-            current, form, prefix=prefix, action=action
-        )
+        action.color_field: _message_action_colour_from_form(current, form, prefix=prefix, action=action)
         for action in MessageAction
     }
 
@@ -384,18 +349,12 @@ def _parse_spelling_replacements(raw: str) -> list[SpellingReplacement]:
             continue
         columns: list[str] = line.split()
         if len(columns) != 2:
-            raise ValueError(
-                f"British spelling replacement line {line_number} must have two columns"
-            )
-        replacement: SpellingReplacement = SpellingReplacement(
-            source=columns[0], replacement=columns[1]
-        )
+            raise ValueError(f"British spelling replacement line {line_number} must have two columns")
+        replacement: SpellingReplacement = SpellingReplacement(source=columns[0], replacement=columns[1])
         replacement.validate()
         source_key: str = replacement.source.casefold()
         if source_key in seen_sources:
-            raise ValueError(
-                f"duplicate British spelling replacement source: {replacement.source}"
-            )
+            raise ValueError(f"duplicate British spelling replacement source: {replacement.source}")
         seen_sources.add(source_key)
         replacements.append(replacement)
     return replacements

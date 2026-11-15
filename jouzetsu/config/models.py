@@ -57,10 +57,7 @@ class ServerSettings:
             type(self.auto_unload_minutes) is not int or self.auto_unload_minutes < 1
         ):
             raise ValueError("auto_unload_minutes must be an integer of at least 1")
-        if any(
-            not key.strip() or not value.strip()
-            for key, value in self.model_aliases.items()
-        ):
+        if any(not key.strip() or not value.strip() for key, value in self.model_aliases.items()):
             raise ValueError("model aliases must use non-empty keys and values")
 
     def apply(self, settings: ServerSettings) -> None:
@@ -83,13 +80,8 @@ class SpellingReplacement:
 
     def validate(self) -> None:
         if not self.source.strip() or not self.replacement.strip():
-            raise ValueError(
-                "spelling replacement source and replacement cannot be empty"
-            )
-        if (
-            self.source != self.source.strip()
-            or self.replacement != self.replacement.strip()
-        ):
+            raise ValueError("spelling replacement source and replacement cannot be empty")
+        if self.source != self.source.strip() or self.replacement != self.replacement.strip():
             raise ValueError("spelling replacements cannot have surrounding whitespace")
         if any(character.isspace() for character in self.source + self.replacement):
             raise ValueError("spelling replacements must each be one word")
@@ -110,9 +102,7 @@ class GenerationSettings:
     max_tokens: int = DEFAULT_SAMPLING.max_tokens
     system_prompt: str = "You are a helpful assistant."
     british_english: bool = False
-    british_spelling_replacements: list[SpellingReplacement] = field(
-        default_factory=_builtin_spelling_replacements
-    )
+    british_spelling_replacements: list[SpellingReplacement] = field(default_factory=_builtin_spelling_replacements)
 
     def validate(self) -> None:
         validate_sampling(self.temperature, self.top_p, self.max_tokens)
@@ -123,9 +113,7 @@ class GenerationSettings:
             replacement.validate()
             source_key: str = replacement.source.casefold()
             if source_key in seen_sources:
-                raise ValueError(
-                    f"duplicate spelling replacement source: {replacement.source}"
-                )
+                raise ValueError(f"duplicate spelling replacement source: {replacement.source}")
             seen_sources.add(source_key)
 
 
@@ -256,36 +244,18 @@ class ColorwaySettings:
 class AppColorwaySettings(ColorwaySettings):
     """App accents and optional overrides for the shared light/dark surfaces."""
 
-    key_visual: str | None = field(
-        default=None, metadata={"label": "Key visual colour"}
-    )
-    message_actions: str | None = field(
-        default=None, metadata={"label": "Message action colour"}
-    )
-    message_action_delete: str | None = field(
-        default=None, metadata={"label": "Delete colour"}
-    )
-    message_action_regenerate: str | None = field(
-        default=None, metadata={"label": "Regenerate colour"}
-    )
-    message_action_merge: str | None = field(
-        default=None, metadata={"label": "Merge colour"}
-    )
-    message_action_edit: str | None = field(
-        default=None, metadata={"label": "Edit colour"}
-    )
-    message_action_continue: str | None = field(
-        default=None, metadata={"label": "Continue and resend colour"}
-    )
+    key_visual: str | None = field(default=None, metadata={"label": "Key visual colour"})
+    message_actions: str | None = field(default=None, metadata={"label": "Message action colour"})
+    message_action_delete: str | None = field(default=None, metadata={"label": "Delete colour"})
+    message_action_regenerate: str | None = field(default=None, metadata={"label": "Regenerate colour"})
+    message_action_merge: str | None = field(default=None, metadata={"label": "Merge colour"})
+    message_action_edit: str | None = field(default=None, metadata={"label": "Edit colour"})
+    message_action_continue: str | None = field(default=None, metadata={"label": "Continue and resend colour"})
     canvas: str | None = field(default=None, metadata={"label": "Page background"})
     surface: str | None = field(default=None, metadata={"label": "Panel background"})
-    surface_raised: str | None = field(
-        default=None, metadata={"label": "Raised background"}
-    )
+    surface_raised: str | None = field(default=None, metadata={"label": "Raised background"})
     border: str | None = field(default=None, metadata={"label": "Surface border"})
-    border_strong: str | None = field(
-        default=None, metadata={"label": "Strong surface border"}
-    )
+    border_strong: str | None = field(default=None, metadata={"label": "Strong surface border"})
     text: str | None = field(default=None, metadata={"label": "Body text"})
     text_muted: str | None = field(default=None, metadata={"label": "Secondary text"})
 
@@ -294,18 +264,10 @@ class AppColorwaySettings(ColorwaySettings):
 class ThemeSettings:
     """Independent App, User, Assistant, and System colourways."""
 
-    app: AppColorwaySettings = field(
-        default_factory=lambda: AppColorwaySettings(_builtin_theme_value("app"))
-    )
-    user: ColorwaySettings = field(
-        default_factory=lambda: ColorwaySettings(_builtin_theme_value("user"))
-    )
-    assistant: ColorwaySettings = field(
-        default_factory=lambda: ColorwaySettings(_builtin_theme_value("assistant"))
-    )
-    system: ColorwaySettings = field(
-        default_factory=lambda: ColorwaySettings(_builtin_theme_value("system"))
-    )
+    app: AppColorwaySettings = field(default_factory=lambda: AppColorwaySettings(_builtin_theme_value("app")))
+    user: ColorwaySettings = field(default_factory=lambda: ColorwaySettings(_builtin_theme_value("user")))
+    assistant: ColorwaySettings = field(default_factory=lambda: ColorwaySettings(_builtin_theme_value("assistant")))
+    system: ColorwaySettings = field(default_factory=lambda: ColorwaySettings(_builtin_theme_value("system")))
 
     def colorways(self) -> tuple[tuple[ThemeColorway, ColorwaySettings], ...]:
         """Return each colourway once in the editor and stylesheet order."""
@@ -321,11 +283,7 @@ class ThemeSettings:
         """Return only configured colours; omitted shades remain automatic."""
 
         return {
-            owner.value: {
-                name: value
-                for name, value in settings.values().items()
-                if value is not None
-            }
+            owner.value: {name: value for name, value in settings.values().items() if value is not None}
             for owner, settings in self.colorways()
         }
 
@@ -347,9 +305,7 @@ class UiSettings:
     auto_open_browser: bool = False
     message_action_style: MessageActionStyle = MessageActionStyle.SEMANTIC
     icon_colors: IconColorSettings = field(default_factory=IconColorSettings)
-    starter_prompts: list[StarterPrompt] = field(
-        default_factory=lambda: list(DEFAULT_STARTER_PROMPTS)
-    )
+    starter_prompts: list[StarterPrompt] = field(default_factory=lambda: list(DEFAULT_STARTER_PROMPTS))
 
     def validate(self) -> None:
         if not self.host.strip():
@@ -476,9 +432,6 @@ class AppConfig:
             self.paths.characters_directory,
             self.paths.character_presets_directory,
         )
-        if any(
-            protected_path.is_relative_to(log_directory)
-            for protected_path in protected_paths
-        ):
+        if any(protected_path.is_relative_to(log_directory) for protected_path in protected_paths):
             raise ValueError("logging.directory must not contain application data")
         self.access.validate()

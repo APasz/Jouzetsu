@@ -115,9 +115,7 @@ def scope_chat_forms(element: HTML, chat: Chat) -> HTML:
             action = str(item.attrs.get("action", ""))
             if action.startswith(("/chat/", "/messages/", f"/chats/{chat.id}/")):
                 existing = {
-                    cast(_MutableElement, child).attrs.get("name")
-                    for child in item.children
-                    if isinstance(child, FT)
+                    cast(_MutableElement, child).attrs.get("name") for child in item.children if isinstance(child, FT)
                 }
                 for name, value in (
                     ("chat_id", chat.id),

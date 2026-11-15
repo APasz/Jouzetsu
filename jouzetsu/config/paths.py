@@ -70,9 +70,7 @@ class AppPaths:
             chats_file=data_dir / "chats.json",
             characters_directory=data_dir / "characters",
             character_presets_directory=data_dir / "character-presets",
-            character_name_suggestions_file=(
-                data_dir / CHARACTER_NAME_SUGGESTIONS_FILE_NAME
-            ),
+            character_name_suggestions_file=(data_dir / CHARACTER_NAME_SUGGESTIONS_FILE_NAME),
             log_directory=data_dir / "logs",
         )
 

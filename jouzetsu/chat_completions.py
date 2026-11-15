@@ -70,9 +70,7 @@ def protocol_error(
 
 
 def json_object(raw: object) -> dict[str, object]:
-    if not isinstance(raw, dict) or any(
-        not isinstance(key, str) for key in cast(dict[object, object], raw)
-    ):
+    if not isinstance(raw, dict) or any(not isinstance(key, str) for key in cast(dict[object, object], raw)):
         raise protocol_error()
     return cast(dict[str, object], raw)
 
@@ -108,9 +106,7 @@ async def iter_sse_data(chunks: AsyncIterable[bytes]) -> AsyncIterator[str]:
                 first_line = False
             event_size += len(line) + 1
             if event_size > _MAX_EVENT_BYTES:
-                raise protocol_error(
-                    "A backend streaming event exceeded the size limit."
-                )
+                raise protocol_error("A backend streaming event exceeded the size limit.")
             if not line:
                 if lines:
                     try:
@@ -129,9 +125,7 @@ async def iter_sse_data(chunks: AsyncIterable[bytes]) -> AsyncIterator[str]:
         raise protocol_error("The backend disconnected during a streaming event.")
 
 
-def build_messages(
-    messages: Sequence[InferenceMessage], images: ImageStorage | None
-) -> list[WireMessage]:
+def build_messages(messages: Sequence[InferenceMessage], images: ImageStorage | None) -> list[WireMessage]:
     """Keep every role and image in order; never merge a backend's input turns."""
 
     result: list[WireMessage] = []
@@ -141,9 +135,7 @@ def build_messages(
             result.append({"role": message.role, "content": message.content})
             continue
         if images is None:
-            raise BackendError(
-                BackendErrorCategory.INCOMPATIBLE, "Image storage is unavailable."
-            )
+            raise BackendError(BackendErrorCategory.INCOMPATIBLE, "Image storage is unavailable.")
         parts: list[TextPart | ImagePart] = []
         if message.content:
             parts.append(TextPart(type="text", text=message.content))
@@ -217,36 +209,20 @@ async def completion_events(
             elif level in REASONING_OPTIONS:
                 reported_reasoning = level
         if model is not None:
-            if (
-                not isinstance(model, str)
-                or not model.strip()
-                or model != model.strip()
-            ):
+            if not isinstance(model, str) or not model.strip() or model != model.strip():
                 raise protocol_error()
             if reported_model is not None and reported_model != model:
-                raise protocol_error(
-                    "The backend changed model identity during a response."
-                )
+                raise protocol_error("The backend changed model identity during a response.")
             if native and model not in {wire_model, ready.model_key}:
-                raise protocol_error(
-                    "The backend responded with an unexpected model instance."
-                )
+                raise protocol_error("The backend responded with an unexpected model instance.")
             reported_model = model
         if not ready_emitted:
             if not native and reported_model is not None:
-                ready = replace(
-                    ready, model_key=reported_model, model_name=reported_model
-                )
+                ready = replace(ready, model_key=reported_model, model_name=reported_model)
             yield ready
             ready_emitted = True
-        elif (
-            not native
-            and reported_model is not None
-            and reported_model != ready.model_key
-        ):
-            raise protocol_error(
-                "The backend reported model identity after starting its response."
-            )
+        elif not native and reported_model is not None and reported_model != ready.model_key:
+            raise protocol_error("The backend reported model identity after starting its response.")
         raw_usage = chunk.get("usage")
         if raw_usage is not None:
             usage = json_object(raw_usage)
@@ -260,9 +236,7 @@ async def completion_events(
             raise protocol_error()
         for raw_choice in choices:
             if stop_reason is not None:
-                raise protocol_error(
-                    "The backend returned a choice after it had finished."
-                )
+                raise protocol_error("The backend returned a choice after it had finished.")
             choice = json_object(raw_choice)
             index = choice.get("index", 0)
             if type(index) is not int or index != 0:
@@ -280,10 +254,7 @@ async def completion_events(
             delta = json_object(choice.get("delta"))
             if delta.get("role") is not None and delta.get("role") != "assistant":
                 raise protocol_error("The backend returned an invalid completion role.")
-            if any(
-                delta.get(key) is not None
-                for key in ("tool_calls", "function_call", "refusal")
-            ):
+            if any(delta.get(key) is not None for key in ("tool_calls", "function_call", "refusal")):
                 raise BackendError(
                     BackendErrorCategory.INCOMPATIBLE,
                     "The backend returned unsupported non-text output.",
@@ -315,9 +286,7 @@ async def completion_events(
             tokens_per_second=output_tokens / duration
             if output_tokens is not None and duration is not None and duration > 0
             else None,
-            time_to_first_token_seconds=first_token_at - started_at
-            if first_token_at is not None
-            else None,
+            time_to_first_token_seconds=first_token_at - started_at if first_token_at is not None else None,
             stop_reason=stop_reason,
             reasoning_level=reported_reasoning,
         )
@@ -352,9 +321,7 @@ def _encode_request(
 def encode_payload(payload: dict[str, object]) -> bytes:
     """Encode a prepared request without leaking request content in errors."""
     try:
-        return json.dumps(
-            payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")
-        ).encode("utf-8")
+        return json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise BackendError(
             BackendErrorCategory.INCOMPATIBLE,
@@ -394,26 +361,18 @@ class ChatCompletionsTransport:
                 method,
                 url,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(
-                    total=timeout, sock_connect=CONNECT_TIMEOUT
-                ),
+                timeout=aiohttp.ClientTimeout(total=timeout, sock_connect=CONNECT_TIMEOUT),
                 allow_redirects=False,
             ) as response:
                 if response.status in unsupported:
                     return None
                 if response.status != 200:
-                    raise BackendError(
-                        failure, f"The backend returned HTTP {response.status}."
-                    )
+                    raise BackendError(failure, f"The backend returned HTTP {response.status}.")
                 return json_object(cast(object, await response.json(content_type=None)))
         except TimeoutError as exc:
-            raise BackendError(
-                BackendErrorCategory.TIMEOUT, "The backend request timed out."
-            ) from exc
+            raise BackendError(BackendErrorCategory.TIMEOUT, "The backend request timed out.") from exc
         except aiohttp.ClientConnectionError as exc:
-            raise BackendError(
-                BackendErrorCategory.OFFLINE, "The backend is unreachable."
-            ) from exc
+            raise BackendError(BackendErrorCategory.OFFLINE, "The backend is unreachable.") from exc
         except (aiohttp.ClientError, ValueError, TypeError) as exc:
             raise protocol_error() from exc
 
@@ -436,9 +395,7 @@ class ChatCompletionsTransport:
             payload = (
                 await run_in_worker(encode_responses, request, ready, self.images)
                 if responses
-                else await run_in_worker(
-                    _encode_request, request, ready, self.images, native=native
-                )
+                else await run_in_worker(_encode_request, request, ready, self.images, native=native)
             )
             wire_model = ready.instance_id or request.model.model_id
             session = await self.session()
@@ -465,9 +422,7 @@ class ChatCompletionsTransport:
                         f"The backend rejected generation (HTTP {response.status}).",
                     )
                 if response.content_type != "text/event-stream":
-                    raise protocol_error(
-                        "The backend did not return a streaming response."
-                    )
+                    raise protocol_error("The backend did not return a streaming response.")
                 async with aclosing(
                     response_events(
                         response,
@@ -488,13 +443,9 @@ class ChatCompletionsTransport:
                     async for event in events:
                         yield event
         except TimeoutError as exc:
-            raise BackendError(
-                BackendErrorCategory.TIMEOUT, "The backend stopped responding."
-            ) from exc
+            raise BackendError(BackendErrorCategory.TIMEOUT, "The backend stopped responding.") from exc
         except aiohttp.ClientConnectionError as exc:
-            raise BackendError(
-                BackendErrorCategory.OFFLINE, "The backend connection was lost."
-            ) from exc
+            raise BackendError(BackendErrorCategory.OFFLINE, "The backend connection was lost.") from exc
         except aiohttp.ClientError as exc:
             raise protocol_error() from exc
 

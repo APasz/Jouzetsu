@@ -92,9 +92,7 @@ class RecordingSession:
 
 
 class RecordingLMStudioClient(LMStudioClient):
-    def __init__(
-        self, server: ServerSettings, *, image_storage: ImageStorage | None = None
-    ) -> None:
+    def __init__(self, server: ServerSettings, *, image_storage: ImageStorage | None = None) -> None:
         super().__init__(server, image_storage=image_storage)
         self.recording_session: RecordingSession = RecordingSession()
 
@@ -137,12 +135,7 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
         chat = Chat()
         _ = chat.add_message("user", "Hello")
 
-        _ = [
-            event
-            async for event in client.stream_chat(
-                chat, "demo-model", GenerationSettings()
-            )
-        ]
+        _ = [event async for event in client.stream_chat(chat, "demo-model", GenerationSettings())]
 
         self.assertEqual(len(client.recording_session.posts), 1)
         self.assertEqual(client.recording_session.posts[0]["model"], "demo-model")
@@ -154,9 +147,7 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
 
         await client.unload_model_instance("demo-instance")
 
-        self.assertEqual(
-            client.recording_session.posts, [{"instance_id": "demo-instance"}]
-        )
+        self.assertEqual(client.recording_session.posts, [{"instance_id": "demo-instance"}])
 
     async def test_native_api_root_tracks_the_shared_server_settings(self) -> None:
         server = ServerSettings(base_url="http://first.example:1234/v1")
@@ -246,9 +237,7 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
             )
         ]
         fragments = [event for event in events if isinstance(event, PredictionFragment)]
-        completed = next(
-            event for event in events if isinstance(event, PredictionComplete)
-        )
+        completed = next(event for event in events if isinstance(event, PredictionComplete))
 
         self.assertEqual([fragment.token_count for fragment in fragments], [None, None])
         self.assertEqual(completed.metrics.prompt_tokens, 7)
@@ -257,16 +246,12 @@ class LMStudioClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_build_messages_appends_british_english_instruction(self) -> None:
         chat = Chat()
         _ = chat.add_message("user", "Hello")
-        generation = GenerationSettings(
-            system_prompt="Answer tersely.", british_english=True
-        )
+        generation = GenerationSettings(system_prompt="Answer tersely.", british_english=True)
 
         messages = LMStudioClient._build_messages(chat, generation)  # pyright: ignore[reportPrivateUsage]
 
         self.assertEqual(messages[0]["role"], "system")
-        self.assertEqual(
-            messages[0]["content"], f"Answer tersely.\n\n{BRITISH_ENGLISH_INSTRUCTION}"
-        )
+        self.assertEqual(messages[0]["content"], f"Answer tersely.\n\n{BRITISH_ENGLISH_INSTRUCTION}")
         self.assertEqual(messages[1], {"role": "user", "content": "Hello"})
 
     async def test_list_model_inventory_parses_instance_and_capabilities(self) -> None:

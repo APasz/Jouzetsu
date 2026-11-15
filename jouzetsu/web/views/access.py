@@ -76,9 +76,7 @@ def render_locked_access_page(
                 cls="jouzetsu-access-message",
             ),
             current_device,
-            _pending_device_form(context, approval_phrase_enabled)
-            if show_device_controls
-            else None,
+            _pending_device_form(context, approval_phrase_enabled) if show_device_controls else None,
             A(
                 "Refresh",
                 href="/",
@@ -167,9 +165,7 @@ def render_access_dialog(
             _logs_panel(state),
             Div(
                 _access_denied_page_button() if context.decision.is_localhost else None,
-                close_dialog_button(
-                    "access-dialog", marker="access-settings-close-button"
-                ),
+                close_dialog_button("access-dialog", marker="access-settings-close-button"),
                 cls="jouzetsu-dialog-actions",
             ),
             cls="jouzetsu-modal-card jouzetsu-global-settings-card",
@@ -214,9 +210,7 @@ def _access_panel(state: AppState, context: PageContext) -> HTML:
                 "approval_phrase",
                 value=state.config.access.approval_phrase,
             ),
-            Small(
-                "Share this phrase with browsers you want to enroll. Blank disables enrollment."
-            ),
+            Small("Share this phrase with browsers you want to enroll. Blank disables enrollment."),
             Button("Save phrase", type="submit", cls="jouzetsu-button"),
             action="/access/phrase",
             method="post",
@@ -237,23 +231,15 @@ def _device_sections(state: AppState, context: PageContext) -> tuple[HTML, ...]:
         reverse=True,
     )
     current_device_id: str = context.decision.device_id
-    current_device: DeviceAccessSettings | None = state.config.access.devices.get(
-        current_device_id
-    )
+    current_device: DeviceAccessSettings | None = state.config.access.devices.get(current_device_id)
     other_devices: tuple[tuple[str, DeviceAccessSettings], ...] = tuple(
-        (device_id, device)
-        for device_id, device in sorted_devices
-        if device_id != current_device_id
+        (device_id, device) for device_id, device in sorted_devices if device_id != current_device_id
     )
     pending_devices: tuple[tuple[str, DeviceAccessSettings], ...] = tuple(
-        (device_id, device)
-        for device_id, device in other_devices
-        if not device.access_allowed
+        (device_id, device) for device_id, device in other_devices if not device.access_allowed
     )
     approved_devices: tuple[tuple[str, DeviceAccessSettings], ...] = tuple(
-        (device_id, device)
-        for device_id, device in other_devices
-        if device.access_allowed
+        (device_id, device) for device_id, device in other_devices if device.access_allowed
     )
     sections: list[HTML] = []
     if current_device is not None:
@@ -364,12 +350,8 @@ def _device_row(
                 ),
                 cls="jouzetsu-device-identity",
             ),
-            render_icon(
-                "plus", classes="jouzetsu-svg-icon jouzetsu-device-expand-icon"
-            ),
-            render_icon(
-                "minus", classes="jouzetsu-svg-icon jouzetsu-device-collapse-icon"
-            ),
+            render_icon("plus", classes="jouzetsu-svg-icon jouzetsu-device-expand-icon"),
+            render_icon("minus", classes="jouzetsu-svg-icon jouzetsu-device-collapse-icon"),
             cls="jouzetsu-device-card-summary",
             data_testid=f"device-card-toggle-{device_id}",
         ),
@@ -385,9 +367,7 @@ def _device_row(
 def _device_network_summary(device: DeviceAccessSettings) -> str:
     """Summarise the network identity without exposing empty placeholder fields."""
 
-    details: list[str] = [
-        detail for detail in (device.hostname, device.last_ip) if detail
-    ]
+    details: list[str] = [detail for detail in (device.hostname, device.last_ip) if detail]
     return " · ".join(details) if details else "Network details unavailable"
 
 
@@ -478,9 +458,7 @@ def _forget_pending_device_action(device_id: str) -> HTML:
             "Forget",
             type="submit",
             cls="jouzetsu-button jouzetsu-button-danger",
-            data_confirm=(
-                "Forget this pending device? Its access request will be removed."
-            ),
+            data_confirm=("Forget this pending device? Its access request will be removed."),
             data_testid=f"forget-device-{device_id}",
         ),
         action=f"/access/devices/{device_id}/forget",
@@ -502,20 +480,14 @@ def _device_metadata(device_id: str, device: DeviceAccessSettings) -> HTML:
     )
 
 
-def _device_metadata_item(
-    label: str, value: str, *, is_monospace: bool = False
-) -> HTML:
+def _device_metadata_item(label: str, value: str, *, is_monospace: bool = False) -> HTML:
     """Render one labelled device identity value."""
 
     return Div(
         Span(label, cls="jouzetsu-device-metadata-label"),
         Span(
             value,
-            cls=(
-                "jouzetsu-device-metadata-value jouzetsu-mono"
-                if is_monospace
-                else "jouzetsu-device-metadata-value"
-            ),
+            cls=("jouzetsu-device-metadata-value jouzetsu-mono" if is_monospace else "jouzetsu-device-metadata-value"),
         ),
         cls="jouzetsu-device-metadata-item",
     )

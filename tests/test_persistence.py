@@ -17,20 +17,14 @@ from jouzetsu.inference import RevisionConflict
 from jouzetsu.models import CharacterName
 
 
-@pytest.mark.parametrize(
-    "operation", ("create", "fork", "delete", "last_delete", "edit", "send")
-)
-def test_rejected_committed_command_never_publishes_or_replays(
-    tmp_path: Path, operation: str
-) -> None:
+@pytest.mark.parametrize("operation", ("create", "fork", "delete", "last_delete", "edit", "send"))
+def test_rejected_committed_command_never_publishes_or_replays(tmp_path: Path, operation: str) -> None:
     async def scenario() -> None:
         h = WebHarness(tmp_path)
         chat = await h.state.new_chat()
         if operation != "last_delete":
             await h.state.new_chat()
-        await h.state.inference.send_message(
-            chat.id, 0, "original", "Original", generate=False
-        )
+        await h.state.inference.send_message(chat.id, 0, "original", "Original", generate=False)
         snapshot = chat.to_dict()
         ids = {item.id for item in h.state.chats}
         events: list[StateChangeKind] = []
@@ -55,15 +49,11 @@ def test_rejected_committed_command_never_publishes_or_replays(
                     lambda candidate: candidate.set_manual_title("Rejected"),
                 )
             else:
-                await runtime.send_message(
-                    chat.id, chat.revision, "rejected", "Rejected", generate=False
-                )
+                await runtime.send_message(chat.id, chat.revision, "rejected", "Rejected", generate=False)
 
         method = "delete" if operation in {"delete", "last_delete"} else "save_records"
         with (
-            patch.object(
-                h.state.storage, method, side_effect=OSError("injected failure")
-            ),
+            patch.object(h.state.storage, method, side_effect=OSError("injected failure")),
             pytest.raises(OSError),
         ):
             await command()
@@ -77,9 +67,7 @@ def test_rejected_committed_command_never_publishes_or_replays(
             lambda candidate: candidate.set_manual_title("Valid"),
         )
         await h.state.persistence.flush_chats()
-        reloaded = next(
-            item for item in h.state.storage.load_all() if item.id == chat.id
-        )
+        reloaded = next(item for item in h.state.storage.load_all() if item.id == chat.id)
         assert reloaded.title == "Valid"
         assert [message.content for message in reloaded.messages] == ["Original"]
         await h.close()
@@ -90,9 +78,7 @@ def test_rejected_committed_command_never_publishes_or_replays(
 def test_chat_creation_and_deletion_do_not_write_configuration(tmp_path: Path) -> None:
     async def scenario() -> None:
         h = WebHarness(tmp_path)
-        with patch.object(
-            ConfigStore, "save", side_effect=OSError("config unavailable")
-        ):
+        with patch.object(ConfigStore, "save", side_effect=OSError("config unavailable")):
             chat = await h.state.new_chat()
             await h.state.inference.delete_chat(chat.id, chat.revision)
         assert not h.state.chats
@@ -112,17 +98,11 @@ def test_pending_draft_cannot_overwrite_a_commit_or_replay_failed_edit(
         runtime = h.state.inference
         await runtime.update_draft(chat.id, 0, "Draft")
         with (
-            patch.object(
-                h.state.storage, "save_records", side_effect=OSError("failed")
-            ),
+            patch.object(h.state.storage, "save_records", side_effect=OSError("failed")),
             pytest.raises(OSError),
         ):
-            await runtime.edit_chat(
-                chat.id, 0, lambda candidate: candidate.set_manual_title("Rejected")
-            )
-        await runtime.edit_chat(
-            chat.id, 0, lambda candidate: candidate.set_manual_title("Accepted")
-        )
+            await runtime.edit_chat(chat.id, 0, lambda candidate: candidate.set_manual_title("Rejected"))
+        await runtime.edit_chat(chat.id, 0, lambda candidate: candidate.set_manual_title("Accepted"))
         await h.state.persistence.flush_chats()
         assert h.state.storage.load_all()[0].to_dict() == chat.to_dict()
         assert chat.title == "Accepted" and chat.draft == "Draft"
@@ -147,15 +127,11 @@ def test_slow_write_keeps_event_loop_responsive_and_stale_edit_fails(
 
         with patch.object(h.state.storage, "save_records", delayed):
             first = asyncio.create_task(
-                h.state.inference.edit_chat(
-                    chat.id, 0, lambda candidate: candidate.set_manual_title("First")
-                )
+                h.state.inference.edit_chat(chat.id, 0, lambda candidate: candidate.set_manual_title("First"))
             )
             assert await asyncio.to_thread(entered.wait, 3)
             second = asyncio.create_task(
-                h.state.inference.edit_chat(
-                    chat.id, 0, lambda candidate: candidate.set_manual_title("Stale")
-                )
+                h.state.inference.edit_chat(chat.id, 0, lambda candidate: candidate.set_manual_title("Stale"))
             )
             await asyncio.sleep(0)
             assert chat.title == "New chat"
@@ -189,9 +165,7 @@ def test_config_candidates_share_one_lock_and_preserve_backend_changes(
             await h.state.set_global_system_prompt("Rejected")
         assert h.state.config.generation.system_prompt == "Changed"
         await h.state.set_approval_phrase("accepted")
-        assert (
-            ConfigStore.for_home(tmp_path).load().generation.system_prompt == "Changed"
-        )
+        assert ConfigStore.for_home(tmp_path).load().generation.system_prompt == "Changed"
         await h.close()
 
     asyncio.run(scenario())
@@ -210,9 +184,7 @@ def test_character_failure_preserves_library_and_emits_no_success(
 
         h.state.add_listener(changed)
         with (
-            patch.object(
-                h.state.character_storage, "save", side_effect=OSError("failed")
-            ),
+            patch.object(h.state.character_storage, "save", side_effect=OSError("failed")),
             pytest.raises(OSError),
         ):
             await h.state.update_character(

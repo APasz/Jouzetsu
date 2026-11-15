@@ -44,9 +44,7 @@ from jouzetsu.state_registry import ChatRegistry
 from jouzetsu.storage import ChatStorage
 
 
-def backend(
-    name: str = "Local", *, limit: int = 1, native: bool = False
-) -> BackendConfig:
+def backend(name: str = "Local", *, limit: int = 1, native: bool = False) -> BackendConfig:
     return replace(
         BackendConfig.create(
             BackendKind.LM_STUDIO if native else BackendKind.OPENAI_COMPATIBLE,
@@ -105,9 +103,7 @@ class FakeBackend:
             (ModelDescriptor("model", "Model", ("instance",) if self.loaded else ()),),
         )
 
-    async def load_model(
-        self, model_id: str
-    ) -> AsyncGenerator[ModelLoadProgress | ModelReady]:
+    async def load_model(self, model_id: str) -> AsyncGenerator[ModelLoadProgress | ModelReady]:
         self.loads.append(model_id)
         if self.load_error:
             raise self.load_error
@@ -118,15 +114,11 @@ class FakeBackend:
         self.unloads.append(instance_id)
         self.loaded = False
 
-    async def stream(
-        self, request: GenerationRequest
-    ) -> AsyncGenerator[ChatStreamEvent]:
+    async def stream(self, request: GenerationRequest) -> AsyncGenerator[ChatStreamEvent]:
         self.requests.append(request)
         plan = self.plans.popleft() if self.plans else Plan()
         plan.entered.set()
-        yield ModelReady(
-            request.model.model_id, "Model", 4096, "instance" if self.native else None
-        )
+        yield ModelReady(request.model.model_id, "Model", 4096, "instance" if self.native else None)
         if plan.reasoning:
             yield PredictionFragment(plan.reasoning, None, True)
         if plan.text:
@@ -152,9 +144,7 @@ class Harness:
     ) -> None:
         self.store = ConfigStore.for_home(home)
         config = self.store.load()
-        config.backends = BackendConfiguration(
-            configs, configs[0].id if configs else None
-        )
+        config.backends = BackendConfiguration(configs, configs[0].id if configs else None)
         self.store.save(config)
         self.storage = ChatStorage(config.chats_file)
         self.persistence = PersistenceController(config, self.store, self.storage)
@@ -170,15 +160,11 @@ class Harness:
         async def notify(change: RuntimeChange) -> None:
             self.changes.append(change)
 
-        self.runtime = InferenceRuntime(
-            self.registry, self.persistence, backend_factory=factory, notify=notify
-        )
+        self.runtime = InferenceRuntime(self.registry, self.persistence, backend_factory=factory, notify=notify)
 
     async def chat(self, text: str = "Hello") -> Chat:
         chat = await self.runtime.create_chat()
-        _ = await self.runtime.send_message(
-            chat.id, chat.revision, "first", text, generate=False
-        )
+        _ = await self.runtime.send_message(chat.id, chat.revision, "first", text, generate=False)
         return chat
 
     def reload(self, chat: Chat) -> Chat:

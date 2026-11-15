@@ -26,9 +26,7 @@ def test_failed_atomic_write_preserves_destination_and_removes_temporary_file() 
         _ = path.write_text("original", encoding="utf-8")
 
         with (
-            patch(
-                "jouzetsu.atomic_write.os.replace", side_effect=OSError("disk failure")
-            ),
+            patch("jouzetsu.atomic_write.os.replace", side_effect=OSError("disk failure")),
             pytest.raises(OSError, match="disk failure"),
         ):
             atomic_write_text(path, "replacement")
@@ -42,19 +40,13 @@ def test_failed_atomic_write_records_destination_path() -> None:
         path: Path = Path(tmp_dir) / "config.json"
 
         with (
-            unittest.TestCase().assertLogs(
-                "jouzetsu.atomic_write", level="ERROR"
-            ) as logs,
-            patch(
-                "jouzetsu.atomic_write.os.replace", side_effect=OSError("disk failure")
-            ),
+            unittest.TestCase().assertLogs("jouzetsu.atomic_write", level="ERROR") as logs,
+            patch("jouzetsu.atomic_write.os.replace", side_effect=OSError("disk failure")),
             pytest.raises(OSError, match="disk failure"),
         ):
             atomic_write_text(path, "replacement")
 
-        assert any(
-            f"atomic write failed path={path}" in message for message in logs.output
-        )
+        assert any(f"atomic write failed path={path}" in message for message in logs.output)
 
 
 def test_file_sync_failure_preserves_previous_document(tmp_path: Path) -> None:
@@ -85,9 +77,7 @@ def test_sync_order_confirms_file_before_replace_and_directory_after(
     replace = os.replace
 
     def record_sync(descriptor: int) -> None:
-        events.append(
-            "file" if stat.S_ISREG(os.fstat(descriptor).st_mode) else "directory"
-        )
+        events.append("file" if stat.S_ISREG(os.fstat(descriptor).st_mode) else "directory")
         sync(descriptor)
 
     def record_replace(source: str, destination: Path) -> None:
@@ -121,9 +111,7 @@ def test_each_created_directory_syncs_its_parent_once(tmp_path: Path) -> None:
 def test_new_directory_sync_failure_is_an_uncertain_mutation(tmp_path: Path) -> None:
     directory = tmp_path / "new"
     with (
-        patch(
-            "jouzetsu.atomic_write._sync_directory", side_effect=OSError("sync failed")
-        ),
+        patch("jouzetsu.atomic_write._sync_directory", side_effect=OSError("sync failed")),
         pytest.raises(CommitUncertainError),
     ):
         ensure_directory(directory)

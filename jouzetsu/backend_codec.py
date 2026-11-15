@@ -42,11 +42,7 @@ type JsonObject = dict[str, object]
 
 def backend_fingerprint(backend: BackendConfig | BackendConfiguration) -> str:
     """Identify the exact configuration snapshot rendered by a browser form."""
-    document = (
-        _encode_backend(backend)
-        if isinstance(backend, BackendConfig)
-        else encode_backends(backend)
-    )
+    document = _encode_backend(backend) if isinstance(backend, BackendConfig) else encode_backends(backend)
     encoded = json.dumps(document, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -56,9 +52,7 @@ def encode_backends(config: BackendConfiguration) -> JsonObject:
         "schema_version": BACKEND_SCHEMA_VERSION,
         "backends": [_encode_backend(backend) for backend in config.backends],
         "default_backend_id": config.default_backend_id,
-        "retired_backends": [
-            _encode_identity(identity) for identity in config.retired_backends
-        ],
+        "retired_backends": [_encode_identity(identity) for identity in config.retired_backends],
     }
 
 
@@ -74,23 +68,15 @@ def decode_backends(raw: object) -> BackendConfiguration:
     )
     backends = tuple(
         _decode_backend(decoder, item, f"{path}.backends[{index}]")
-        for index, item in enumerate(
-            decoder.list(root.get("backends"), path=f"{path}.backends")
-        )
+        for index, item in enumerate(decoder.list(root.get("backends"), path=f"{path}.backends"))
     )
-    default_id = decoder.optional_string(
-        root.get("default_backend_id"), path=f"{path}.default_backend_id"
-    )
+    default_id = decoder.optional_string(root.get("default_backend_id"), path=f"{path}.default_backend_id")
     retired = tuple(
         _decode_identity(decoder, item, f"{path}.retired_backends[{index}]")
-        for index, item in enumerate(
-            decoder.list(root.get("retired_backends"), path=f"{path}.retired_backends")
-        )
+        for index, item in enumerate(decoder.list(root.get("retired_backends"), path=f"{path}.retired_backends"))
     )
     return decoder.construct(
-        lambda: BackendConfiguration(
-            backends, BackendId(default_id) if default_id is not None else None, retired
-        ),
+        lambda: BackendConfiguration(backends, BackendId(default_id) if default_id is not None else None, retired),
         path=path,
     )
 
@@ -99,10 +85,7 @@ def encode_inference(settings: ChatInferenceSettings) -> JsonObject:
     return {
         "schema_version": INFERENCE_SCHEMA_VERSION,
         "selected_backend_id": settings.selected_backend_id,
-        "profiles": {
-            backend_id: _encode_profile(profile)
-            for backend_id, profile in settings.profiles.items()
-        },
+        "profiles": {backend_id: _encode_profile(profile) for backend_id, profile in settings.profiles.items()},
     }
 
 
@@ -116,21 +99,13 @@ def decode_inference(raw: object) -> ChatInferenceSettings:
         INFERENCE_SCHEMA_VERSION,
         {"selected_backend_id", "profiles"},
     )
-    selected = decoder.optional_string(
-        root.get("selected_backend_id"), path=f"{path}.selected_backend_id"
-    )
+    selected = decoder.optional_string(root.get("selected_backend_id"), path=f"{path}.selected_backend_id")
     profiles = {
-        BackendId(backend_id): _decode_profile(
-            decoder, profile, f"{path}.profiles.{backend_id}"
-        )
-        for backend_id, profile in decoder.mapping(
-            root.get("profiles"), path=f"{path}.profiles"
-        ).items()
+        BackendId(backend_id): _decode_profile(decoder, profile, f"{path}.profiles.{backend_id}")
+        for backend_id, profile in decoder.mapping(root.get("profiles"), path=f"{path}.profiles").items()
     }
     return decoder.construct(
-        lambda: ChatInferenceSettings(
-            BackendId(selected) if selected is not None else None, profiles
-        ),
+        lambda: ChatInferenceSettings(BackendId(selected) if selected is not None else None, profiles),
         path=path,
     )
 
@@ -152,26 +127,14 @@ def decode_attribution(raw: object) -> GenerationAttribution:
     values = decoder.object(
         raw,
         path=path,
-        required=frozenset(
-            {"backend_id", "model_id", "backend_name", "model_name", "instance_id"}
-        ),
+        required=frozenset({"backend_id", "model_id", "backend_name", "model_name", "instance_id"}),
         optional=frozenset({"reasoning"}),
     )
-    backend_id = decoder.string(
-        values.get("backend_id"), path=f"{path}.backend_id", default=""
-    )
-    model_id = decoder.string(
-        values.get("model_id"), path=f"{path}.model_id", default=""
-    )
-    backend_name = decoder.string(
-        values.get("backend_name"), path=f"{path}.backend_name", default=""
-    )
-    model_name = decoder.string(
-        values.get("model_name"), path=f"{path}.model_name", default=""
-    )
-    instance = decoder.optional_string(
-        values.get("instance_id"), path=f"{path}.instance_id"
-    )
+    backend_id = decoder.string(values.get("backend_id"), path=f"{path}.backend_id", default="")
+    model_id = decoder.string(values.get("model_id"), path=f"{path}.model_id", default="")
+    backend_name = decoder.string(values.get("backend_name"), path=f"{path}.backend_name", default="")
+    model_name = decoder.string(values.get("model_name"), path=f"{path}.model_name", default="")
+    instance = decoder.optional_string(values.get("instance_id"), path=f"{path}.instance_id")
     reasoning: ReasoningOption | Literal["automatic"] | None = (
         decoder.choice(
             values["reasoning"],
@@ -193,18 +156,9 @@ def decode_attribution(raw: object) -> GenerationAttribution:
     )
 
 
-def _versioned(
-    decoder: JsonDecoder, raw: object, path: str, version: int, fields: set[str]
-) -> JsonObject:
-    values = decoder.object(
-        raw, path=path, required=frozenset({"schema_version", *fields})
-    )
-    if (
-        decoder.integer(
-            values.get("schema_version"), path=f"{path}.schema_version", default=version
-        )
-        != version
-    ):
+def _versioned(decoder: JsonDecoder, raw: object, path: str, version: int, fields: set[str]) -> JsonObject:
+    values = decoder.object(raw, path=path, required=frozenset({"schema_version", *fields}))
+    if decoder.integer(values.get("schema_version"), path=f"{path}.schema_version", default=version) != version:
         decoder.issue(f"{path}.schema_version", f"must be {version}")
     return values
 
@@ -213,12 +167,8 @@ def _encode_identity(identity: BackendIdentity) -> JsonObject:
     return {"id": identity.id, "kind": identity.kind.value, "name": identity.name}
 
 
-def _identity_fields(
-    decoder: JsonDecoder, values: JsonObject, path: str
-) -> tuple[BackendId, BackendKind, str]:
-    backend_id = BackendId(
-        decoder.string(values.get("id"), path=f"{path}.id", default="")
-    )
+def _identity_fields(decoder: JsonDecoder, values: JsonObject, path: str) -> tuple[BackendId, BackendKind, str]:
+    backend_id = BackendId(decoder.string(values.get("id"), path=f"{path}.id", default=""))
     kind = BackendKind(
         decoder.choice(
             values.get("kind"),
@@ -285,19 +235,11 @@ def _decode_backend(decoder: JsonDecoder, raw: object, path: str) -> BackendConf
         )
     )
     url = decoder.string(values.get("base_url"), path=f"{path}.base_url", default="")
-    enabled = decoder.boolean(
-        values.get("enabled"), path=f"{path}.enabled", default=True
-    )
-    concurrency = decoder.integer(
-        values.get("concurrency_limit"), path=f"{path}.concurrency_limit", default=1
-    )
+    enabled = decoder.boolean(values.get("enabled"), path=f"{path}.enabled", default=True)
+    concurrency = decoder.integer(values.get("concurrency_limit"), path=f"{path}.concurrency_limit", default=1)
     defaults = _decode_profile(decoder, values.get("defaults"), f"{path}.defaults")
-    support = _decode_support(
-        decoder, values.get("parameter_support"), f"{path}.parameter_support"
-    )
-    management = _decode_management(
-        decoder, values.get("model_management"), f"{path}.model_management"
-    )
+    support = _decode_support(decoder, values.get("parameter_support"), f"{path}.parameter_support")
+    management = _decode_management(decoder, values.get("model_management"), f"{path}.model_management")
     ollama_idle_unload = decoder.optional_integer(
         values.get("ollama_idle_unload_minutes"),
         path=f"{path}.ollama_idle_unload_minutes",
@@ -305,9 +247,7 @@ def _decode_backend(decoder: JsonDecoder, raw: object, path: str) -> BackendConf
     )
     models = tuple(
         _decode_model(decoder, item, f"{path}.models[{index}]")
-        for index, item in enumerate(
-            decoder.list(values.get("models"), path=f"{path}.models")
-        )
+        for index, item in enumerate(decoder.list(values.get("models"), path=f"{path}.models"))
     )
     return decoder.construct(
         lambda: BackendConfig(
@@ -328,25 +268,17 @@ def _decode_backend(decoder: JsonDecoder, raw: object, path: str) -> BackendConf
     )
 
 
-def _decode_management(
-    decoder: JsonDecoder, raw: object, path: str
-) -> ModelManagementSettings | None:
+def _decode_management(decoder: JsonDecoder, raw: object, path: str) -> ModelManagementSettings | None:
     if raw is None:
         return None
-    values = decoder.object(
-        raw, path=path, required=frozenset({"automatic_loading", "idle_unload_minutes"})
-    )
-    automatic = decoder.boolean(
-        values.get("automatic_loading"), path=f"{path}.automatic_loading", default=True
-    )
+    values = decoder.object(raw, path=path, required=frozenset({"automatic_loading", "idle_unload_minutes"}))
+    automatic = decoder.boolean(values.get("automatic_loading"), path=f"{path}.automatic_loading", default=True)
     minutes = decoder.optional_integer(
         values.get("idle_unload_minutes"),
         path=f"{path}.idle_unload_minutes",
         default=None,
     )
-    return decoder.construct(
-        lambda: ModelManagementSettings(automatic, minutes), path=path
-    )
+    return decoder.construct(lambda: ModelManagementSettings(automatic, minutes), path=path)
 
 
 def _encode_support(support: ParameterSupport) -> JsonObject:
@@ -358,17 +290,11 @@ def _encode_support(support: ParameterSupport) -> JsonObject:
 
 
 def _decode_support(decoder: JsonDecoder, raw: object, path: str) -> ParameterSupport:
-    values = decoder.object(
-        raw, path=path, required=frozenset({"temperature", "top_p", "max_tokens"})
-    )
+    values = decoder.object(raw, path=path, required=frozenset({"temperature", "top_p", "max_tokens"}))
     return ParameterSupport(
-        temperature=decoder.optional_boolean(
-            values.get("temperature"), path=f"{path}.temperature"
-        ),
+        temperature=decoder.optional_boolean(values.get("temperature"), path=f"{path}.temperature"),
         top_p=decoder.optional_boolean(values.get("top_p"), path=f"{path}.top_p"),
-        max_tokens=decoder.optional_boolean(
-            values.get("max_tokens"), path=f"{path}.max_tokens"
-        ),
+        max_tokens=decoder.optional_boolean(values.get("max_tokens"), path=f"{path}.max_tokens"),
     )
 
 
@@ -418,9 +344,7 @@ def _decode_profile(decoder: JsonDecoder, raw: object, path: str) -> GenerationP
         choices=("model_default", "automatic", *REASONING_OPTIONS),
     )
     return decoder.construct(
-        lambda: GenerationProfile(
-            model, SamplingParameters(temperature, top_p, max_tokens), reasoning
-        ),
+        lambda: GenerationProfile(model, SamplingParameters(temperature, top_p, max_tokens), reasoning),
         path=path,
     )
 
@@ -436,9 +360,7 @@ def _encode_capabilities(capabilities: ModelCapabilities) -> JsonObject:
     }
 
 
-def _decode_capabilities(
-    decoder: JsonDecoder, raw: object, path: str
-) -> ModelCapabilities:
+def _decode_capabilities(decoder: JsonDecoder, raw: object, path: str) -> ModelCapabilities:
     values = decoder.object(
         raw,
         path=path,
@@ -454,21 +376,11 @@ def _decode_capabilities(
         ),
     )
     vision = decoder.optional_boolean(values.get("vision"), path=f"{path}.vision")
-    tools = decoder.optional_boolean(
-        values.get("trained_for_tool_use"), path=f"{path}.trained_for_tool_use"
-    )
-    reasoning = decoder.optional_boolean(
-        values.get("reasoning"), path=f"{path}.reasoning"
-    )
+    tools = decoder.optional_boolean(values.get("trained_for_tool_use"), path=f"{path}.trained_for_tool_use")
+    reasoning = decoder.optional_boolean(values.get("reasoning"), path=f"{path}.reasoning")
     options: tuple[ReasoningOption, ...] = tuple(
-        decoder.choice(
-            value, path=f"{path}.reasoning_options[{index}]", choices=REASONING_OPTIONS
-        )
-        for index, value in enumerate(
-            decoder.list(
-                values.get("reasoning_options"), path=f"{path}.reasoning_options"
-            )
-        )
+        decoder.choice(value, path=f"{path}.reasoning_options[{index}]", choices=REASONING_OPTIONS)
+        for index, value in enumerate(decoder.list(values.get("reasoning_options"), path=f"{path}.reasoning_options"))
     )
     default: ReasoningOption | None = (
         decoder.choice(
@@ -548,18 +460,14 @@ def _decode_model(decoder: JsonDecoder, raw: object, path: str) -> RegisteredMod
         ),
     )
     model_id = decoder.string(values.get("id"), path=f"{path}.id", default="")
-    name = decoder.string(
-        values.get("display_name"), path=f"{path}.display_name", default=""
-    )
+    name = decoder.string(values.get("display_name"), path=f"{path}.display_name", default="")
     alias = decoder.string(values.get("alias"), path=f"{path}.alias", default="")
     manual = decoder.boolean(
         values.get("manually_registered"),
         path=f"{path}.manually_registered",
         default=False,
     )
-    context = decoder.optional_integer(
-        values.get("context_length"), path=f"{path}.context_length", default=None
-    )
+    context = decoder.optional_integer(values.get("context_length"), path=f"{path}.context_length", default=None)
     maximum = decoder.optional_integer(
         values.get("max_context_length"),
         path=f"{path}.max_context_length",
@@ -570,50 +478,28 @@ def _decode_model(decoder: JsonDecoder, raw: object, path: str) -> RegisteredMod
         path=f"{path}.auto_unload_minutes",
         default=None,
     )
-    publisher = decoder.string(
-        values.get("publisher"), path=f"{path}.publisher", default=""
-    )
-    architecture = decoder.string(
-        values.get("architecture"), path=f"{path}.architecture", default=""
-    )
-    quantization = decoder.string(
-        values.get("quantization_name"), path=f"{path}.quantization_name", default=""
-    )
+    publisher = decoder.string(values.get("publisher"), path=f"{path}.publisher", default="")
+    architecture = decoder.string(values.get("architecture"), path=f"{path}.architecture", default="")
+    quantization = decoder.string(values.get("quantization_name"), path=f"{path}.quantization_name", default="")
     bits = (
-        decoder.number(
-            values.get("bits_per_weight"), path=f"{path}.bits_per_weight", default=0.0
-        )
+        decoder.number(values.get("bits_per_weight"), path=f"{path}.bits_per_weight", default=0.0)
         if values.get("bits_per_weight") is not None
         else None
     )
-    size = decoder.optional_integer(
-        values.get("size_bytes"), path=f"{path}.size_bytes", default=None
-    )
-    params = decoder.string(
-        values.get("params_string"), path=f"{path}.params_string", default=""
-    )
+    size = decoder.optional_integer(values.get("size_bytes"), path=f"{path}.size_bytes", default=None)
+    params = decoder.string(values.get("params_string"), path=f"{path}.params_string", default="")
     model_format: ModelFormat | None = (
-        decoder.choice(
-            values.get("format"), path=f"{path}.format", choices=MODEL_FORMATS
-        )
+        decoder.choice(values.get("format"), path=f"{path}.format", choices=MODEL_FORMATS)
         if values.get("format") is not None
         else None
     )
-    capabilities = _decode_capabilities(
-        decoder, values.get("capabilities"), f"{path}.capabilities"
-    )
-    description = decoder.string(
-        values.get("description"), path=f"{path}.description", default=""
-    )
+    capabilities = _decode_capabilities(decoder, values.get("capabilities"), f"{path}.capabilities")
+    description = decoder.string(values.get("description"), path=f"{path}.description", default="")
     variants = tuple(
         decoder.string(value, path=f"{path}.variants[{index}]", default="")
-        for index, value in enumerate(
-            decoder.list(values.get("variants"), path=f"{path}.variants")
-        )
+        for index, value in enumerate(decoder.list(values.get("variants"), path=f"{path}.variants"))
     )
-    selected = decoder.string(
-        values.get("selected_variant"), path=f"{path}.selected_variant", default=""
-    )
+    selected = decoder.string(values.get("selected_variant"), path=f"{path}.selected_variant", default="")
     descriptor = ModelDescriptor(
         key=model_id,
         display_name=name,
@@ -660,8 +546,6 @@ def _decode_model(decoder: JsonDecoder, raw: object, path: str) -> RegisteredMod
         default=False,
     )
     return decoder.construct(
-        lambda: RegisteredModel(
-            descriptor, alias, manual, default, options, default_unavailable
-        ),
+        lambda: RegisteredModel(descriptor, alias, manual, default, options, default_unavailable),
         path=path,
     )

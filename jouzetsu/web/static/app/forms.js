@@ -32,6 +32,29 @@ export const liveFormBody = (form, submitter = null) => {
     return body;
 };
 
+export const synchronizeLiveFormProgress = () => {
+    document.querySelectorAll('[data-live-was-disabled]').forEach((button) => {
+        button.disabled = button.dataset.liveWasDisabled === 'true';
+        delete button.dataset.liveWasDisabled;
+    });
+    document.querySelectorAll('[data-live-original-label]').forEach((button) => {
+        button.textContent = button.dataset.liveOriginalLabel;
+        delete button.dataset.liveOriginalLabel;
+    });
+    for (const form of document.querySelectorAll('form[data-live-saving="true"][data-live-busy-label]')) {
+        const group = form.closest('[data-live-group]') || form;
+        group.querySelectorAll('button[type="submit"]').forEach((button) => {
+            if (!button.hasAttribute('data-live-was-disabled')) button.dataset.liveWasDisabled = String(button.disabled);
+            button.disabled = true;
+        });
+        const button = form.querySelector('[data-busy-label]');
+        if (button) {
+            button.dataset.liveOriginalLabel = button.textContent;
+            button.textContent = form.dataset.liveBusyLabel;
+        }
+    }
+};
+
 export const togglePasswordVisibility = (button) => {
     const input = document.getElementById(button.dataset.passwordToggle);
     if (!(input instanceof HTMLInputElement)) return;

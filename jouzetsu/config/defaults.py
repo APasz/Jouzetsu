@@ -64,9 +64,7 @@ def _load_json_resource(file_name: str) -> object:
     try:
         return cast(object, json.loads(resource.read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError) as exc:
-        raise DefaultDataError(
-            f"could not load packaged default data: {resource}"
-        ) from exc
+        raise DefaultDataError(f"could not load packaged default data: {resource}") from exc
 
 
 @cache
@@ -81,27 +79,19 @@ def builtin_spelling_replacements() -> tuple[SpellingReplacement, ...]:
     seen_sources: set[str] = set()
     for index, item in enumerate(cast(list[object], raw)):
         if not isinstance(item, dict):
-            raise DefaultDataError(
-                f"British-spelling default {index} must be an object"
-            )
+            raise DefaultDataError(f"British-spelling default {index} must be an object")
         values: dict[object, object] = cast(dict[object, object], item)
         if set(values) != {"source", "replacement"}:
-            raise DefaultDataError(
-                f"British-spelling default {index} must contain source and replacement"
-            )
+            raise DefaultDataError(f"British-spelling default {index} must contain source and replacement")
         source: object = values["source"]
         replacement: object = values["replacement"]
         if not isinstance(source, str) or not isinstance(replacement, str):
-            raise DefaultDataError(
-                f"British-spelling default {index} source and replacement must be strings"
-            )
+            raise DefaultDataError(f"British-spelling default {index} source and replacement must be strings")
         item_value: SpellingReplacement = SpellingReplacement(source, replacement)
         try:
             item_value.validate()
         except ValueError as exc:
-            raise DefaultDataError(
-                f"invalid British-spelling default {index}: {exc}"
-            ) from exc
+            raise DefaultDataError(f"invalid British-spelling default {index}: {exc}") from exc
         source_key: str = source.casefold()
         if source_key in seen_sources:
             raise DefaultDataError(f"duplicate British-spelling source: {source}")
@@ -137,32 +127,20 @@ def builtin_message_action_color(action: MessageAction) -> str:
 def legacy_theme_values() -> Mapping[str, str]:
     """Return the historical palette only for decoding existing configurations."""
 
-    return _theme_resource_values(
-        "legacy-theme.json", expected_fields=_LEGACY_THEME_FIELDS
-    )
+    return _theme_resource_values("legacy-theme.json", expected_fields=_LEGACY_THEME_FIELDS)
 
 
-def _theme_resource_values(
-    file_name: str, *, expected_fields: frozenset[str] | None = None
-) -> Mapping[str, str]:
+def _theme_resource_values(file_name: str, *, expected_fields: frozenset[str] | None = None) -> Mapping[str, str]:
     raw: object = _load_json_resource(file_name)
     if not isinstance(raw, dict):
         raise DefaultDataError(f"{file_name} must be a JSON object")
     values = cast(dict[object, object], raw)
     if expected_fields is not None and frozenset(values) != expected_fields:
-        raise DefaultDataError(
-            f"{file_name} must define every default colour exactly once"
-        )
+        raise DefaultDataError(f"{file_name} must define every default colour exactly once")
     normalised: dict[str, str] = {}
     for name, value in values.items():
-        if (
-            not isinstance(name, str)
-            or not isinstance(value, str)
-            or not _HEX_COLOR_PATTERN.fullmatch(value)
-        ):
-            raise DefaultDataError(
-                f"{file_name} colours must be six-digit hexadecimal values"
-            )
+        if not isinstance(name, str) or not isinstance(value, str) or not _HEX_COLOR_PATTERN.fullmatch(value):
+            raise DefaultDataError(f"{file_name} colours must be six-digit hexadecimal values")
         normalised[name] = value.lower()
     return MappingProxyType(normalised)
 
@@ -179,9 +157,7 @@ def default_config(paths: AppPaths) -> AppConfig:
 
     config: AppConfig = AppConfig(
         paths=paths,
-        generation=GenerationSettings(
-            british_spelling_replacements=list(builtin_spelling_replacements())
-        ),
+        generation=GenerationSettings(british_spelling_replacements=list(builtin_spelling_replacements())),
         ui=UiSettings(),
         theme=builtin_theme(),
         logging=LoggingSettings(directory=paths.log_directory),

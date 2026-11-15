@@ -60,9 +60,7 @@ class ShutdownMarkerTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Server failed"):
                 app_module.run(config)
 
-        server_config: uvicorn.Config = cast(
-            uvicorn.Config, server_type.call_args.args[0]
-        )
+        server_config: uvicorn.Config = cast(uvicorn.Config, server_type.call_args.args[0])
         self.assertEqual(
             server_config.timeout_graceful_shutdown,
             app_module._UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,  # pyright: ignore[reportPrivateUsage]

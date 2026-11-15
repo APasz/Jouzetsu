@@ -17,8 +17,7 @@ def mix_colors(start: str, end: str, ratio: float) -> str:
     if not 0 <= ratio <= 1:
         raise ValueError("colour mix ratio must be between zero and one")
     channels = (
-        round(first + (second - first) * ratio)
-        for first, second in zip(_hex_rgb(start), _hex_rgb(end), strict=True)
+        round(first + (second - first) * ratio) for first, second in zip(_hex_rgb(start), _hex_rgb(end), strict=True)
     )
     return "#" + "".join(f"{channel:02x}" for channel in channels)
 
@@ -45,10 +44,7 @@ def readable_accent(accent: str, background: str) -> str:
     low, high = 0.0, 1.0
     for _ in range(12):
         midpoint = (low + high) / 2
-        if (
-            contrast_ratio(mix_colors(accent, target, midpoint), background)
-            >= _TEXT_CONTRAST
-        ):
+        if contrast_ratio(mix_colors(accent, target, midpoint), background) >= _TEXT_CONTRAST:
             high = midpoint
         else:
             low = midpoint

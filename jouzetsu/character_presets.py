@@ -14,21 +14,11 @@ from typing import Final, Literal, TypedDict, cast
 log: logging.Logger = logging.getLogger(__name__)
 type CharacterFieldKind = Literal["short_text", "long_text"]
 type CharacterPresetLayer = Literal["base", "extra"]
-_CHARACTER_FIELD_KINDS: Final[frozenset[CharacterFieldKind]] = frozenset(
-    {"short_text", "long_text"}
-)
-_CHARACTER_PRESET_LAYERS: Final[frozenset[CharacterPresetLayer]] = frozenset(
-    {"base", "extra"}
-)
-_PACK_IDENTIFIER_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"[a-z0-9][a-z0-9-]{0,63}"
-)
-_BUILTIN_PACK_PATH: Final[Path] = (
-    Path(__file__).with_name("character_preset_data") / "builtin.json"
-)
-_BUILTIN_CHARACTER_NAMES_PATH: Final[Path] = (
-    Path(__file__).with_name("character_preset_data") / "names.json"
-)
+_CHARACTER_FIELD_KINDS: Final[frozenset[CharacterFieldKind]] = frozenset({"short_text", "long_text"})
+_CHARACTER_PRESET_LAYERS: Final[frozenset[CharacterPresetLayer]] = frozenset({"base", "extra"})
+_PACK_IDENTIFIER_PATTERN: Final[re.Pattern[str]] = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+_BUILTIN_PACK_PATH: Final[Path] = Path(__file__).with_name("character_preset_data") / "builtin.json"
+_BUILTIN_CHARACTER_NAMES_PATH: Final[Path] = Path(__file__).with_name("character_preset_data") / "names.json"
 
 
 class CharacterPresetFieldClientValue(TypedDict):
@@ -66,9 +56,7 @@ class CharacterFieldPreset:
     def fields_json(self) -> str:
         """Encode fields once for the static browser editor without duplicating the catalogue."""
 
-        return json.dumps(
-            [field.to_client_value() for field in self.fields], separators=(",", ":")
-        )
+        return json.dumps([field.to_client_value() for field in self.fields], separators=(",", ":"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,18 +94,12 @@ class CharacterNameSuggestions:
             separators=(",", ":"),
         )
 
-    def with_additions(
-        self, additions: CharacterNameSuggestions
-    ) -> CharacterNameSuggestions:
+    def with_additions(self, additions: CharacterNameSuggestions) -> CharacterNameSuggestions:
         """Append distinct user-provided suggestions without weighting duplicates."""
 
         return CharacterNameSuggestions(
-            given_names=_merged_character_name_suggestions(
-                self.given_names, additions.given_names
-            ),
-            family_names=_merged_character_name_suggestions(
-                self.family_names, additions.family_names
-            ),
+            given_names=_merged_character_name_suggestions(self.given_names, additions.given_names),
+            family_names=_merged_character_name_suggestions(self.family_names, additions.family_names),
         )
 
 
@@ -149,16 +131,12 @@ class CharacterNameSuggestionsCatalog:
         """Load custom names without preventing the built-in randomiser from working."""
 
         try:
-            document: _CharacterNameSuggestionDocument = (
-                _load_character_name_suggestion_document(
-                    custom_path, allow_empty_pools=True
-                )
+            document: _CharacterNameSuggestionDocument = _load_character_name_suggestion_document(
+                custom_path, allow_empty_pools=True
             )
             additions: CharacterNameSuggestions = document.suggestions
             if not additions.given_names and not additions.family_names:
-                raise ValueError(
-                    f"{custom_path.name} must define at least one name suggestion"
-                )
+                raise ValueError(f"{custom_path.name} must define at least one name suggestion")
             if document.disable_vanilla:
                 if not additions.given_names or not additions.family_names:
                     raise ValueError(
@@ -216,9 +194,7 @@ class CharacterPresetCatalog:
                 elif preset.layer == "extra":
                     extra_presets.append(preset)
                 else:
-                    raise ValueError(
-                        f"character preset {preset.id!r} has an unknown layer"
-                    )
+                    raise ValueError(f"character preset {preset.id!r} has an unknown layer")
         return cls(
             base_presets=tuple(base_presets),
             extra_presets=tuple(extra_presets),
@@ -239,9 +215,7 @@ class CharacterPresetCatalog:
         if not private_directory.exists():
             return cls.from_packs(tuple(packs))
         if not private_directory.is_dir():
-            raise ValueError(
-                f"character preset directory is not a directory: {private_directory}"
-            )
+            raise ValueError(f"character preset directory is not a directory: {private_directory}")
 
         for path in sorted(
             private_directory.glob("*.json"),
@@ -251,9 +225,7 @@ class CharacterPresetCatalog:
                 pack: CharacterPresetPack = _load_preset_pack(path)
                 _validate_pack_is_unique(pack, known_pack_ids, known_preset_ids)
             except (OSError, TypeError, ValueError) as exc:
-                issue: CharacterPresetLoadIssue = CharacterPresetLoadIssue(
-                    path=path, message=str(exc)
-                )
+                issue: CharacterPresetLoadIssue = CharacterPresetLoadIssue(path=path, message=str(exc))
                 issues.append(issue)
                 log.warning(
                     "ignored character preset pack path=%s reason=%s",
@@ -267,17 +239,13 @@ class CharacterPresetCatalog:
 
         return cls.from_packs(tuple(packs), load_issues=tuple(issues))
 
-    def selected(
-        self, base_id: str, extra_ids: list[str]
-    ) -> tuple[CharacterFieldPreset, ...]:
+    def selected(self, base_id: str, extra_ids: list[str]) -> tuple[CharacterFieldPreset, ...]:
         """Resolve one optional base and a unique ordered set of extras from form values."""
 
         selected: list[CharacterFieldPreset] = []
         normalized_base_id: str = base_id.strip()
         if normalized_base_id:
-            base_preset: CharacterFieldPreset = self._preset_with_layer(
-                normalized_base_id, "base"
-            )
+            base_preset: CharacterFieldPreset = self._preset_with_layer(normalized_base_id, "base")
             selected.append(base_preset)
 
         seen_extra_ids: set[str] = set()
@@ -285,16 +253,12 @@ class CharacterPresetCatalog:
             extra_id: str = raw_extra_id.strip()
             if not extra_id or extra_id in seen_extra_ids:
                 continue
-            extra_preset: CharacterFieldPreset = self._preset_with_layer(
-                extra_id, "extra"
-            )
+            extra_preset: CharacterFieldPreset = self._preset_with_layer(extra_id, "extra")
             selected.append(extra_preset)
             seen_extra_ids.add(extra_id)
         return tuple(selected)
 
-    def _preset_with_layer(
-        self, preset_id: str, layer: CharacterPresetLayer
-    ) -> CharacterFieldPreset:
+    def _preset_with_layer(self, preset_id: str, layer: CharacterPresetLayer) -> CharacterFieldPreset:
         """Return one known preset only when it belongs to the requested editor layer."""
 
         try:
@@ -303,9 +267,7 @@ class CharacterPresetCatalog:
             raise ValueError(f"unknown character {layer} preset") from exc
         if preset.layer != layer:
             article: str = "an" if layer == "extra" else "a"
-            raise ValueError(
-                f"character preset {preset_id!r} is not {article} {layer} preset"
-            )
+            raise ValueError(f"character preset {preset_id!r} is not {article} {layer} preset")
         return preset
 
 
@@ -323,9 +285,7 @@ def _parse_preset_pack(raw: object, *, source_name: str) -> CharacterPresetPack:
     """Validate a JSON document without allowing untyped data past this boundary."""
 
     pack: dict[str, object] = _json_object(raw, path=source_name)
-    _reject_unexpected_keys(
-        pack, {"schema_version", "id", "label", "presets"}, path=source_name
-    )
+    _reject_unexpected_keys(pack, {"schema_version", "id", "label", "presets"}, path=source_name)
     _require_schema_version(pack, path=source_name)
 
     pack_id: str = _preset_identifier(pack.get("id"), path=f"{source_name}.id")
@@ -349,29 +309,21 @@ def _parse_preset_pack(raw: object, *, source_name: str) -> CharacterPresetPack:
         )
         local_id: str = _preset_identifier(preset.get("id"), path=f"{preset_path}.id")
         if local_id in local_ids:
-            raise ValueError(
-                f"{preset_path}.id duplicates preset id {local_id!r} in this pack"
-            )
+            raise ValueError(f"{preset_path}.id duplicates preset id {local_id!r} in this pack")
         local_ids.add(local_id)
-        layer: CharacterPresetLayer = _preset_layer(
-            preset.get("layer"), path=f"{preset_path}.layer"
-        )
+        layer: CharacterPresetLayer = _preset_layer(preset.get("layer"), path=f"{preset_path}.layer")
         raw_fields: object = preset.get("fields")
         if not isinstance(raw_fields, list):
             raise TypeError(f"{preset_path}.fields must be an array")
         if not raw_fields:
             raise ValueError(f"{preset_path}.fields must be a non-empty array")
         field_values: list[object] = cast(list[object], raw_fields)
-        fields: tuple[CharacterPresetField, ...] = _parse_preset_fields(
-            field_values, path=preset_path
-        )
+        fields: tuple[CharacterPresetField, ...] = _parse_preset_fields(field_values, path=preset_path)
         presets.append(
             CharacterFieldPreset(
                 id=f"{pack_id}:{local_id}",
                 label=_required_text(preset.get("label"), path=f"{preset_path}.label"),
-                description=_required_text(
-                    preset.get("description"), path=f"{preset_path}.description"
-                ),
+                description=_required_text(preset.get("description"), path=f"{preset_path}.description"),
                 layer=layer,
                 fields=fields,
             )
@@ -382,9 +334,7 @@ def _parse_preset_pack(raw: object, *, source_name: str) -> CharacterPresetPack:
 def load_character_name_suggestions(path: Path) -> CharacterNameSuggestions:
     """Load distinct, non-empty JSON pools for given and family-name suggestions."""
 
-    return _load_character_name_suggestion_document(
-        path, allow_empty_pools=False
-    ).suggestions
+    return _load_character_name_suggestion_document(path, allow_empty_pools=False).suggestions
 
 
 def _load_character_name_suggestion_document(
@@ -450,9 +400,7 @@ def _character_name_suggestions(
     return tuple(names)
 
 
-def _merged_character_name_suggestions(
-    base: tuple[str, ...], additions: tuple[str, ...]
-) -> tuple[str, ...]:
+def _merged_character_name_suggestions(base: tuple[str, ...], additions: tuple[str, ...]) -> tuple[str, ...]:
     """Append names that do not already exist, case-insensitively, in the base pool."""
 
     merged: list[str] = list(base)
@@ -465,9 +413,7 @@ def _merged_character_name_suggestions(
     return tuple(merged)
 
 
-def _parse_preset_fields(
-    raw_fields: list[object], *, path: str
-) -> tuple[CharacterPresetField, ...]:
+def _parse_preset_fields(raw_fields: list[object], *, path: str) -> tuple[CharacterPresetField, ...]:
     """Parse one non-empty field list and reject duplicate profile labels."""
 
     fields: list[CharacterPresetField] = []
@@ -484,12 +430,8 @@ def _parse_preset_fields(
         fields.append(
             CharacterPresetField(
                 label=label,
-                kind=_field_kind(
-                    field.get("kind", "short_text"), path=f"{field_path}.kind"
-                ),
-                value=_optional_text(
-                    field.get("value", ""), path=f"{field_path}.value"
-                ),
+                kind=_field_kind(field.get("kind", "short_text"), path=f"{field_path}.kind"),
+                value=_optional_text(field.get("value", ""), path=f"{field_path}.value"),
             )
         )
     return tuple(fields)
@@ -506,9 +448,7 @@ def _json_object(raw: object, *, path: str) -> dict[str, object]:
     return cast(dict[str, object], object_value)
 
 
-def _reject_unexpected_keys(
-    values: Mapping[str, object], allowed: set[str], *, path: str
-) -> None:
+def _reject_unexpected_keys(values: Mapping[str, object], allowed: set[str], *, path: str) -> None:
     """Reject misspelled schema keys rather than silently dropping user input."""
 
     unexpected: list[str] = sorted(set(values).difference(allowed))
@@ -602,26 +542,16 @@ def _load_builtin_character_preset_catalog() -> CharacterPresetCatalog:
     return CharacterPresetCatalog.from_packs((_load_preset_pack(_BUILTIN_PACK_PATH),))
 
 
-BUILTIN_CHARACTER_PRESET_CATALOG: Final[CharacterPresetCatalog] = (
-    _load_builtin_character_preset_catalog()
+BUILTIN_CHARACTER_PRESET_CATALOG: Final[CharacterPresetCatalog] = _load_builtin_character_preset_catalog()
+BUILTIN_CHARACTER_NAME_SUGGESTIONS: Final[CharacterNameSuggestions] = load_character_name_suggestions(
+    _BUILTIN_CHARACTER_NAMES_PATH
 )
-BUILTIN_CHARACTER_NAME_SUGGESTIONS: Final[CharacterNameSuggestions] = (
-    load_character_name_suggestions(_BUILTIN_CHARACTER_NAMES_PATH)
-)
-BUILTIN_CHARACTER_NAME_SUGGESTIONS_JSON: Final[str] = (
-    BUILTIN_CHARACTER_NAME_SUGGESTIONS.to_client_json()
-)
-BASE_CHARACTER_PRESETS: Final[tuple[CharacterFieldPreset, ...]] = (
-    BUILTIN_CHARACTER_PRESET_CATALOG.base_presets
-)
-EXTRA_CHARACTER_PRESETS: Final[tuple[CharacterFieldPreset, ...]] = (
-    BUILTIN_CHARACTER_PRESET_CATALOG.extra_presets
-)
+BUILTIN_CHARACTER_NAME_SUGGESTIONS_JSON: Final[str] = BUILTIN_CHARACTER_NAME_SUGGESTIONS.to_client_json()
+BASE_CHARACTER_PRESETS: Final[tuple[CharacterFieldPreset, ...]] = BUILTIN_CHARACTER_PRESET_CATALOG.base_presets
+EXTRA_CHARACTER_PRESETS: Final[tuple[CharacterFieldPreset, ...]] = BUILTIN_CHARACTER_PRESET_CATALOG.extra_presets
 
 
-def selected_character_presets(
-    base_id: str, extra_ids: list[str]
-) -> tuple[CharacterFieldPreset, ...]:
+def selected_character_presets(base_id: str, extra_ids: list[str]) -> tuple[CharacterFieldPreset, ...]:
     """Resolve built-in presets for compatibility with callers that do not load private packs."""
 
     return BUILTIN_CHARACTER_PRESET_CATALOG.selected(base_id, extra_ids)

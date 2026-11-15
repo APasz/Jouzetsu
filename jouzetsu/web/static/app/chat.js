@@ -6,7 +6,8 @@ import {
     rememberChat,
     syncElementAttributes,
 } from './dom.js';
-import { addCsrfToken, liveFormBody, randomIdentifier } from './forms.js';
+import { addCsrfToken, liveFormBody, randomIdentifier, synchronizeLiveFormProgress } from './forms.js';
+import { synchronizeBackendControls } from './backends.js';
 import { synchronizeModelPickers } from './model-picker.js';
 
 const FULL_REFRESH = 'full';
@@ -104,7 +105,7 @@ const matchesServerMessageMarkup = (current, next) => {
     return true;
 };
 
-const formKey = (form) => `${new URL(form.getAttribute('action') || location.href, location.origin).href}|${form.elements.namedItem('chat_id')?.value || ''}|${form.elements.namedItem('model_id')?.value || ''}`;
+const formKey = (form) => form.id || `${new URL(form.getAttribute('action') || location.href, location.origin).href}|${form.elements.namedItem('chat_id')?.value || ''}|${form.elements.namedItem('model_id')?.value || ''}`;
 
 const reconcileSurface = (current, next) => {
     const focus = current.contains(document.activeElement) ? document.activeElement : null;
@@ -113,15 +114,20 @@ const reconcileSurface = (current, next) => {
     const selection = typeof focus?.selectionStart === 'number' ? [focus.selectionStart, focus.selectionEnd] : null;
     const nextForms = Array.from(next.querySelectorAll('form'));
     const preserved = [];
-    for (const form of current.querySelectorAll('form[data-local-dirty]')) {
+    for (const form of current.querySelectorAll('form[data-local-dirty], form[data-live-saving="true"]:not([data-live-committed])')) {
         const target = nextForms.find((candidate) => formKey(candidate) === formKey(form));
-        if (!target) return false;
+        if (!target) {
+            if (form.hasAttribute('data-local-dirty')) return false;
+            continue;
+        }
         preserved.push([target, form]);
     }
     preserved.forEach(([target, form]) => target.replaceWith(form));
     const restoreModelPickers = synchronizeModelPickers(current, next);
     current.replaceWith(next);
-    const restored = focus?.isConnected ? focus : Array.from(next.querySelectorAll('form')).find((form) => formKey(form) === focusForm)?.elements.namedItem(focusName);
+    const restored = focus?.isConnected ? focus
+        : (focus?.id ? next.querySelector(`#${CSS.escape(focus.id)}`) : null)
+            || Array.from(next.querySelectorAll('form')).find((form) => formKey(form) === focusForm)?.elements.namedItem(focusName);
     if (restored instanceof HTMLElement) {
         restored.focus({preventScroll: true});
         if (selection && typeof restored.setSelectionRange === 'function') restored.setSelectionRange(...selection);
@@ -228,7 +234,15 @@ export class ChatController {
     }
 
     refreshDialogs() {
-        return Promise.all([this.#refreshDialog('global-settings-dialog', 'global'), this.#refreshDialog('access-dialog', 'access')]);
+        return Promise.all([
+            this.#refreshDialog('global-settings-dialog', 'global'),
+            this.refreshBackends(),
+            this.#refreshDialog('access-dialog', 'access'),
+        ]);
+    }
+
+    refreshBackends() {
+        return this.#refreshDialog('backends-dialog', 'backends');
     }
 
     async #refreshDialog(id, fragment) {
@@ -249,14 +263,20 @@ export class ChatController {
             if (!next) return;
             const active = current.querySelector('[role="tab"][aria-selected="true"]')?.dataset.tabName || '';
             const open = current.open;
+            const openChildren = Array.from(current.querySelectorAll('dialog[open]'), (dialog) => dialog.id);
+            const scrollPositions = new Map([current, ...current.querySelectorAll('dialog, [data-tab-list]')].map(
+                (element) => [element.id, [element.scrollLeft, element.scrollTop]],
+            ));
             const detailKey = (details, index) => details.id || details.dataset.testid || String(index);
             const expanded = new Map(Array.from(current.querySelectorAll('details')).map((details, index) => [detailKey(details, index), details.open]));
             next.removeAttribute('open');
+            next.querySelectorAll('dialog').forEach((dialog) => dialog.removeAttribute('open'));
             next.querySelectorAll('details').forEach((details, index) => { details.open = expanded.get(detailKey(details, index)) || false; });
-            const feedback = current.querySelector('.jouzetsu-dialog-feedback');
-            if (feedback && !next.querySelector('.jouzetsu-dialog-feedback')) next.firstElementChild?.prepend(feedback.cloneNode(true));
+            this.#notices.preserveDialogFeedback(current, next);
             const reconciled = reconcileSurface(current, next);
             if (!reconciled) return;
+            synchronizeBackendControls(next);
+            synchronizeLiveFormProgress();
             const activeTab = next.querySelector(`[role="tab"][data-tab-name="${CSS.escape(active)}"]`);
             if (activeTab) this.#panels.activateTab(activeTab);
             if (open) {
@@ -264,7 +284,15 @@ export class ChatController {
                 const hadAutofocus = focusTarget?.hasAttribute('autofocus');
                 if (focusTarget) focusTarget.setAttribute('autofocus', '');
                 next.showModal();
+                for (const childId of openChildren) {
+                    const child = byId(childId);
+                    if (child instanceof HTMLDialogElement) child.showModal();
+                }
                 if (focusTarget && !hadAutofocus) focusTarget.removeAttribute('autofocus');
+            }
+            for (const [elementId, [scrollLeft, scrollTop]] of scrollPositions) {
+                const element = byId(elementId);
+                if (element) { element.scrollLeft = scrollLeft; element.scrollTop = scrollTop; }
             }
             if (reconciled instanceof HTMLElement) reconciled.focus({preventScroll: true});
         } catch { /* Reconnection will refresh settings from the shared configuration. */ }
@@ -363,10 +391,15 @@ export class ChatController {
     }
 
     async submitLiveForm(form, submitter = null) {
+        if (form.dataset.liveSaving === 'true') return;
         addCsrfToken(form);
+        const backendFingerprint = form.elements.namedItem('backend_fingerprint')?.value;
         form.dataset.liveSaving = 'true';
         form.setAttribute('aria-busy', 'true');
         const submitted = liveFormBody(form, submitter).toString();
+        this.#notices.clearForForm(form);
+        if (submitter?.dataset.busyLabel) form.dataset.liveBusyLabel = submitter.dataset.busyLabel;
+        synchronizeLiveFormProgress();
         let resubmit = false;
         try {
             const action = submitter?.hasAttribute('formaction')
@@ -385,25 +418,47 @@ export class ChatController {
                 window.location.reload();
                 return;
             }
-            if (!response.ok) { this.#notices.announce(await response.text(), true); return; }
+            if (!response.ok) { this.#notices.announceForForm(form, await response.text(), true); return; }
             const resultUrl = new URL(response.headers.get("X-Jouzetsu-Location") || response.url, window.location.origin);
             const error = resultUrl.searchParams.get('error');
             if (error) {
-                this.#notices.announce(error, true);
+                this.#notices.announceForForm(form, error, true);
                 return;
             }
             const revision = response.headers.get('X-Jouzetsu-Chat-Revision');
             resubmit = liveFormBody(form, submitter).toString() !== submitted;
+            const acknowledgedBackend = response.headers.get('X-Jouzetsu-Backend-Fingerprint');
+            if (acknowledgedBackend && backendFingerprint) {
+                // Other backend forms may still contain defaults superseded by this action.
+                // Model editors write independent fields and can safely keep their edits.
+                document.querySelectorAll('input[name="backend_fingerprint"]').forEach((input) => {
+                    if (input.value === backendFingerprint && (input.form === form || input.form?.hasAttribute('data-backend-model-settings'))) {
+                        input.value = acknowledgedBackend;
+                        input.defaultValue = acknowledgedBackend;
+                    }
+                });
+            }
             if (revision && form.elements.namedItem('revision')) form.elements.namedItem('revision').value = revision;
+            if (form.dataset.liveDiscardEdits) {
+                byId(form.dataset.liveDiscardEdits)?.querySelectorAll('form[data-local-dirty]').forEach(
+                    (discarded) => { delete discarded.dataset.localDirty; },
+                );
+            }
             if (!resubmit) delete form.dataset.localDirty;
+            // Refresh accepted values while keeping duplicate submissions blocked.
+            form.dataset.liveCommitted = 'true';
             await Promise.all([this.replaceFragment(), this.refreshPanels()]);
-            if (new URL(form.action).pathname.startsWith('/settings/backends/')) await this.refreshDialogs();
-            this.#notices.announce(submitter?.dataset.liveNotice || form.dataset.liveNotice || 'Saved');
+            if (new URL(form.action).pathname.startsWith('/settings/backends/')) await this.refreshBackends();
+            if (!resubmit && form.dataset.liveCloseDialog) this.#panels.closeDialog(byId(form.dataset.liveCloseDialog));
+            this.#notices.announceForForm(form, submitter?.dataset.liveNotice || form.dataset.liveNotice || 'Saved');
         } catch {
-            this.#notices.announce('Could not save this change', true);
+            this.#notices.announceForForm(form, 'Could not complete this action. Please try again.', true);
         } finally {
             delete form.dataset.liveSaving;
+            delete form.dataset.liveCommitted;
+            delete form.dataset.liveBusyLabel;
             form.removeAttribute('aria-busy');
+            synchronizeLiveFormProgress();
             if (resubmit && form.isConnected && form.querySelector('[data-live-autosave]')) form.requestSubmit();
         }
     }

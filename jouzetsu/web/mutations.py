@@ -16,14 +16,16 @@ from starlette.responses import (
     Response,
 )
 
+from ..backend_codec import backend_fingerprint
+from ..backend_models import BackendConfig, BackendId
 from ..inference import ChatBusy, RevisionConflict, SendResult
 from ..models import Chat, Message
 from ..state import AppState
 from .form_data import form_values
 from .request_access import RequestAccess
 
-type DialogName = Literal["", "global", "access"]
-type DialogTabName = Literal["", "behaviour", "appearance", "backends"]
+type DialogName = Literal["", "global", "access", "backends"]
+type DialogTabName = Literal["", "behaviour", "appearance", "new"] | BackendId
 log = logging.getLogger(__name__)
 
 
@@ -61,6 +63,8 @@ class Mutations:
             result = await operation()
             if isinstance(result, Chat):
                 chat_id = result.id
+            elif isinstance(result, BackendConfig):
+                dialog_tab = result.id
             if chat_id and chat_id not in self._state.registry:
                 chat_id = ""
         except HTTPException:
@@ -76,24 +80,21 @@ class Mutations:
             )
             return PlainTextResponse(str(exc), status_code=400)
         destination = self.redirect(
-            chat_id=chat_id, notice=notice, dialog=dialog, dialog_tab=dialog_tab
+            chat_id=chat_id,
+            notice=notice,
+            dialog=dialog,
+            dialog_tab=dialog_tab,
         )
         if request.headers.get("HX-Request") == "true":
             headers = {"X-Jouzetsu-Location": destination.headers["location"]}
-            if (
-                isinstance(result, SendResult)
-                and result.draft_cleared
-                and result.draft_revision is not None
-            ):
+            if isinstance(result, BackendConfig):
+                headers["X-Jouzetsu-Backend-Fingerprint"] = backend_fingerprint(result)
+            if isinstance(result, SendResult) and result.draft_cleared and result.draft_revision is not None:
                 headers["X-Jouzetsu-Draft-Cleared"] = "true"
                 headers["X-Jouzetsu-Draft-Revision"] = str(result.draft_revision)
             if chat_id:
-                headers["X-Jouzetsu-Chat-Revision"] = str(
-                    self._state.session(chat_id).chat.revision
-                )
-            revision = (
-                self._state.session(chat_id).chat.draft_revision if chat_id else None
-            )
+                headers["X-Jouzetsu-Chat-Revision"] = str(self._state.session(chat_id).chat.revision)
+            revision = self._state.session(chat_id).chat.draft_revision if chat_id else None
             return JSONResponse({"draft_revision": revision}, headers=headers)
         return destination
 
@@ -123,6 +124,4 @@ class Mutations:
             if value
         }
         path = f"/chats/{chat_id}" if chat_id else "/chats"
-        return RedirectResponse(
-            path + (f"?{urlencode(values)}" if values else ""), status_code=303
-        )
+        return RedirectResponse(path + (f"?{urlencode(values)}" if values else ""), status_code=303)

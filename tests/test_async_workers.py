@@ -53,9 +53,7 @@ def test_run_in_worker_propagates_cancellation(
         exited.set()
 
     async def scenario() -> None:
-        task: asyncio.Task[None] = asyncio.create_task(
-            run_in_worker(blocking_operation)
-        )
+        task: asyncio.Task[None] = asyncio.create_task(run_in_worker(blocking_operation))
         await asyncio.sleep(0.01)
         assert started.is_set()
         task.cancel()

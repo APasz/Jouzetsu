@@ -38,13 +38,9 @@ from .runtime import ChatStreamEvent, ModelDescriptor, ModelLoadProgress, ModelR
 class ChatCompletionsBackend:
     """Generic servers have discovery where available and no native management."""
 
-    def __init__(
-        self, config: BackendConfig, *, images: ImageStorage | None = None
-    ) -> None:
+    def __init__(self, config: BackendConfig, *, images: ImageStorage | None = None) -> None:
         self._id: BackendId = config.id
-        self._transport: ChatCompletionsTransport = ChatCompletionsTransport(
-            config.base_url, images
-        )
+        self._transport: ChatCompletionsTransport = ChatCompletionsTransport(config.base_url, images)
 
     @property
     def id(self) -> BackendId:
@@ -82,23 +78,17 @@ class ChatCompletionsBackend:
             try:
                 validate_model_id(model_id)
             except ValueError as exc:
-                raise protocol_error(
-                    "The backend returned an invalid model id."
-                ) from exc
+                raise protocol_error("The backend returned an invalid model id.") from exc
             models.append(ModelDescriptor(model_id, model_id))
         try:
             return ModelDiscovery(True, tuple(models))
         except ValueError as exc:
             raise protocol_error("The backend returned duplicate model ids.") from exc
 
-    async def stream(
-        self, request: GenerationRequest
-    ) -> AsyncGenerator[ChatStreamEvent]:
+    async def stream(self, request: GenerationRequest) -> AsyncGenerator[ChatStreamEvent]:
         request.validate_backend(self.id)
         async with aclosing(
-            self._transport.stream(
-                request, ModelReady(request.model.model_id, request.model.model_id, 0)
-            )
+            self._transport.stream(request, ModelReady(request.model.model_id, request.model.model_id, 0))
         ) as events:
             async for event in events:
                 yield event
@@ -110,14 +100,10 @@ class ChatCompletionsBackend:
 class LMStudioBackend(ChatCompletionsBackend):
     """Native management plus the shared Chat Completions wire transport."""
 
-    def __init__(
-        self, config: BackendConfig, *, images: ImageStorage | None = None
-    ) -> None:
+    def __init__(self, config: BackendConfig, *, images: ImageStorage | None = None) -> None:
         super().__init__(config, images=images)
         self._responses: bool = config.lmstudio_transport is LMStudioTransport.RESPONSES
-        self._native_root: str = (
-            f"{lmstudio_server_root(config.base_url)}/api/v1/models"
-        )
+        self._native_root: str = f"{lmstudio_server_root(config.base_url)}/api/v1/models"
 
     @property
     @override
@@ -130,9 +116,7 @@ class LMStudioBackend(ChatCompletionsBackend):
         try:
             return ModelDiscovery(True, LMStudioClient.parse_model_inventory(payload))
         except (LMStudioError, ValueError, TypeError) as exc:
-            raise protocol_error(
-                "LM Studio returned an invalid model inventory."
-            ) from exc
+            raise protocol_error("LM Studio returned an invalid model inventory.") from exc
 
     async def _model(self, model_id: str) -> ModelDescriptor:
         discovery = await self.discover_models()
@@ -144,9 +128,7 @@ class LMStudioBackend(ChatCompletionsBackend):
             "The selected model is unavailable on this backend.",
         )
 
-    async def load_model(
-        self, model_id: str
-    ) -> AsyncGenerator[ModelLoadProgress | ModelReady]:
+    async def load_model(self, model_id: str) -> AsyncGenerator[ModelLoadProgress | ModelReady]:
         validate_model_id(model_id)
         model = await self._model(model_id)
         if not model.is_loaded:
@@ -185,27 +167,19 @@ class LMStudioBackend(ChatCompletionsBackend):
         )
 
     @override
-    async def stream(
-        self, request: GenerationRequest
-    ) -> AsyncGenerator[ChatStreamEvent]:
+    async def stream(self, request: GenerationRequest) -> AsyncGenerator[ChatStreamEvent]:
         request.validate_backend(self.id)
         model = await self._model(request.model.model_id)
         if not model.is_loaded:
-            raise BackendError(
-                BackendErrorCategory.INCOMPATIBLE, "The selected model is not loaded."
-            )
+            raise BackendError(BackendErrorCategory.INCOMPATIBLE, "The selected model is not loaded.")
         async with aclosing(
-            self._transport.stream(
-                request, self._ready(model), native=True, responses=self._responses
-            )
+            self._transport.stream(request, self._ready(model), native=True, responses=self._responses)
         ) as events:
             async for event in events:
                 yield event
 
 
-def create_backend(
-    config: BackendConfig, *, images: ImageStorage | None = None
-) -> ChatCompletionsBackend:
+def create_backend(config: BackendConfig, *, images: ImageStorage | None = None) -> ChatCompletionsBackend:
     match config.kind:
         case BackendKind.LM_STUDIO:
             return LMStudioBackend(config, images=images)

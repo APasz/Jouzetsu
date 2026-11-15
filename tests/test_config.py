@@ -35,9 +35,7 @@ class ConfigStoreTests(unittest.TestCase):
             self.assertEqual(config.paths, AppPaths.for_home(home))
             self.assertEqual(config.chats_file, home / "data" / "chats.json")
             self.assertEqual(config.characters_directory, home / "data" / "characters")
-            self.assertEqual(
-                config.character_presets_directory, home / "data" / "character-presets"
-            )
+            self.assertEqual(config.character_presets_directory, home / "data" / "character-presets")
             self.assertEqual(
                 config.character_name_suggestions_file,
                 home / "data" / "character-names.json",
@@ -72,9 +70,7 @@ class ConfigStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             store = ConfigStore.for_home(Path(tmp_dir))
             config = store.load()
-            config.generation.british_spelling_replacements = [
-                SpellingReplacement("color", "colour")
-            ]
+            config.generation.british_spelling_replacements = [SpellingReplacement("color", "colour")]
             config.theme = replace(
                 config.theme,
                 user=replace(config.theme.user, accent="#112233", muted="#223344"),
@@ -89,17 +85,13 @@ class ConfigStoreTests(unittest.TestCase):
                 saved["generation"]["british_spelling_replacements"],
                 [{"source": "color", "replacement": "colour"}],
             )
-            self.assertEqual(
-                saved["theme"]["user"], {"accent": "#112233", "muted": "#223344"}
-            )
+            self.assertEqual(saved["theme"]["user"], {"accent": "#112233", "muted": "#223344"})
             self.assertEqual(
                 saved["theme"]["app"],
                 {"accent": "#7439b0", "message_action_delete": "#334455"},
             )
             self.assertEqual(saved["ui"]["message_action_style"], "uniform")
-            self.assertEqual(
-                set(saved["theme"]), {"app", "user", "assistant", "system"}
-            )
+            self.assertEqual(set(saved["theme"]), {"app", "user", "assistant", "system"})
             self.assertEqual(store.load().theme, config.theme)
 
     def test_legacy_theme_preserves_custom_colours_and_releases_default_shades(
@@ -169,9 +161,7 @@ class ConfigStoreTests(unittest.TestCase):
                 cast(dict[str, object], encoded["ui"])["message_action_style"],
                 "semantic",
             )
-            self.assertNotIn(
-                "message_action_icon_style", cast(dict[str, object], encoded["ui"])
-            )
+            self.assertNotIn("message_action_icon_style", cast(dict[str, object], encoded["ui"]))
 
     def test_missing_message_action_style_defaults_to_semantic(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -192,9 +182,7 @@ class ConfigStoreTests(unittest.TestCase):
             with self.assertRaises(ConfigValidationError) as context:
                 decode_config(document, paths=paths)
 
-            self.assertIn(
-                "config.ui.message_action_style: is invalid", str(context.exception)
-            )
+            self.assertIn("config.ui.message_action_style: is invalid", str(context.exception))
 
     def test_environment_overrides_are_never_written_back(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -276,9 +264,7 @@ class ConfigStoreTests(unittest.TestCase):
             logging["directory"] = ""
             paths.config_file.write_text(json.dumps(document), encoding="utf-8")
 
-            with self.assertRaisesRegex(
-                ConfigValidationError, "must not contain application data"
-            ):
+            with self.assertRaisesRegex(ConfigValidationError, "must not contain application data"):
                 ConfigStore.for_home(paths.home).load()
 
     def test_config_requires_current_version(self) -> None:
@@ -288,9 +274,7 @@ class ConfigStoreTests(unittest.TestCase):
             document["version"] = 0
             paths.config_file.write_text(json.dumps(document), encoding="utf-8")
 
-            with self.assertRaisesRegex(
-                ConfigValidationError, "config.version: must be 2"
-            ):
+            with self.assertRaisesRegex(ConfigValidationError, "config.version: must be 2"):
                 ConfigStore.for_home(paths.home).load()
 
     def test_config_store_rejects_a_config_for_another_home(self) -> None:
@@ -309,9 +293,7 @@ class AppHomeTests(unittest.TestCase):
             root = Path(tmp_dir)
             explicit = root / "explicit"
             configured = root / "configured"
-            with patch.dict(
-                "os.environ", {APP_HOME_ENVIRONMENT_VARIABLE: str(configured)}
-            ):
+            with patch.dict("os.environ", {APP_HOME_ENVIRONMENT_VARIABLE: str(configured)}):
                 self.assertEqual(resolve_app_home(explicit), explicit.resolve())
 
     def test_blank_environment_home_is_rejected(self) -> None:

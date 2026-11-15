@@ -37,44 +37,29 @@ def _root_colors(config: AppConfig) -> dict[str, str]:
     return dict(re.findall(r"(--jouzetsu-[\w-]+):\s*([^;]+);", root))
 
 
-@pytest.mark.parametrize(
-    "owner", [ThemeColorway.USER, ThemeColorway.ASSISTANT, ThemeColorway.SYSTEM]
-)
-def test_role_changes_do_not_recolour_other_roles_or_app(
-    tmp_path: Path, owner: ThemeColorway
-) -> None:
+@pytest.mark.parametrize("owner", [ThemeColorway.USER, ThemeColorway.ASSISTANT, ThemeColorway.SYSTEM])
+def test_role_changes_do_not_recolour_other_roles_or_app(tmp_path: Path, owner: ThemeColorway) -> None:
     config = default_config(AppPaths.for_home(tmp_path))
     before = _root_colors(config)
     current = dict(config.theme.colorways())[owner]
-    config.theme = replace(
-        config.theme, **{owner.value: replace(current, accent="#257a61")}
-    )
+    config.theme = replace(config.theme, **{owner.value: replace(current, accent="#257a61")})
 
     after = _root_colors(config)
 
     prefix = f"--jouzetsu-{owner.value}-"
     changed = {name for name in before if before[name] != after[name]}
-    assert {
-        f"{prefix}{shade}" for shade in ("accent", "muted", "subtle", "hover")
-    } <= changed
+    assert {f"{prefix}{shade}" for shade in ("accent", "muted", "subtle", "hover")} <= changed
     assert all(name.startswith(prefix) for name in changed)
 
 
 @pytest.mark.parametrize("dark_mode", [True, False])
-@pytest.mark.parametrize(
-    "accent", ["#000000", "#ffffff", "#777777", "#ff3048", "#ad6cff"]
-)
-def test_automatic_text_remains_readable_for_extreme_main_colours(
-    tmp_path: Path, dark_mode: bool, accent: str
-) -> None:
+@pytest.mark.parametrize("accent", ["#000000", "#ffffff", "#777777", "#ff3048", "#ad6cff"])
+def test_automatic_text_remains_readable_for_extreme_main_colours(tmp_path: Path, dark_mode: bool, accent: str) -> None:
     config = default_config(AppPaths.for_home(tmp_path))
     config.ui.dark_mode = dark_mode
     config.theme = replace(
         config.theme,
-        **{
-            owner.value: replace(settings, accent=accent)
-            for owner, settings in config.theme.colorways()
-        },
+        **{owner.value: replace(settings, accent=accent) for owner, settings in config.theme.colorways()},
     )
 
     palette = _root_colors(config)
@@ -87,12 +72,7 @@ def test_automatic_text_remains_readable_for_extreme_main_colours(
             ("foreground", "subtle"),
             ("body", "subtle"),
         ):
-            assert (
-                contrast_ratio(
-                    palette[prefix + foreground], palette[prefix + background]
-                )
-                >= 4.5
-            )
+            assert contrast_ratio(palette[prefix + foreground], palette[prefix + background]) >= 4.5
 
 
 def test_light_mode_changes_app_surfaces_and_keeps_role_accents(tmp_path: Path) -> None:
@@ -105,10 +85,7 @@ def test_light_mode_changes_app_surfaces_and_keeps_role_accents(tmp_path: Path) 
     for name in ("canvas", "surface", "surface-raised", "text"):
         assert dark[f"--jouzetsu-app-{name}"] != light[f"--jouzetsu-app-{name}"]
     for owner in ThemeColorway:
-        assert (
-            dark[f"--jouzetsu-{owner.value}-accent"]
-            == light[f"--jouzetsu-{owner.value}-accent"]
-        )
+        assert dark[f"--jouzetsu-{owner.value}-accent"] == light[f"--jouzetsu-{owner.value}-accent"]
 
 
 def test_default_colourways_use_distinct_role_accents_and_neutral_app_surfaces(
@@ -124,13 +101,8 @@ def test_default_colourways_use_distinct_role_accents_and_neutral_app_surfaces(
     assert dark["--jouzetsu-system-accent"] == "#187d46"
     assert dark["--jouzetsu-app-accent"] == "#7439b0"
     assert dark["--jouzetsu-app-key-visual"] == "#7439b0"
-    assert dark["--jouzetsu-app-message-actions"] == readable_accent(
-        "#7439b0", "#000000"
-    )
-    assert {
-        action: dark[f"--jouzetsu-app-{action.color_field.replace('_', '-')}"]
-        for action in MessageAction
-    } == {
+    assert dark["--jouzetsu-app-message-actions"] == readable_accent("#7439b0", "#000000")
+    assert {action: dark[f"--jouzetsu-app-{action.color_field.replace('_', '-')}"] for action in MessageAction} == {
         MessageAction.DELETE: "#e68e97",
         MessageAction.REGENERATE: "#e3a26b",
         MessageAction.MERGE: "#75a7df",
@@ -188,15 +160,11 @@ def test_app_key_and_message_action_overrides_are_independent(tmp_path: Path) ->
     palette = _root_colors(config)
 
     assert palette["--jouzetsu-app-key-visual"] == "#112233"
-    assert palette["--jouzetsu-app-message-actions"] == readable_accent(
-        "#445566", "#000000"
-    )
+    assert palette["--jouzetsu-app-message-actions"] == readable_accent("#445566", "#000000")
 
 
 @pytest.mark.parametrize("dark_mode", [True, False])
-def test_uniform_message_action_colour_remains_readable(
-    tmp_path: Path, dark_mode: bool
-) -> None:
+def test_uniform_message_action_colour_remains_readable(tmp_path: Path, dark_mode: bool) -> None:
     config = default_config(AppPaths.for_home(tmp_path))
     config.ui.dark_mode = dark_mode
 
@@ -212,19 +180,12 @@ def test_uniform_message_action_colour_remains_readable(
 
 
 @pytest.mark.parametrize("surface", ["#000000", "#ffffff", "#7c6394"])
-def test_capability_colours_remain_readable_on_custom_surfaces(
-    tmp_path: Path, surface: str
-) -> None:
+def test_capability_colours_remain_readable_on_custom_surfaces(tmp_path: Path, surface: str) -> None:
     config = default_config(AppPaths.for_home(tmp_path))
-    config.theme = replace(
-        config.theme, app=replace(config.theme.app, surface_raised=surface)
-    )
+    config.theme = replace(config.theme, app=replace(config.theme.app, surface_raised=surface))
     palette = _root_colors(config)
     for capability in ("vision", "tool-use", "reasoning"):
-        assert (
-            contrast_ratio(palette[f"--jouzetsu-capability-{capability}"], surface)
-            >= 4.5
-        )
+        assert contrast_ratio(palette[f"--jouzetsu-capability-{capability}"], surface) >= 4.5
 
 
 def test_semantic_message_action_overrides_are_independent(tmp_path: Path) -> None:
@@ -246,9 +207,7 @@ def test_semantic_message_action_overrides_are_independent(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize("dark_mode", [True, False])
-def test_semantic_message_action_colours_remain_readable(
-    tmp_path: Path, dark_mode: bool
-) -> None:
+def test_semantic_message_action_colours_remain_readable(tmp_path: Path, dark_mode: bool) -> None:
     config = default_config(AppPaths.for_home(tmp_path))
     config.ui.dark_mode = dark_mode
     palette = _root_colors(config)
@@ -384,37 +343,22 @@ def test_key_visual_picker_preserves_and_restores_main_colour_following() -> Non
 
 
 def test_messages_keep_the_canvas_background_and_share_app_actions() -> None:
-    styles = (
-        Path(__file__).resolve().parents[1]
-        / "jouzetsu"
-        / "web"
-        / "static"
-        / "theme"
-        / "chat.css"
-    ).read_text(encoding="utf-8")
+    styles = (Path(__file__).resolve().parents[1] / "jouzetsu" / "web" / "static" / "theme" / "chat.css").read_text(
+        encoding="utf-8"
+    )
 
-    message_surface = styles.partition(".jouzetsu-message-surface {")[2].partition("}")[
-        0
-    ]
+    message_surface = styles.partition(".jouzetsu-message-surface {")[2].partition("}")[0]
     message_action = styles.partition(".jouzetsu-message-action {")[2].partition("}")[0]
 
     assert "background: var(--jouzetsu-app-canvas);" in message_surface
-    assert (
-        "color: var(--jouzetsu-action-color, "
-        "var(--jouzetsu-app-message-actions));" in message_action
-    )
+    assert "color: var(--jouzetsu-action-color, var(--jouzetsu-app-message-actions));" in message_action
     assert "--jouzetsu-message-" not in message_action
     assert ".jouzetsu-message-actions.is-semantic" in styles
 
 
 def test_placeholder_text_uses_the_app_text_colour() -> None:
     styles = (
-        Path(__file__).resolve().parents[1]
-        / "jouzetsu"
-        / "web"
-        / "static"
-        / "theme"
-        / "foundation.css"
+        Path(__file__).resolve().parents[1] / "jouzetsu" / "web" / "static" / "theme" / "foundation.css"
     ).read_text(encoding="utf-8")
 
     placeholder = styles.partition("::placeholder {")[2].partition("}")[0]
@@ -427,30 +371,20 @@ def test_override_stays_fixed_and_clearing_it_restores_automatic_shading(
     tmp_path: Path,
 ) -> None:
     config = default_config(AppPaths.for_home(tmp_path))
-    config.theme = replace(
-        config.theme, assistant=replace(config.theme.assistant, muted="#123456")
-    )
-    config.theme = replace(
-        config.theme, assistant=replace(config.theme.assistant, accent="#654321")
-    )
+    config.theme = replace(config.theme, assistant=replace(config.theme.assistant, muted="#123456"))
+    config.theme = replace(config.theme, assistant=replace(config.theme.assistant, accent="#654321"))
     assert _root_colors(config)["--jouzetsu-assistant-muted"] == "#123456"
 
-    config.theme = replace(
-        config.theme, assistant=replace(config.theme.assistant, muted=None)
-    )
+    config.theme = replace(config.theme, assistant=replace(config.theme.assistant, muted=None))
     assert _root_colors(config)["--jouzetsu-assistant-muted"] != "#123456"
 
 
 def test_advanced_picker_auto_toggle_clears_an_override(tmp_path: Path) -> None:
     config = default_config(AppPaths.for_home(tmp_path))
-    config.theme = replace(
-        config.theme, assistant=replace(config.theme.assistant, muted="#123456")
-    )
+    config.theme = replace(config.theme, assistant=replace(config.theme.assistant, muted="#123456"))
     state = cast(AppState, SimpleNamespace(config=config))
 
-    selected = updated_theme_settings(
-        state, FormValues(FormData({"theme_assistant_muted": "#abcdef"}))
-    )
+    selected = updated_theme_settings(state, FormValues(FormData({"theme_assistant_muted": "#abcdef"})))
     assert selected.assistant.muted == "#abcdef"
 
     automatic = updated_theme_settings(
@@ -472,9 +406,7 @@ def test_resolved_theme_colours_match_the_automatic_picker_preview(
     tmp_path: Path,
 ) -> None:
     config = default_config(AppPaths.for_home(tmp_path))
-    config.theme = replace(
-        config.theme, assistant=replace(config.theme.assistant, muted=None)
-    )
+    config.theme = replace(config.theme, assistant=replace(config.theme.assistant, muted=None))
 
     preview = resolved_theme_colours(config)[ThemeColorway.ASSISTANT]["muted"]
 
@@ -499,9 +431,7 @@ def test_colour_overrides_render_as_compact_pickers_with_auto_controls(
         csrf_token="test-token",
     )
 
-    markup = repr(
-        render_global_settings_dialog(state, context, active_tab="appearance")
-    )
+    markup = repr(render_global_settings_dialog(state, context, active_tab="appearance"))
     picker = re.search(
         r'<input(?=[^>]*data-testid="theme-assistant-muted-override")[^>]*>',
         markup,
@@ -521,10 +451,7 @@ def test_colour_overrides_render_as_compact_pickers_with_auto_controls(
 
     assert picker is not None
     assert 'type="color"' in picker.group()
-    assert (
-        f'value="{resolved_theme_colours(config)[ThemeColorway.ASSISTANT]["muted"]}"'
-        in picker.group()
-    )
+    assert f'value="{resolved_theme_colours(config)[ThemeColorway.ASSISTANT]["muted"]}"' in picker.group()
     assert 'data-colour-override-picker="true"' in picker.group()
     assert automatic is not None
     assert 'type="checkbox"' in automatic.group()
@@ -540,18 +467,12 @@ def test_colour_overrides_render_as_compact_pickers_with_auto_controls(
 
 def test_styles_reference_defined_theme_variables(tmp_path: Path) -> None:
     config = default_config(AppPaths.for_home(tmp_path))
-    directory = (
-        Path(__file__).resolve().parents[1] / "jouzetsu" / "web" / "static" / "theme"
-    )
-    static = "\n".join(
-        path.read_text(encoding="utf-8") for path in directory.glob("*.css")
-    )
+    directory = Path(__file__).resolve().parents[1] / "jouzetsu" / "web" / "static" / "theme"
+    static = "\n".join(path.read_text(encoding="utf-8") for path in directory.glob("*.css"))
     styles = static + render_theme_css(config)
     declarations = set(re.findall(r"(--jouzetsu-[\w-]+)\s*:", styles))
     references_without_fallback = set(re.findall(r"var\((--jouzetsu-[\w-]+)\)", styles))
 
     assert references_without_fallback <= declarations
-    assert not re.search(
-        r"--jouzetsu-(?:primary|secondary|edit|action-delete)\b", static
-    )
+    assert not re.search(r"--jouzetsu-(?:primary|secondary|edit|action-delete)\b", static)
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b", static)

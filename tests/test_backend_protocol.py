@@ -70,9 +70,7 @@ def test_image_requests_are_blocked_without_known_vision_support(
 def test_vision_request_preserves_original_image_references_and_text() -> None:
     original = image()
     message = InferenceMessage("user", "Look at this", (original,))
-    prepared = replace(
-        request(capabilities=ModelCapabilities(vision=True)), messages=(message,)
-    )
+    prepared = replace(request(capabilities=ModelCapabilities(vision=True)), messages=(message,))
     assert prepared.messages == (message,)
     assert prepared.messages[0].images[0] is original
 
@@ -96,15 +94,9 @@ def test_cross_backend_request_is_rejected_before_transport() -> None:
     assert exc.value.category is BackendErrorCategory.INCOMPATIBLE
 
 
-def test_model_restrictions_and_unknown_backend_support_are_omitted_from_wire_values() -> (
-    None
-):
+def test_model_restrictions_and_unknown_backend_support_are_omitted_from_wire_values() -> None:
     prepared = replace(
-        request(
-            capabilities=ModelCapabilities(
-                parameters=ParameterSupport(temperature=False)
-            )
-        ),
+        request(capabilities=ModelCapabilities(parameters=ParameterSupport(temperature=False))),
         parameter_support=ParameterSupport(True, None, True),
         parameters=SamplingParameters(1.7, 0.4, 800),
     )
@@ -142,9 +134,7 @@ def test_health_retains_online_offline_unknown_and_stale_states() -> None:
 
 
 def test_errors_have_explicit_categories_and_explanations() -> None:
-    failure = BackendError(
-        BackendErrorCategory.TIMEOUT, "The backend stopped responding."
-    )
+    failure = BackendError(BackendErrorCategory.TIMEOUT, "The backend stopped responding.")
     assert failure.category is BackendErrorCategory.TIMEOUT
     assert str(failure) == "The backend stopped responding."
     with pytest.raises(ValueError, match="explanation"):

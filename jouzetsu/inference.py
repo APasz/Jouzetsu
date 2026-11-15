@@ -204,13 +204,12 @@ class InferenceRuntime:
         self.registry = registry
         self.persistence = persistence
         images = ImageStorage(persistence.config.paths.images_directory)
-        self._factory: Callable[[BackendConfig], InferenceBackend] = (
-            backend_factory or (lambda config: create_backend(config, images=images))
+        self._factory: Callable[[BackendConfig], InferenceBackend] = backend_factory or (
+            lambda config: create_backend(config, images=images)
         )
         self._notify_callback = notify
         self._backends: dict[BackendId, _BackendRuntime] = {
-            config.id: _BackendRuntime(self._factory(config))
-            for config in self.configuration.backends
+            config.id: _BackendRuntime(self._factory(config)) for config in self.configuration.backends
         }
         self._chat_locks: dict[str, asyncio.Lock] = {}
         self._config_lock = asyncio.Lock()
@@ -270,9 +269,7 @@ class InferenceRuntime:
         session.latest_error = error
         session.runtime_status = replace(
             session.runtime_status,
-            phase=RuntimePhase.OFFLINE
-            if error.category is BackendErrorCategory.OFFLINE
-            else RuntimePhase.ERROR,
+            phase=RuntimePhase.OFFLINE if error.category is BackendErrorCategory.OFFLINE else RuntimePhase.ERROR,
         )
 
     def _lock(self, chat_id: str) -> asyncio.Lock:
@@ -327,9 +324,7 @@ class InferenceRuntime:
         return candidate
 
     @_command
-    async def edit_chat(
-        self, chat_id: str, expected_revision: int, edit: Callable[[Chat], None]
-    ) -> None:
+    async def edit_chat(self, chat_id: str, expected_revision: int, edit: Callable[[Chat], None]) -> None:
         """Apply an explicit committed edit to an isolated candidate under its lock.
 
         Route handlers supply existing domain methods for editing, merging,
@@ -354,19 +349,13 @@ class InferenceRuntime:
                 message.__post_init__()
             await self._commit(chat, candidate)
 
-    async def select_backend(
-        self, chat_id: str, expected_revision: int, backend_id: BackendId
-    ) -> None:
+    async def select_backend(self, chat_id: str, expected_revision: int, backend_id: BackendId) -> None:
         def edit(chat: Chat) -> None:
-            chat.inference = chat.inference.select_backend(
-                self.configuration, backend_id
-            )
+            chat.inference = chat.inference.select_backend(self.configuration, backend_id)
 
         await self.edit_chat(chat_id, expected_revision, edit)
 
-    async def set_profile(
-        self, chat_id: str, expected_revision: int, profile: GenerationProfile
-    ) -> None:
+    async def set_profile(self, chat_id: str, expected_revision: int, profile: GenerationProfile) -> None:
         def edit(chat: Chat) -> None:
             chat.inference = chat.inference.set_profile(profile)
 
@@ -379,9 +368,7 @@ class InferenceRuntime:
         await self.edit_chat(chat_id, expected_revision, edit)
 
     @_command
-    async def fork_chat(
-        self, chat_id: str, expected_revision: int, message_id: str
-    ) -> Chat:
+    async def fork_chat(self, chat_id: str, expected_revision: int, message_id: str) -> Chat:
         async with self._lock(chat_id):
             chat = self._editable(chat_id, expected_revision)
             candidate = chat.fork_through(message_id)
@@ -454,19 +441,13 @@ class InferenceRuntime:
         generate: bool = True,
         expected_draft_revision: int | None = None,
     ) -> SendResult:
-        fingerprint = submission_fingerprint(
-            content, tuple(image.to_dict() for image in images)
-        )
+        fingerprint = submission_fingerprint(content, tuple(image.to_dict() for image in images))
         async with self._lock(chat_id):
             chat = self.registry.get(chat_id).chat
-            receipt = next(
-                (item for item in chat.submissions if item.id == submission_id), None
-            )
+            receipt = next((item for item in chat.submissions if item.id == submission_id), None)
             if receipt is not None:
                 if receipt.fingerprint != fingerprint:
-                    raise ValueError(
-                        "submission identifier reused with different content"
-                    )
+                    raise ValueError("submission identifier reused with different content")
                 return SendResult(receipt.message_id, True)
             chat = self._editable(chat_id, expected_revision)
             if not content.strip() and not images:
@@ -474,13 +455,8 @@ class InferenceRuntime:
             candidate = chat.copy()
             message = Message(role="user", content=content, images=images)
             candidate.messages.append(message)
-            candidate.submissions += (
-                Submission(submission_id, message.id, fingerprint),
-            )
-            draft_cleared = (
-                expected_draft_revision is not None
-                and chat.draft_revision == expected_draft_revision
-            )
+            candidate.submissions += (Submission(submission_id, message.id, fingerprint),)
+            draft_cleared = expected_draft_revision is not None and chat.draft_revision == expected_draft_revision
             if draft_cleared:
                 candidate.draft = ""
                 candidate.draft_images = ()
@@ -497,9 +473,7 @@ class InferenceRuntime:
                 async with self._config_lock:
                     job = self._accept(chat, GenerationMode.REPLY) if generate else None
                 await self._notify(ChangeKind.STATUS, chat_id)
-                return SendResult(
-                    message.id, False, job, candidate.draft_revision, draft_cleared
-                )
+                return SendResult(message.id, False, job, candidate.draft_revision, draft_cleared)
 
             # Caller cancellation must not split durable submission from job acceptance.
             return await complete_before_cancelling(commit_submission())
@@ -537,10 +511,7 @@ class InferenceRuntime:
             model = backend.model(ref.model_id)
         except KeyError:
             return None
-        if (
-            not model.reasoning_options
-            and model.descriptor.capabilities.reasoning is not False
-        ):
+        if not model.reasoning_options and model.descriptor.capabilities.reasoning is not False:
             return None
         _, available = model.resolve_reasoning(profile.reasoning)
         if available:
@@ -572,10 +543,7 @@ class InferenceRuntime:
                     "The selected backend was removed.",
                 ) from exc
             runtime = self._backends[model.backend_id]
-            if (
-                not config.enabled
-                or runtime.health.state is BackendReachability.OFFLINE
-            ):
+            if not config.enabled or runtime.health.state is BackendReachability.OFFLINE:
                 raise BackendError(
                     BackendErrorCategory.OFFLINE,
                     "The selected backend is offline or disabled.",
@@ -593,17 +561,13 @@ class InferenceRuntime:
             replacement: Message | None = None
             if mode in {GenerationMode.REGENERATE, GenerationMode.CONTINUE}:
                 if not messages or messages[-1].role != "assistant":
-                    raise ValueError(
-                        "only the final assistant response can be regenerated or continued"
-                    )
+                    raise ValueError("only the final assistant response can be regenerated or continued")
                 if mode is GenerationMode.REGENERATE:
                     replacement = messages.pop()
             generation = self.persistence.config.generation
             prompt = chat.system_prompt.strip() or generation.system_prompt.strip()
             if generation.british_english:
-                prompt = "\n\n".join(
-                    item for item in (prompt, BRITISH_ENGLISH_INSTRUCTION) if item
-                )
+                prompt = "\n\n".join(item for item in (prompt, BRITISH_ENGLISH_INSTRUCTION) if item)
             prepared = [InferenceMessage("system", prompt)] if prompt else []
             prepared.extend(
                 InferenceMessage(message.role, message.content, message.images)
@@ -611,9 +575,7 @@ class InferenceRuntime:
                 if message.content or message.images
             )
             if mode is GenerationMode.CONTINUE or (
-                mode is GenerationMode.REGENERATE
-                and messages
-                and messages[-1].role == "assistant"
+                mode is GenerationMode.REGENERATE and messages and messages[-1].role == "assistant"
             ):
                 prepared.append(InferenceMessage("user", CONTINUE_PROMPT_CONTENT))
             request = GenerationRequest(
@@ -622,23 +584,17 @@ class InferenceRuntime:
                 registered.descriptor.capabilities,
                 config.parameter_support,
                 profile.parameters,
-                registered.resolve_reasoning(profile.reasoning)[0]
-                if config.kind.supports_reasoning_controls
-                else None,
+                registered.resolve_reasoning(profile.reasoning)[0] if config.kind.supports_reasoning_controls else None,
             )
             job = GenerationJob(
                 uuid4().hex,
                 chat.id,
                 request,
                 config.name,
-                registered.alias
-                or registered.descriptor.display_name
-                or model.model_id,
+                registered.alias or registered.descriptor.display_name or model.model_id,
                 mode,
                 chat.save_reasoning,
-                tuple(generation.british_spelling_replacements)
-                if chat.postprocess_british_spellings
-                else (),
+                tuple(generation.british_spelling_replacements) if chat.postprocess_british_spellings else (),
                 replacement.id if replacement else None,
                 manually_registered=registered.manually_registered,
             )
@@ -655,9 +611,7 @@ class InferenceRuntime:
         session.latest_error = None
         session.live_response = None
         session.is_generating = True
-        session.runtime_status = RuntimeStatus(
-            RuntimePhase.QUEUED, model.model_id, job.model_name
-        )
+        session.runtime_status = RuntimeStatus(RuntimePhase.QUEUED, model.model_id, job.model_name)
         self._jobs[chat.id] = job
         runtime.queue.append(job)
         self._activity.set()
@@ -679,9 +633,7 @@ class InferenceRuntime:
         runtime = self._backends[job.request.model.backend_id]
         session = self.registry.get(job.chat_id)
         job.phase = JobPhase.RUNNING
-        session.runtime_status = RuntimeStatus(
-            RuntimePhase.STARTING, job.request.model.model_id, job.model_name
-        )
+        session.runtime_status = RuntimeStatus(RuntimePhase.STARTING, job.request.model.model_id, job.model_name)
         try:
             if job.cancelled:
                 raise asyncio.CancelledError
@@ -696,21 +648,15 @@ class InferenceRuntime:
                     ):
                         raise
             if runtime.health.state is BackendReachability.OFFLINE:
-                raise BackendError(
-                    BackendErrorCategory.OFFLINE, "The selected backend is offline."
-                )
+                raise BackendError(BackendErrorCategory.OFFLINE, "The selected backend is offline.")
             config = self.configuration.backend(runtime.adapter.id)
             management = config.model_management
             if management is not None and runtime.adapter.model_management is not None:
                 async with runtime.management_lock:
                     if management.automatic_loading:
-                        session.runtime_status = replace(
-                            session.runtime_status, phase=RuntimePhase.LOADING_MODEL
-                        )
+                        session.runtime_status = replace(session.runtime_status, phase=RuntimePhase.LOADING_MODEL)
                         async with aclosing(
-                            runtime.adapter.model_management.load_model(
-                                job.request.model.model_id
-                            )
+                            runtime.adapter.model_management.load_model(job.request.model.model_id)
                         ) as events:
                             async for event in events:
                                 if job.cancelled:
@@ -718,18 +664,12 @@ class InferenceRuntime:
                                 if isinstance(event, ModelReady):
                                     job.ready = event
                                 else:
-                                    session.runtime_status = replace(
-                                        session.runtime_status, progress=event.progress
-                                    )
+                                    session.runtime_status = replace(session.runtime_status, progress=event.progress)
                                 await self._notify(ChangeKind.STATUS, job.chat_id)
                     else:
                         discovery = await runtime.adapter.discover_models()
                         descriptor = next(
-                            (
-                                item
-                                for item in discovery.models
-                                if item.key == job.request.model.model_id
-                            ),
+                            (item for item in discovery.models if item.key == job.request.model.model_id),
                             None,
                         )
                         if descriptor is None or not descriptor.is_loaded:
@@ -756,46 +696,27 @@ class InferenceRuntime:
                         )
                     if isinstance(event, ModelReady):
                         job.ready = event
-                        runtime.health = BackendHealth(
-                            BackendReachability.ONLINE, datetime.now(UTC)
-                        )
+                        runtime.health = BackendHealth(BackendReachability.ONLINE, datetime.now(UTC))
                     elif isinstance(event, PredictionFragment):
-                        fragments = (
-                            job.reasoning_fragments
-                            if event.is_reasoning
-                            else job.text_fragments
-                        )
+                        fragments = job.reasoning_fragments if event.is_reasoning else job.text_fragments
                         fragments.append(event.content)
                         if not event.is_reasoning:
                             job.has_text = job.has_text or bool(event.content.strip())
-                        phase = (
-                            RuntimePhase.REASONING
-                            if event.is_reasoning
-                            else RuntimePhase.GENERATING
-                        )
+                        phase = RuntimePhase.REASONING if event.is_reasoning else RuntimePhase.GENERATING
                         if session.runtime_status.phase is not phase:
-                            session.runtime_status = replace(
-                                session.runtime_status, phase=phase
-                            )
+                            session.runtime_status = replace(session.runtime_status, phase=phase)
                         job.preview_dirty = True
                         now = time.monotonic()
                         first_text = job.has_text and session.live_response is None
-                        if (
-                            not first_text
-                            and now - job.preview_at < _STREAM_UPDATE_SECONDS
-                        ):
+                        if not first_text and now - job.preview_at < _STREAM_UPDATE_SECONDS:
                             if job.preview_task is None:
-                                job.preview_task = asyncio.create_task(
-                                    self._publish_delayed_preview(job)
-                                )
+                                job.preview_task = asyncio.create_task(self._publish_delayed_preview(job))
                             continue
                         self._update_preview(job)
                     elif isinstance(event, PredictionComplete):
                         completed = True
                         job.reported_reasoning = event.metrics.reasoning_level
-                        session.runtime_status = replace(
-                            session.runtime_status, metrics=event.metrics
-                        )
+                        session.runtime_status = replace(session.runtime_status, metrics=event.metrics)
                     elif isinstance(event, ModelLoadProgress):
                         session.runtime_status = replace(
                             session.runtime_status,
@@ -822,9 +743,7 @@ class InferenceRuntime:
             if isinstance(exc, UnsafeContextError):
                 job.has_text = False
             if exc.category is BackendErrorCategory.OFFLINE:
-                runtime.health = BackendHealth(
-                    BackendReachability.OFFLINE, datetime.now(UTC)
-                )
+                runtime.health = BackendHealth(BackendReachability.OFFLINE, datetime.now(UTC))
                 await self._fail_queued(runtime, exc)
         except Exception as exc:  # noqa: BLE001
             log.error(
@@ -833,9 +752,7 @@ class InferenceRuntime:
                 job.id,
                 type(exc).__name__,
             )
-            job.error = BackendError(
-                BackendErrorCategory.OTHER, "Generation failed unexpectedly."
-            )
+            job.error = BackendError(BackendErrorCategory.OTHER, "Generation failed unexpectedly.")
         finally:
             job.phase = JobPhase.SAVING
             # Persistence finishes before cancellation is delivered or locks release.
@@ -869,9 +786,7 @@ class InferenceRuntime:
         self._release(job)
         await self._notify(ChangeKind.STATUS, job.chat_id)
 
-    async def _retain_unsaved_output(
-        self, job: GenerationJob, error: Exception
-    ) -> None:
+    async def _retain_unsaved_output(self, job: GenerationJob, error: Exception) -> None:
         job.save_error = error
         job.phase = JobPhase.SAVE_FAILED
         session = self.registry.get(job.chat_id)
@@ -881,17 +796,13 @@ class InferenceRuntime:
             if isinstance(error, CommitUncertainError)
             else "The response could not be saved. Retry saving before editing this chat.",
         )
-        session.runtime_status = replace(
-            session.runtime_status, phase=RuntimePhase.ERROR
-        )
+        session.runtime_status = replace(session.runtime_status, phase=RuntimePhase.ERROR)
         await self._notify(ChangeKind.STATUS, job.chat_id)
 
     async def _publish_delayed_preview(self, job: GenerationJob) -> None:
         try:
             while job.preview_dirty:
-                delay = max(
-                    0.0, job.preview_at + _STREAM_UPDATE_SECONDS - time.monotonic()
-                )
+                delay = max(0.0, job.preview_at + _STREAM_UPDATE_SECONDS - time.monotonic())
                 await asyncio.sleep(delay)
                 if job.preview_dirty:
                     self._update_preview(job)
@@ -911,9 +822,7 @@ class InferenceRuntime:
         session = self.registry.get(job.chat_id)
         session.live_reasoning = job.reasoning
         if job.has_text:
-            job.preview.content = apply_case_preserving_word_replacements(
-                job.text, job.replacements
-            )
+            job.preview.content = apply_case_preserving_word_replacements(job.text, job.replacements)
             session.live_response = job.preview
 
     async def _save_output(self, job: GenerationJob) -> None:
@@ -927,9 +836,7 @@ class InferenceRuntime:
                     ready.model_key if ready else job.request.model.model_id,
                 ),
                 job.backend_name,
-                job.model_name
-                if ready is None or ready.model_key == job.request.model.model_id
-                else ready.model_name,
+                job.model_name if ready is None or ready.model_key == job.request.model.model_id else ready.model_name,
                 ready.instance_id if ready else None,
                 job.reported_reasoning or job.request.reasoning or "automatic",
             )
@@ -944,9 +851,7 @@ class InferenceRuntime:
             else:
                 original = candidate.find_message(job.replacement_id)
                 if original is None or candidate.messages[-1].id != original.id:
-                    raise RuntimeError(
-                        "generation replacement target changed while locked"
-                    )
+                    raise RuntimeError("generation replacement target changed while locked")
                 response.id = original.id
                 response.created_at = original.created_at
                 original.apply(response)
@@ -965,13 +870,7 @@ class InferenceRuntime:
             phase=RuntimePhase.ERROR if job.error else RuntimePhase.READY,
             progress=None,
         )
-        job.phase = (
-            JobPhase.CANCELLED
-            if job.cancelled
-            else JobPhase.FAILED
-            if job.error
-            else JobPhase.FINISHED
-        )
+        job.phase = JobPhase.CANCELLED if job.cancelled else JobPhase.FAILED if job.error else JobPhase.FINISHED
         _ = self._jobs.pop(job.chat_id, None)
         if job.task is None:
             job.done.set()
@@ -1012,19 +911,13 @@ class InferenceRuntime:
         elif job.task is not None:
             self._request_cancel(job)
             session = self.registry.get(chat_id)
-            session.runtime_status = replace(
-                session.runtime_status, phase=RuntimePhase.STOPPING
-            )
+            session.runtime_status = replace(session.runtime_status, phase=RuntimePhase.STOPPING)
             await self._notify(ChangeKind.STATUS, chat_id)
-            _, pending = await asyncio.wait(
-                {job.task}, timeout=_CANCELLATION_GRACE_SECONDS
-            )
+            _, pending = await asyncio.wait({job.task}, timeout=_CANCELLATION_GRACE_SECONDS)
             if pending:
                 message = "Generation is still stopping; the chat remains locked until generation and saving finish."
                 if job.phase is JobPhase.RUNNING:
-                    session.latest_error = BackendError(
-                        BackendErrorCategory.TIMEOUT, message
-                    )
+                    session.latest_error = BackendError(BackendErrorCategory.TIMEOUT, message)
                 await self._notify(ChangeKind.STATUS, chat_id)
                 raise TimeoutError(message)
             await asyncio.shield(job.task)
@@ -1044,9 +937,7 @@ class InferenceRuntime:
             RuntimePhase.ERROR,
             RuntimePhase.OFFLINE,
         }:
-            session.runtime_status = replace(
-                session.runtime_status, phase=RuntimePhase.READY
-            )
+            session.runtime_status = replace(session.runtime_status, phase=RuntimePhase.READY)
         await self._notify(ChangeKind.CHAT, chat_id)
 
     async def _fail_queued(self, runtime: _BackendRuntime, error: BackendError) -> None:
@@ -1065,9 +956,7 @@ class InferenceRuntime:
         expected: BackendConfig | None = None,
         expected_fingerprint: str | None = None,
     ) -> None:
-        await complete_before_cancelling(
-            self._update_backend(candidate, expected, expected_fingerprint)
-        )
+        await complete_before_cancelling(self._update_backend(candidate, expected, expected_fingerprint))
 
     async def _update_backend(
         self,
@@ -1077,11 +966,7 @@ class InferenceRuntime:
     ) -> None:
         async with self._config_lock:
             previous = next(
-                (
-                    item
-                    for item in self.configuration.backends
-                    if item.id == candidate.id
-                ),
+                (item for item in self.configuration.backends if item.id == candidate.id),
                 None,
             )
             self.validate_backend_snapshot(previous, expected_fingerprint)
@@ -1109,15 +994,9 @@ class InferenceRuntime:
                 raise ChatBusy("backend has queued or active work")
             if previous is not None and previous.kind is not candidate.kind:
                 raise ValueError("backend kind cannot change; create a new identity")
-            replacement = (
-                _BackendRuntime(self._factory(candidate))
-                if runtime is None or disruptive
-                else runtime
-            )
+            replacement = _BackendRuntime(self._factory(candidate)) if runtime is None or disruptive else runtime
             try:
-                await self._save_configuration(
-                    self.configuration.with_backend(candidate), notify=False
-                )
+                await self._save_configuration(self.configuration.with_backend(candidate), notify=False)
             except BaseException:
                 if replacement is not runtime:
                     await self._close_adapter(replacement.adapter)
@@ -1128,24 +1007,14 @@ class InferenceRuntime:
             await self._notify(ChangeKind.CONFIG)
 
     @_command
-    async def remove_backend(
-        self, backend_id: BackendId, *, expected_fingerprint: str | None = None
-    ) -> None:
-        await complete_before_cancelling(
-            self._remove_backend(backend_id, expected_fingerprint)
-        )
+    async def remove_backend(self, backend_id: BackendId, *, expected_fingerprint: str | None = None) -> None:
+        await complete_before_cancelling(self._remove_backend(backend_id, expected_fingerprint))
 
-    async def _remove_backend(
-        self, backend_id: BackendId, expected_fingerprint: str | None
-    ) -> None:
+    async def _remove_backend(self, backend_id: BackendId, expected_fingerprint: str | None) -> None:
         async with self._config_lock:
             self.validate_backend_snapshot(
                 next(
-                    (
-                        backend
-                        for backend in self.configuration.backends
-                        if backend.id == backend_id
-                    ),
+                    (backend for backend in self.configuration.backends if backend.id == backend_id),
                     None,
                 ),
                 expected_fingerprint,
@@ -1163,46 +1032,29 @@ class InferenceRuntime:
     async def set_default_backend(
         self, backend_id: BackendId | None, *, expected_fingerprint: str | None = None
     ) -> None:
-        await complete_before_cancelling(
-            self._set_default_backend(backend_id, expected_fingerprint)
-        )
+        await complete_before_cancelling(self._set_default_backend(backend_id, expected_fingerprint))
 
-    async def _set_default_backend(
-        self, backend_id: BackendId | None, expected_fingerprint: str | None
-    ) -> None:
+    async def _set_default_backend(self, backend_id: BackendId | None, expected_fingerprint: str | None) -> None:
         async with self._config_lock:
             self.validate_backend_snapshot(self.configuration, expected_fingerprint)
-            await self._save_configuration(
-                replace(self.configuration, default_backend_id=backend_id)
-            )
+            await self._save_configuration(replace(self.configuration, default_backend_id=backend_id))
 
     @staticmethod
-    def validate_backend_snapshot(
-        current: BackendConfig | BackendConfiguration | None, expected: str | None
-    ) -> None:
+    def validate_backend_snapshot(current: BackendConfig | BackendConfiguration | None, expected: str | None) -> None:
         """Reject stale form state before validation and again under the write lock."""
-        if expected is not None and (
-            current is None or backend_fingerprint(current) != expected
-        ):
+        if expected is not None and (current is None or backend_fingerprint(current) != expected):
             raise RevisionConflict(
                 "Backend settings changed elsewhere. Your edits are preserved; copy them before reloading."
             )
 
     @_command
-    async def update_settings(
-        self, edit: Callable[[AppConfig], None], *, notify: bool = True
-    ) -> None:
+    async def update_settings(self, edit: Callable[[AppConfig], None], *, notify: bool = True) -> None:
         """Serialize non-backend settings with backend discovery and configuration writes."""
         async with self._config_lock:
             candidate = deepcopy(self.persistence.config)
             edit(candidate)
-            if (
-                candidate.paths != self.persistence.config.paths
-                or candidate.backends != self.configuration
-            ):
-                raise ValueError(
-                    "backend and path changes require their explicit commands"
-                )
+            if candidate.paths != self.persistence.config.paths or candidate.backends != self.configuration:
+                raise ValueError("backend and path changes require their explicit commands")
             candidate.validate()
             if candidate == self.persistence.config:
                 return
@@ -1215,9 +1067,7 @@ class InferenceRuntime:
 
             await complete_before_cancelling(publish())
 
-    async def _save_configuration(
-        self, backends: BackendConfiguration, *, notify: bool = True
-    ) -> None:
+    async def _save_configuration(self, backends: BackendConfiguration, *, notify: bool = True) -> None:
         if self._closing:
             raise RuntimeError("runtime is shutting down")
 
@@ -1228,9 +1078,7 @@ class InferenceRuntime:
             await self._notify(ChangeKind.CONFIG)
 
     @asynccontextmanager
-    async def _maintenance(
-        self, backend_id: BackendId
-    ) -> AsyncGenerator[_BackendRuntime]:
+    async def _maintenance(self, backend_id: BackendId) -> AsyncGenerator[_BackendRuntime]:
         async with self._config_lock:
             if self._closing:
                 raise RuntimeError("runtime is shutting down")
@@ -1254,12 +1102,8 @@ class InferenceRuntime:
                     current = self.configuration.backend(backend_id)
                     merged = current.merge_discovery(discovery.models)
                     if merged != current:
-                        await self._save_configuration(
-                            self.configuration.with_backend(merged)
-                        )
-                runtime.health = BackendHealth(
-                    BackendReachability.ONLINE, datetime.now(UTC)
-                )
+                        await self._save_configuration(self.configuration.with_backend(merged))
+                runtime.health = BackendHealth(BackendReachability.ONLINE, datetime.now(UTC))
                 runtime.discovery_error = None
             except BackendError as exc:
                 runtime.discovery_error = exc
@@ -1292,21 +1136,13 @@ class InferenceRuntime:
     async def unload_model(self, model: ModelRef) -> None:
         await self._unload_model(model)
 
-    async def _unload_model(
-        self, model: ModelRef, *, idle_before: float | None = None
-    ) -> None:
+    async def _unload_model(self, model: ModelRef, *, idle_before: float | None = None) -> None:
         async with self._maintenance(model.backend_id) as runtime:
             if not self.configuration.backend(model.backend_id).enabled:
                 raise ValueError("backend is disabled")
-            if any(
-                job.request.model == model
-                for job in (*runtime.queue, *runtime.active.values())
-            ):
+            if any(job.request.model == model for job in (*runtime.queue, *runtime.active.values())):
                 raise ChatBusy("model has queued or active work")
-            if (
-                idle_before is not None
-                and runtime.last_used.get(model.model_id, float("inf")) > idle_before
-            ):
+            if idle_before is not None and runtime.last_used.get(model.model_id, float("inf")) > idle_before:
                 return
             management = runtime.adapter.model_management
             if management is None:
@@ -1357,17 +1193,10 @@ class InferenceRuntime:
         current_time = time.monotonic() if now is None else now
         for config in self.configuration.backends:
             management = config.model_management
-            if (
-                not config.enabled
-                or management is None
-                or management.idle_unload_minutes is None
-            ):
+            if not config.enabled or management is None or management.idle_unload_minutes is None:
                 continue
             runtime = self._backends[config.id]
-            if (
-                runtime.health.state is BackendReachability.OFFLINE
-                or current_time < runtime.unload_retry_at
-            ):
+            if runtime.health.state is BackendReachability.OFFLINE or current_time < runtime.unload_retry_at:
                 continue
             for model_id, last_used in tuple(runtime.last_used.items()):
                 if current_time - last_used < management.idle_unload_minutes * 60:
@@ -1416,9 +1245,7 @@ class InferenceRuntime:
     async def _monitor(self) -> None:
         while not self._closing:
             self._activity.clear()
-            active = self._observers > 0 or any(
-                runtime.busy for runtime in self._backends.values()
-            )
+            active = self._observers > 0 or any(runtime.busy for runtime in self._backends.values())
             if active and self._refresh_requested:
                 self._refresh_requested = False
                 await self._refresh_monitored_backends()
@@ -1426,9 +1253,7 @@ class InferenceRuntime:
             if not active:
                 for runtime in self._backends.values():
                     if runtime.health.state is BackendReachability.ONLINE:
-                        runtime.health = replace(
-                            runtime.health, state=BackendReachability.STALE
-                        )
+                        runtime.health = replace(runtime.health, state=BackendReachability.STALE)
                 # A local idle-unload deadline may still need servicing.
                 deadlines = [
                     max(
@@ -1439,8 +1264,7 @@ class InferenceRuntime:
                     if config.enabled
                     and config.model_management is not None
                     and config.model_management.idle_unload_minutes is not None
-                    and self._backends[config.id].health.state
-                    is not BackendReachability.OFFLINE
+                    and self._backends[config.id].health.state is not BackendReachability.OFFLINE
                     for last in self._backends[config.id].last_used.values()
                 ]
                 if not deadlines:
@@ -1482,10 +1306,7 @@ class InferenceRuntime:
             for job in runtime.active.values():
                 self._request_cancel(job)
         tasks = [
-            job.task
-            for runtime in self._backends.values()
-            for job in runtime.active.values()
-            if job.task is not None
+            job.task for runtime in self._backends.values() for job in runtime.active.values() if job.task is not None
         ]
         if self._monitor_task is not None:
             tasks.append(self._monitor_task)
@@ -1496,10 +1317,7 @@ class InferenceRuntime:
                     _ = await asyncio.wait(tasks)
                 await self.persistence.flush_chats()
                 for runtime in self._backends.values():
-                    if not any(
-                        adapter is runtime.adapter
-                        for adapter in self._unclosed_adapters
-                    ):
+                    if not any(adapter is runtime.adapter for adapter in self._unclosed_adapters):
                         self._unclosed_adapters.append(runtime.adapter)
                 for adapter in tuple(self._unclosed_adapters):
                     await self._close_adapter(adapter)
@@ -1522,6 +1340,4 @@ class InferenceRuntime:
                 type(exc).__name__,
             )
         else:
-            self._unclosed_adapters = [
-                item for item in self._unclosed_adapters if item is not adapter
-            ]
+            self._unclosed_adapters = [item for item in self._unclosed_adapters if item is not adapter]

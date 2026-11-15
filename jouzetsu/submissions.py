@@ -54,10 +54,6 @@ class Submission:
         return decoder.construct(lambda: cls(*fields), path="submission")
 
 
-def submission_fingerprint(
-    content: str, images: tuple[Mapping[str, object], ...]
-) -> str:
-    payload = json.dumps(
-        [content, images], ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    )
+def submission_fingerprint(content: str, images: tuple[Mapping[str, object], ...]) -> str:
+    payload = json.dumps([content, images], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()

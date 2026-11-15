@@ -46,9 +46,7 @@ def test_message_accepts_finite_non_negative_timestamp() -> None:
 
 
 def test_message_updated_at_round_trips_separately_from_created_at() -> None:
-    message = Message(
-        role="assistant", content="Revised", created_at=123.5, updated_at=456.0
-    )
+    message = Message(role="assistant", content="Revised", created_at=123.5, updated_at=456.0)
 
     reloaded = Message.from_dict(message.to_dict())
 
@@ -57,9 +55,7 @@ def test_message_updated_at_round_trips_separately_from_created_at() -> None:
 
 
 def test_message_content_update_preserves_created_at() -> None:
-    message = Message(
-        role="user", content="Original", created_at=123.5, updated_at=123.5
-    )
+    message = Message(role="user", content="Original", created_at=123.5, updated_at=123.5)
 
     with patch("jouzetsu.models.time.time", return_value=456.0):
         message.update_content("Revised")
@@ -85,19 +81,14 @@ def test_chat_document_schema_version_round_trips_and_loads_legacy_documents() -
 
     assert document["schema_version"] == CHAT_SCHEMA_VERSION
     assert Chat.from_dict(document) == chat
-    assert (
-        Chat.from_dict(legacy_document).to_dict()["schema_version"]
-        == CHAT_SCHEMA_VERSION
-    )
+    assert Chat.from_dict(legacy_document).to_dict()["schema_version"] == CHAT_SCHEMA_VERSION
 
 
 def test_chat_rejects_a_future_document_schema_version() -> None:
     document: dict[str, object] = dict(Chat().to_dict())
     document["schema_version"] = CHAT_SCHEMA_VERSION + 1
 
-    with pytest.raises(
-        ValueError, match=f"newer than supported version {CHAT_SCHEMA_VERSION}"
-    ):
+    with pytest.raises(ValueError, match=f"newer than supported version {CHAT_SCHEMA_VERSION}"):
         _ = Chat.from_dict(document)
 
 
@@ -170,15 +161,11 @@ def test_chat_fork_preserves_chat_settings_and_message_reasoning() -> None:
     assert forked.messages[-1].reasoning == "Source trace"
 
 
-def test_character_uses_its_own_field_schema_and_compiles_only_populated_values() -> (
-    None
-):
+def test_character_uses_its_own_field_schema_and_compiles_only_populated_values() -> None:
     character = Character(
         name_parts=CharacterName("Mira"),
         fields=[
-            CharacterField(
-                label="Personality", kind="long_text", value="Warm and observant."
-            ),
+            CharacterField(label="Personality", kind="long_text", value="Warm and observant."),
             CharacterField(label="Height", value=""),
         ],
     )
@@ -202,14 +189,10 @@ def test_character_name_supports_an_optional_family_name() -> None:
     assert full_name.display_name == "Mira Ash"
     assert mononym.display_name == "Mira"
     assert character.name_parts == CharacterName(given_name="Mira")
-    assert character.compiled_system_prompt().startswith(
-        "You are roleplaying as Mira.\n\n"
-    )
+    assert character.compiled_system_prompt().startswith("You are roleplaying as Mira.\n\n")
 
 
-def test_character_name_round_trips_multiword_parts_and_loads_legacy_display_names() -> (
-    None
-):
+def test_character_name_round_trips_multiword_parts_and_loads_legacy_display_names() -> None:
     name = CharacterName(given_name="Mary Jane", family_name="van Helsing")
     character = Character(name_parts=name)
     serialized = character.to_dict()
@@ -225,9 +208,7 @@ def test_character_name_round_trips_multiword_parts_and_loads_legacy_display_nam
     assert legacy.is_draft is False
 
 
-def test_character_draft_state_preserves_onboarding_and_allows_the_literal_old_name() -> (
-    None
-):
+def test_character_draft_state_preserves_onboarding_and_allows_the_literal_old_name() -> None:
     draft = Character.draft()
     draft_document = draft.to_dict()
     named = draft.revised_profile(CharacterName("New", "character"), [])
@@ -240,9 +221,7 @@ def test_character_draft_state_preserves_onboarding_and_allows_the_literal_old_n
     assert Character.from_dict(draft_document) == draft
     assert named.is_draft is False
     assert named.name == "New character"
-    assert named.compiled_system_prompt().startswith(
-        "You are roleplaying as New character.\n\n"
-    )
+    assert named.compiled_system_prompt().startswith("You are roleplaying as New character.\n\n")
 
 
 def test_legacy_default_character_name_migrates_to_an_explicit_draft() -> None:
@@ -266,9 +245,7 @@ def test_legacy_default_character_name_migrates_to_an_explicit_draft() -> None:
     assert migrated.is_draft is True
     assert migrated.name_parts is None
     assert migrated.fields[0].value == "Pilot"
-    assert migrated.presets == CharacterPresetSelection(
-        base_id="builtin:humanoid", extra_ids=("builtin:voice",)
-    )
+    assert migrated.presets == CharacterPresetSelection(base_id="builtin:humanoid", extra_ids=("builtin:voice",))
     assert canonical_document["schema_version"] == 1
     assert canonical_document["is_draft"] is True
     assert canonical_document["name"] is None
@@ -276,18 +253,14 @@ def test_legacy_default_character_name_migrates_to_an_explicit_draft() -> None:
 
 
 def test_character_rejects_a_future_document_schema_version() -> None:
-    document: dict[str, object] = dict(
-        Character(name_parts=CharacterName("Mira")).to_dict()
-    )
+    document: dict[str, object] = dict(Character(name_parts=CharacterName("Mira")).to_dict())
     document["schema_version"] = 2
 
     with pytest.raises(ValueError, match="newer than supported version 1"):
         _ = Character.from_dict(document)
 
 
-def test_character_preserves_selected_profile_templates_and_loads_older_profiles() -> (
-    None
-):
+def test_character_preserves_selected_profile_templates_and_loads_older_profiles() -> None:
     character = Character(
         name_parts=CharacterName("Mira"),
         presets=CharacterPresetSelection(
@@ -308,9 +281,7 @@ def test_character_preset_selection_rejects_mutable_or_non_text_values() -> None
     with pytest.raises(TypeError, match="base preset id must be text"):
         _ = CharacterPresetSelection(base_id=cast(str, 1))
     with pytest.raises(TypeError, match="immutable tuple"):
-        _ = CharacterPresetSelection(
-            extra_ids=cast(tuple[str, ...], ["builtin:identity"])
-        )
+        _ = CharacterPresetSelection(extra_ids=cast(tuple[str, ...], ["builtin:identity"]))
     with pytest.raises(TypeError, match="preset ids must be text"):
         _ = CharacterPresetSelection(extra_ids=cast(tuple[str, ...], (1,)))
 
@@ -324,18 +295,11 @@ def test_character_preset_selection_rejects_invalid_persisted_value_types() -> N
         _ = CharacterPresetSelection.from_dict({"extras": ["builtin:identity", 1]})
 
 
-def test_character_field_presets_have_one_base_layer_and_composable_extra_layer() -> (
-    None
-):
+def test_character_field_presets_have_one_base_layer_and_composable_extra_layer() -> None:
     assert {preset.layer for preset in BASE_CHARACTER_PRESETS} == {"base"}
     assert {preset.layer for preset in EXTRA_CHARACTER_PRESETS} == {"extra"}
-    assert all(
-        preset.fields for preset in (*BASE_CHARACTER_PRESETS, *EXTRA_CHARACTER_PRESETS)
-    )
-    assert all(
-        preset.fields_json().startswith("[")
-        for preset in (*BASE_CHARACTER_PRESETS, *EXTRA_CHARACTER_PRESETS)
-    )
+    assert all(preset.fields for preset in (*BASE_CHARACTER_PRESETS, *EXTRA_CHARACTER_PRESETS))
+    assert all(preset.fields_json().startswith("[") for preset in (*BASE_CHARACTER_PRESETS, *EXTRA_CHARACTER_PRESETS))
 
 
 def test_character_revised_profile_only_advances_revision_when_data_changes() -> None:
@@ -358,9 +322,7 @@ def test_character_revised_profile_only_advances_revision_when_data_changes() ->
     assert revised.fields[0].value == "Navigator"
 
 
-def test_character_revised_profile_advances_revision_when_template_choices_change() -> (
-    None
-):
+def test_character_revised_profile_advances_revision_when_template_choices_change() -> None:
     character = Character(name_parts=CharacterName("Mira"), revision=3)
 
     revised = character.revised_profile(
@@ -439,9 +401,7 @@ def test_character_cast_compiles_one_collective_prompt_and_concise_title() -> No
     assert "Ren:\nCharacter profile:\nRole: Pilot" in prompt
     assert "Clearly attribute each speaker" in prompt
     assert character_cast_chat_title((mira, ren)) == "Mira & Ren"
-    assert (
-        compiled_character_cast_system_prompt((mira,)) == mira.compiled_system_prompt()
-    )
+    assert compiled_character_cast_system_prompt((mira,)) == mira.compiled_system_prompt()
 
 
 def test_character_cast_rejects_duplicate_profiles() -> None:
@@ -465,17 +425,13 @@ def test_character_prompt_modes_compile_assistant_story_and_custom_casts() -> No
         fields=[CharacterField(label="Role", value="Pilot")],
     )
 
-    assistant_prompt = compiled_character_chat_system_prompt(
-        (mira, ren), mode=ChatPromptMode.ASSISTANT
-    )
+    assistant_prompt = compiled_character_chat_system_prompt((mira, ren), mode=ChatPromptMode.ASSISTANT)
     story_prompt = compiled_character_chat_system_prompt(
         (mira, ren),
         mode=ChatPromptMode.STORY,
         story_direction="A cozy mystery aboard an airship.",
     )
-    single_story_prompt = compiled_character_chat_system_prompt(
-        (mira,), mode=ChatPromptMode.STORY
-    )
+    single_story_prompt = compiled_character_chat_system_prompt((mira,), mode=ChatPromptMode.STORY)
     custom_prompt = compiled_character_chat_system_prompt(
         (mira, ren),
         mode=ChatPromptMode.CUSTOM,
@@ -486,8 +442,7 @@ def test_character_prompt_modes_compile_assistant_story_and_custom_casts() -> No
     assert "Do not roleplay a scene unless the user asks." in assistant_prompt
     assert "Mira:\nCharacter profile:\nRole: Cartographer" in assistant_prompt
     assert story_prompt.startswith(
-        "You are the narrator of an immersive collaborative story featuring the "
-        "following characters."
+        "You are the narrator of an immersive collaborative story featuring the following characters."
     )
     assert "Story direction:\nA cozy mystery aboard an airship." in story_prompt
     assert "Ren:\nCharacter profile:\nRole: Pilot" in story_prompt
@@ -499,9 +454,7 @@ def test_character_prompt_modes_compile_assistant_story_and_custom_casts() -> No
     assert "You are roleplaying" not in custom_prompt
 
 
-def test_custom_prompt_mode_requires_an_instruction_and_modes_are_parsed_explicitly() -> (
-    None
-):
+def test_custom_prompt_mode_requires_an_instruction_and_modes_are_parsed_explicitly() -> None:
     mira = Character(id="mira123", name_parts=CharacterName("Mira"))
 
     with pytest.raises(ValueError, match="custom instruction cannot be empty"):

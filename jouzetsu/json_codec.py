@@ -21,9 +21,7 @@ class JsonValidationError(ValueError):
 
     def __init__(self, issues: list[JsonIssue]) -> None:
         self.issues: tuple[JsonIssue, ...] = tuple(issues)
-        super().__init__(
-            "; ".join(f"{issue.path}: {issue.message}" for issue in self.issues)
-        )
+        super().__init__("; ".join(f"{issue.path}: {issue.message}" for issue in self.issues))
 
 
 class JsonDecoder:
@@ -60,9 +58,7 @@ class JsonDecoder:
         values: dict[object, object] = cast(dict[object, object], raw)
         if any(not isinstance(key, str) for key in values):
             self.issue(path, "must use string keys")
-        string_values: dict[str, object] = {
-            key: value for key, value in values.items() if isinstance(key, str)
-        }
+        string_values: dict[str, object] = {key: value for key, value in values.items() if isinstance(key, str)}
         return string_values
 
     def string(self, raw: object, *, path: str, default: str) -> str:
@@ -87,9 +83,7 @@ class JsonDecoder:
         for choice in choices:
             if type(raw) is str and raw == choice:
                 return choice
-        self.issue(
-            path, f"must be one of {', '.join(str(choice) for choice in choices)}"
-        )
+        self.issue(path, f"must be one of {', '.join(str(choice) for choice in choices)}")
         return choices[0]
 
     def construct[T](self, factory: Callable[[], T], *, path: str) -> T:
@@ -109,14 +103,10 @@ class JsonDecoder:
         self.issue(path, "must be an integer")
         return default
 
-    def optional_integer(
-        self, raw: object, *, path: str, default: int | None
-    ) -> int | None:
+    def optional_integer(self, raw: object, *, path: str, default: int | None) -> int | None:
         if raw is None:
             return None
-        return self.integer(
-            raw, path=path, default=default if default is not None else 1
-        )
+        return self.integer(raw, path=path, default=default if default is not None else 1)
 
     def number(self, raw: object, *, path: str, default: float) -> float:
         if isinstance(raw, int | float) and not isinstance(raw, bool):

@@ -45,17 +45,13 @@ class BrowserSecurityMiddleware:
         issue_cookie: bool = not bool(token)
         if not token:
             token = secrets.token_urlsafe(32)
-        state: dict[str, object] = cast(
-            dict[str, object], scope.setdefault("state", {})
-        )
+        state: dict[str, object] = cast(dict[str, object], scope.setdefault("state", {}))
         state[CSRF_TOKEN_STATE_KEY] = token
 
         async def send_with_security_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
-                _ = headers.setdefault(
-                    "Content-Security-Policy", _CONTENT_SECURITY_POLICY
-                )
+                _ = headers.setdefault("Content-Security-Policy", _CONTENT_SECURITY_POLICY)
                 _ = headers.setdefault("X-Frame-Options", "DENY")
                 _ = headers.setdefault("X-Content-Type-Options", "nosniff")
                 _ = headers.setdefault("Referrer-Policy", "same-origin")
@@ -91,9 +87,7 @@ async def require_csrf_token(request: Request) -> None:
         raise HTTPException(403, "invalid or missing CSRF token")
 
     origin: str = request.headers.get("origin", "")
-    if origin and not secrets.compare_digest(
-        origin.rstrip("/"), str(request.base_url).rstrip("/")
-    ):
+    if origin and not secrets.compare_digest(origin.rstrip("/"), str(request.base_url).rstrip("/")):
         raise HTTPException(403, "cross-origin mutation request rejected")
 
 
@@ -108,11 +102,7 @@ def _csrf_token_from_cookie(scope: Scope) -> str:
         if not isinstance(raw_header, tuple):
             continue
         header: tuple[object, ...] = cast(tuple[object, ...], raw_header)
-        if (
-            len(header) != 2
-            or not isinstance(header[0], bytes)
-            or not isinstance(header[1], bytes)
-        ):
+        if len(header) != 2 or not isinstance(header[0], bytes) or not isinstance(header[1], bytes):
             continue
         raw_name: bytes = header[0]
         raw_value: bytes = header[1]

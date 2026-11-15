@@ -43,15 +43,11 @@ class LinuxDataDirectoryLock:
                 directory,
                 owner or "unknown",
             )
-            raise DataDirectoryInUseError(
-                f"Jouzetsu is already using {directory}{details}"
-            ) from exc
+            raise DataDirectoryInUseError(f"Jouzetsu is already using {directory}{details}") from exc
 
         _ = file.seek(0)
         _ = file.truncate()
-        _ = file.write(
-            f"pid={os.getpid()} started_at={datetime.now(UTC).isoformat()}\n"
-        )
+        _ = file.write(f"pid={os.getpid()} started_at={datetime.now(UTC).isoformat()}\n")
         file.flush()
         os.fsync(file.fileno())
         log.info("acquired data directory lock path=%s", path)

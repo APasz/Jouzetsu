@@ -28,14 +28,10 @@ def render_notice_area(*, notice: str, error: str, warning: str = "") -> HTML:
     """Render server-side feedback in an ARIA live region."""
 
     message: str = error or notice
-    classes: str = (
-        "jouzetsu-notice jouzetsu-notice-error" if error else "jouzetsu-notice"
-    )
+    classes: str = "jouzetsu-notice jouzetsu-notice-error" if error else "jouzetsu-notice"
     return Div(
         Div(
-            render_icon("warning", classes="jouzetsu-svg-icon jouzetsu-error-icon")
-            if error
-            else None,
+            render_icon("warning", classes="jouzetsu-svg-icon jouzetsu-error-icon") if error else None,
             Span(message, cls="jouzetsu-notice-message"),
             cls=classes,
             role="alert" if error else "status",
@@ -57,20 +53,18 @@ def render_notice_area(*, notice: str, error: str, warning: str = "") -> HTML:
     )
 
 
-def dialog_feedback(*, notice: str, error: str) -> HTML | None:
+def dialog_feedback(*, notice: str = "", error: str = "", always_render: bool = False) -> HTML | None:
     """Render mutation feedback inside the dialog that initiated it."""
 
     message: str = error or notice
-    if not message:
+    if not message and not always_render:
         return None
-    classes: str = (
-        "jouzetsu-dialog-feedback is-error" if error else "jouzetsu-dialog-feedback"
-    )
+    classes: str = "jouzetsu-dialog-feedback is-error" if error else "jouzetsu-dialog-feedback"
     return Div(
-        render_icon("warning", classes="jouzetsu-svg-icon jouzetsu-error-icon")
-        if error
-        else None,
+        render_icon("warning", classes="jouzetsu-svg-icon jouzetsu-error-icon") if error else None,
         message,
         cls=classes,
         role="alert" if error else "status",
+        data_dialog_feedback="true",
+        hidden=not message,
     )

@@ -17,9 +17,7 @@ from jouzetsu.character_presets import (
 )
 
 
-def _pack_document(
-    *, pack_id: str, preset_id: str, layer: str = "extra"
-) -> dict[str, object]:
+def _pack_document(*, pack_id: str, preset_id: str, layer: str = "extra") -> dict[str, object]:
     """Return one minimal valid pack document for filesystem-loader tests."""
 
     return {
@@ -52,10 +50,7 @@ def _write_pack(directory: Path, name: str, document: dict[str, object]) -> Path
 def test_builtin_presets_are_loaded_from_the_release_safe_pack() -> None:
     assert {preset.layer for preset in BASE_CHARACTER_PRESETS} == {"base"}
     assert {preset.layer for preset in EXTRA_CHARACTER_PRESETS} == {"extra"}
-    assert all(
-        preset.id.startswith("builtin:")
-        for preset in (*BASE_CHARACTER_PRESETS, *EXTRA_CHARACTER_PRESETS)
-    )
+    assert all(preset.id.startswith("builtin:") for preset in (*BASE_CHARACTER_PRESETS, *EXTRA_CHARACTER_PRESETS))
 
 
 def test_builtin_character_names_are_loaded_from_json() -> None:
@@ -63,12 +58,8 @@ def test_builtin_character_names_are_loaded_from_json() -> None:
 
     assert len(suggestions.given_names) > 1
     assert len(suggestions.family_names) > 1
-    assert len({name.casefold() for name in suggestions.given_names}) == len(
-        suggestions.given_names
-    )
-    assert len({name.casefold() for name in suggestions.family_names}) == len(
-        suggestions.family_names
-    )
+    assert len({name.casefold() for name in suggestions.given_names}) == len(suggestions.given_names)
+    assert len({name.casefold() for name in suggestions.family_names}) == len(suggestions.family_names)
     assert json.loads(BUILTIN_CHARACTER_NAME_SUGGESTIONS_JSON) == {
         "given_names": list(suggestions.given_names),
         "family_names": list(suggestions.family_names),
@@ -112,10 +103,7 @@ def test_user_character_name_suggestions_extend_builtins_without_duplicates(
     assert catalog.load_issue is None
     assert catalog.suggestions.given_names.count("Mira") == 1
     assert catalog.suggestions.given_names[-1] == "Ayla"
-    assert (
-        catalog.suggestions.family_names
-        == BUILTIN_CHARACTER_NAME_SUGGESTIONS.family_names
-    )
+    assert catalog.suggestions.family_names == BUILTIN_CHARACTER_NAME_SUGGESTIONS.family_names
 
 
 def test_user_character_name_suggestions_can_replace_builtins(
@@ -202,9 +190,7 @@ def test_invalid_user_character_name_suggestions_keep_builtins_available(
 def test_catalog_loads_private_packs_in_filename_order_and_namespaces_ids(
     tmp_path: Path,
 ) -> None:
-    _ = _write_pack(
-        tmp_path, "zeta.json", _pack_document(pack_id="zeta", preset_id="extra")
-    )
+    _ = _write_pack(tmp_path, "zeta.json", _pack_document(pack_id="zeta", preset_id="extra"))
     _ = _write_pack(
         tmp_path,
         "alpha.json",
@@ -223,17 +209,13 @@ def test_catalog_loads_private_packs_in_filename_order_and_namespaces_ids(
 def test_catalog_keeps_valid_packs_when_one_private_document_is_invalid(
     tmp_path: Path,
 ) -> None:
-    _ = _write_pack(
-        tmp_path, "valid.json", _pack_document(pack_id="valid", preset_id="detail")
-    )
+    _ = _write_pack(tmp_path, "valid.json", _pack_document(pack_id="valid", preset_id="detail"))
     invalid_path: Path = tmp_path / "invalid.json"
     _ = invalid_path.write_text("{ invalid json", encoding="utf-8")
 
     catalog: CharacterPresetCatalog = CharacterPresetCatalog.load(tmp_path)
 
-    assert [preset.id for preset in catalog.selected("", ["valid:detail"])] == [
-        "valid:detail"
-    ]
+    assert [preset.id for preset in catalog.selected("", ["valid:detail"])] == ["valid:detail"]
     assert len(catalog.load_issues) == 1
     assert catalog.load_issues[0].path == invalid_path
     assert "not valid JSON" in catalog.load_issues[0].message
@@ -242,20 +224,14 @@ def test_catalog_keeps_valid_packs_when_one_private_document_is_invalid(
 def test_catalog_keeps_valid_packs_when_one_private_document_has_invalid_types(
     tmp_path: Path,
 ) -> None:
-    _ = _write_pack(
-        tmp_path, "valid.json", _pack_document(pack_id="valid", preset_id="detail")
-    )
-    invalid_document: dict[str, object] = _pack_document(
-        pack_id="invalid", preset_id="detail"
-    )
+    _ = _write_pack(tmp_path, "valid.json", _pack_document(pack_id="valid", preset_id="detail"))
+    invalid_document: dict[str, object] = _pack_document(pack_id="invalid", preset_id="detail")
     invalid_document["label"] = 1
     invalid_path: Path = _write_pack(tmp_path, "invalid.json", invalid_document)
 
     catalog: CharacterPresetCatalog = CharacterPresetCatalog.load(tmp_path)
 
-    assert [preset.id for preset in catalog.selected("", ["valid:detail"])] == [
-        "valid:detail"
-    ]
+    assert [preset.id for preset in catalog.selected("", ["valid:detail"])] == ["valid:detail"]
     assert len(catalog.load_issues) == 1
     assert catalog.load_issues[0].path == invalid_path
     assert "must be text" in catalog.load_issues[0].message

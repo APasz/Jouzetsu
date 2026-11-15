@@ -37,7 +37,6 @@ from ..html import (
     Textarea,
 )
 from ..theme import resolved_theme_colours
-from .backends import render_backends
 from .context import PageContext
 from .controls import (
     checkbox,
@@ -50,15 +49,13 @@ from .feedback import dialog_feedback
 from .icons import render_icon
 from .tabs import DialogTab, render_dialog_tab_list, render_dialog_tab_panel
 
-type GlobalSettingsTab = Literal["behaviour", "appearance", "backends"]
+type GlobalSettingsTab = Literal["behaviour", "appearance"]
 
 _BEHAVIOUR_TAB: Final[DialogTab] = DialogTab("behaviour", "Behaviour")
 _APPEARANCE_TAB: Final[DialogTab] = DialogTab("appearance", "Appearance")
-_BACKENDS_TAB: Final[DialogTab] = DialogTab("backends", "Backends")
 _GLOBAL_SETTINGS_TABS: Final[tuple[DialogTab, ...]] = (
     _BEHAVIOUR_TAB,
     _APPEARANCE_TAB,
-    _BACKENDS_TAB,
 )
 _COLOURWAY_DESCRIPTIONS: Final[dict[ThemeColorway, str]] = {
     ThemeColorway.APP: "Interface surfaces, text and controls.",
@@ -113,12 +110,6 @@ def render_global_settings_dialog(
                 active_tab,
                 _appearance_form(state),
             ),
-            render_dialog_tab_panel(
-                "global-settings-dialog",
-                _BACKENDS_TAB,
-                active_tab,
-                render_backends(state),
-            ),
             Div(
                 close_dialog_button("global-settings-dialog"),
                 cls="jouzetsu-dialog-actions",
@@ -135,13 +126,7 @@ def render_global_settings_dialog(
 def global_settings_tab_from_text(value: str) -> GlobalSettingsTab:
     """Return a supported Global Settings tab, defaulting to behaviour."""
 
-    return (
-        "backends"
-        if value == "backends"
-        else "appearance"
-        if value == "appearance"
-        else "behaviour"
-    )
+    return "appearance" if value == "appearance" else "behaviour"
 
 
 def _system_prompt_form(state: AppState) -> HTML:
@@ -231,11 +216,7 @@ def _colourway_editor(
                     data_testid=f"theme-{owner.value}-accent-color",
                 ),
             ),
-            (
-                _key_visual_field(settings, preview=effective_colours["key_visual"])
-                if is_app
-                else None
-            ),
+            (_key_visual_field(settings, preview=effective_colours["key_visual"]) if is_app else None),
             cls="jouzetsu-form-grid is-two-columns" if is_app else None,
         ),
         (
@@ -338,11 +319,7 @@ def _colour_override_field(
                 Span("Auto"),
                 cls="jouzetsu-colour-override-automatic",
             ),
-            cls=(
-                "jouzetsu-colour-override is-automatic"
-                if automatic
-                else "jouzetsu-colour-override"
-            ),
+            cls=("jouzetsu-colour-override is-automatic" if automatic else "jouzetsu-colour-override"),
             data_colour_override="true",
             role="group",
             aria_label=label,
@@ -391,8 +368,7 @@ def _app_appearance_controls(state: AppState) -> tuple[HTML, ...]:
                 (
                     action.label,
                     f"theme_app_{action.color_field}",
-                    getattr(app, action.color_field)
-                    or builtin_message_action_color(action),
+                    getattr(app, action.color_field) or builtin_message_action_color(action),
                     f"theme-app-{action.color_field.replace('_', '-')}-color",
                 )
                 for action in MessageAction
@@ -446,9 +422,7 @@ def _message_action_style_control(style: MessageActionStyle) -> HTML:
     )
 
 
-def _appearance_feature(
-    label: str, controls: tuple[tuple[str, str, str, str], ...]
-) -> HTML:
+def _appearance_feature(label: str, controls: tuple[tuple[str, str, str, str], ...]) -> HTML:
     return Div(
         Span(label, cls="jouzetsu-field-label"),
         Div(
@@ -558,7 +532,4 @@ def _spelling_replacement_row(replacement: SpellingReplacement) -> HTML:
 
 
 def _format_spelling_replacements(replacements: list[SpellingReplacement]) -> str:
-    return "\n".join(
-        f"{replacement.source}\t{replacement.replacement}"
-        for replacement in replacements
-    )
+    return "\n".join(f"{replacement.source}\t{replacement.replacement}" for replacement in replacements)

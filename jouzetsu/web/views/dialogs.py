@@ -86,9 +86,7 @@ def render_message_details_dialog() -> HTML:
             ),
             render_message_details_content(),
             Div(
-                close_dialog_button(
-                    "message-details-dialog", marker="message-details-close-button"
-                ),
+                close_dialog_button("message-details-dialog", marker="message-details-close-button"),
                 cls="jouzetsu-dialog-actions",
             ),
             cls="jouzetsu-modal-card jouzetsu-message-details-card",
@@ -154,10 +152,7 @@ def render_message_details_content(message: Message | None = None) -> HTML:
         Div(
             Span("Reasoning level", cls="jouzetsu-message-detail-label"),
             Pre(
-                "\n".join(
-                    item.reasoning.title() if item.reasoning else "Not recorded"
-                    for item in message.attributions
-                )
+                "\n".join(item.reasoning.title() if item.reasoning else "Not recorded" for item in message.attributions)
                 or "Not recorded",
                 cls="jouzetsu-message-detail-value",
             ),

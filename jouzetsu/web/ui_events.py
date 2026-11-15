@@ -104,14 +104,10 @@ async def stream_events(
     try:
         if not allowed():
             return
-        yield _sse_frame(
-            UiEvent(revision=0, kind=StateChangeKind.FULL, configuration_changed=True)
-        )
+        yield _sse_frame(UiEvent(revision=0, kind=StateChangeKind.FULL, configuration_changed=True))
         while True:
             try:
-                event: UiEvent = await asyncio.wait_for(
-                    queue.get(), timeout=_HEARTBEAT_SECONDS
-                )
+                event: UiEvent = await asyncio.wait_for(queue.get(), timeout=_HEARTBEAT_SECONDS)
             except asyncio.QueueShutDown:
                 return
             except TimeoutError:
@@ -143,8 +139,7 @@ def _coalesce(previous: UiEvent, current: UiEvent) -> UiEvent:
         revision=current.revision,
         kind=kind,
         characters_changed=previous.characters_changed or current.characters_changed,
-        configuration_changed=previous.configuration_changed
-        or current.configuration_changed,
+        configuration_changed=previous.configuration_changed or current.configuration_changed,
     )
 
 

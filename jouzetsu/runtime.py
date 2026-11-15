@@ -71,10 +71,7 @@ class ModelCapabilities:
             option not in REASONING_OPTIONS for option in self.reasoning_options
         ):
             raise ValueError("reasoning options must contain known option names")
-        if (
-            self.reasoning_default is not None
-            and self.reasoning_default not in REASONING_OPTIONS
-        ):
+        if self.reasoning_default is not None and self.reasoning_default not in REASONING_OPTIONS:
             raise ValueError("reasoning default must be a known option name")
         if self.reasoning_default is not None and self.reasoning is not True:
             raise ValueError("reasoning default requires known reasoning support")
@@ -209,10 +206,5 @@ class PredictionComplete:
 
 
 type ChatStreamEvent = (
-    ModelLoadProgress
-    | ModelReady
-    | PromptProcessingProgress
-    | FirstToken
-    | PredictionFragment
-    | PredictionComplete
+    ModelLoadProgress | ModelReady | PromptProcessingProgress | FirstToken | PredictionFragment | PredictionComplete
 )

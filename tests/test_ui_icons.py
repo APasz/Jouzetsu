@@ -41,15 +41,10 @@ def test_packaged_sprite_covers_the_interface_without_external_dependencies() ->
             assert shape.tag == f"{_SVG_NAMESPACE}path"
             assert set(shape.attrib) == {"d"}
             assert shape.attrib["d"]
-    assert (
-        "Permission is hereby granted"
-        in (_ICON_DIRECTORY / "PHOSPHOR-LICENSE.txt").read_text()
-    )
+    assert "Permission is hereby granted" in (_ICON_DIRECTORY / "PHOSPHOR-LICENSE.txt").read_text()
 
 
-@pytest.mark.parametrize(
-    "name", cast(tuple[IconName, ...], get_args(IconName.__value__))
-)
+@pytest.mark.parametrize("name", cast(tuple[IconName, ...], get_args(IconName.__value__)))
 def test_rendered_icons_reference_the_versioned_local_sprite(name: IconName) -> None:
     sprite = (_ICON_DIRECTORY / "sprite.svg").read_bytes()
     expected_url = f"/static/icons/sprite.svg?v={sha256(sprite).hexdigest()[:12]}"
@@ -79,11 +74,7 @@ def test_armed_continue_has_distinct_regular_and_native_bold_artwork() -> None:
 
 def test_capability_artwork_keeps_its_original_coordinates_and_stroke_styles() -> None:
     sprite = ET.parse(_ICON_DIRECTORY / "sprite.svg").getroot()
-    capabilities = {
-        symbol.attrib["id"]: symbol
-        for symbol in sprite
-        if "data-source" in symbol.attrib
-    }
+    capabilities = {symbol.attrib["id"]: symbol for symbol in sprite if "data-source" in symbol.attrib}
     assert set(capabilities) == {"vision", "tool-use", "reasoning", "fim"}
     for name in ("vision", "tool-use", "reasoning"):
         symbol = capabilities[name]

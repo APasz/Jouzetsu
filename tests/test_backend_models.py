@@ -29,18 +29,14 @@ from jouzetsu.sampling import ParameterSupport, SamplingParameters
 
 def backend(name: str = "Local", *, model: str = "model-a") -> BackendConfig:
     return replace(
-        BackendConfig.create(
-            BackendKind.OPENAI_COMPATIBLE, name, "http://localhost:1234/v1"
-        ),
+        BackendConfig.create(BackendKind.OPENAI_COMPATIBLE, name, "http://localhost:1234/v1"),
         defaults=GenerationProfile(model),
     )
 
 
 def test_identity_survives_edits_and_same_endpoint_gets_a_new_identity() -> None:
     original = backend()
-    renamed = replace(
-        original, name="Renamed", base_url="https://other.example/prefix/v1/"
-    )
+    renamed = replace(original, name="Renamed", base_url="https://other.example/prefix/v1/")
     recreated = backend()
     assert original.id == renamed.id
     assert original.id != recreated.id
@@ -53,9 +49,7 @@ def test_responses_transport_is_scoped_to_lm_studio() -> None:
 
 
 def test_ollama_idle_unload_requires_positive_minutes_and_ollama() -> None:
-    ollama = BackendConfig.create(
-        BackendKind.OLLAMA, "Ollama", "http://localhost:11434"
-    )
+    ollama = BackendConfig.create(BackendKind.OLLAMA, "Ollama", "http://localhost:11434")
     for value in (0, -1, True):
         with pytest.raises(ValueError, match="positive integer"):
             replace(ollama, ollama_idle_unload_minutes=value)
@@ -92,9 +86,7 @@ def test_invalid_backend_urls_are_rejected(url: str) -> None:
         replace(backend(), base_url=url)
 
 
-@pytest.mark.parametrize(
-    "identity", ["", "Local", "http://localhost/v1", "be_ABCD", "be_" + "g" * 32]
-)
+@pytest.mark.parametrize("identity", ["", "Local", "http://localhost/v1", "be_ABCD", "be_" + "g" * 32])
 def test_backend_ids_are_opaque_and_validated(identity: str) -> None:
     with pytest.raises(ValueError, match="backend id"):
         replace(backend(), id=BackendId(identity))
@@ -127,10 +119,7 @@ def test_new_chats_snapshot_defaults_without_later_inheritance() -> None:
     )
     updated_config = config.with_backend(changed)
     assert chat.selected_profile == initial.defaults
-    assert (
-        ChatInferenceSettings.new_chat(updated_config).selected_profile
-        == changed.defaults
-    )
+    assert ChatInferenceSettings.new_chat(updated_config).selected_profile == changed.defaults
     assert chat.reset_to_defaults(updated_config).selected_profile == changed.defaults
     assert chat.selected_profile == initial.defaults
 
@@ -142,16 +131,12 @@ def test_chats_created_without_a_default_remain_unassigned() -> None:
     configured = replace(empty.with_backend(added), default_backend_id=added.id)
     assert chat == ChatInferenceSettings()
     assert chat.selected_model is None
-    assert ChatInferenceSettings.new_chat(configured).selected_model == ModelRef(
-        added.id, "model-a"
-    )
+    assert ChatInferenceSettings.new_chat(configured).selected_model == ModelRef(added.id, "model-a")
     with pytest.raises(ValueError, match="select a backend"):
         chat.set_profile(GenerationProfile())
 
 
-def test_first_switch_copies_only_compatible_values_and_preserves_target_model() -> (
-    None
-):
+def test_first_switch_copies_only_compatible_values_and_preserves_target_model() -> None:
     source = replace(
         backend("Source"),
         defaults=GenerationProfile("source", SamplingParameters(1.4, 0.4, 100)),
@@ -165,27 +150,18 @@ def test_first_switch_copies_only_compatible_values_and_preserves_target_model()
     switched = original.select_backend(config, target.id)
     expected = GenerationProfile(
         "target",
-        SamplingParameters(
-            1.4, target.defaults.parameters.top_p, target.defaults.parameters.max_tokens
-        ),
+        SamplingParameters(1.4, target.defaults.parameters.top_p, target.defaults.parameters.max_tokens),
     )
     assert switched.selected_profile == expected
-    changed = switched.set_profile(
-        GenerationProfile("second-target", SamplingParameters(0.1, 0.2, 200))
-    )
+    changed = switched.set_profile(GenerationProfile("second-target", SamplingParameters(0.1, 0.2, 200)))
     returned = changed.select_backend(config, source.id)
     assert returned.selected_profile == source.defaults
-    assert (
-        returned.select_backend(config, target.id).selected_profile
-        == changed.selected_profile
-    )
+    assert returned.select_backend(config, target.id).selected_profile == changed.selected_profile
     assert original.profiles == {source.id: source.defaults}
 
 
 def test_model_parameter_restrictions_apply_to_first_profile_copy() -> None:
-    source = replace(
-        backend("Source"), defaults=GenerationProfile("source", SamplingParameters(1.4))
-    )
+    source = replace(backend("Source"), defaults=GenerationProfile("source", SamplingParameters(1.4)))
     target = backend("Target", model="restricted")
     descriptor = ModelDescriptor(
         "restricted",
@@ -205,9 +181,7 @@ def test_profile_maps_and_nested_values_are_immutable_snapshots() -> None:
     profiles.clear()
     assert chat.selected_profile == selected.defaults
     with pytest.raises(TypeError):
-        cast(dict[BackendId, GenerationProfile], chat.profiles)[selected.id] = (
-            GenerationProfile()
-        )
+        cast(dict[BackendId, GenerationProfile], chat.profiles)[selected.id] = GenerationProfile()
 
 
 def test_discovery_retains_omitted_models_manual_registration_and_aliases() -> None:
@@ -229,16 +203,8 @@ def test_discovery_retains_omitted_models_manual_registration_and_aliases() -> N
     assert not manual.descriptor.is_loaded
     assert not manual.descriptor.loaded_instances
     assert refreshed.merge_discovery(()) is refreshed
-    assert (
-        refreshed.merge_discovery((ModelDescriptor("other", "Updated"),)).model(
-            "manual"
-        )
-        == manual
-    )
-    assert (
-        refreshed.set_model_alias("manual", "Renamed").model("manual").alias
-        == "Renamed"
-    )
+    assert refreshed.merge_discovery((ModelDescriptor("other", "Updated"),)).model("manual") == manual
+    assert refreshed.set_model_alias("manual", "Renamed").model("manual").alias == "Renamed"
     with pytest.raises(ValueError, match="already registered"):
         refreshed.register_model("manual")
     with pytest.raises(ValueError, match="duplicate"):
@@ -254,9 +220,7 @@ def test_discovery_resets_disappearing_reasoning_default_permanently() -> None:
     original = backend().merge_discovery((descriptor,))
     configured = replace(original.model("model-a"), reasoning_default="on")
     original = replace(original, models=(configured,))
-    unknown = original.merge_discovery(
-        (replace(descriptor, capabilities=ModelCapabilities()),)
-    )
+    unknown = original.merge_discovery((replace(descriptor, capabilities=ModelCapabilities()),))
     assert unknown.model("model-a").reasoning_default == "on"
     assert not unknown.model("model-a").reasoning_default_unavailable
     changed = replace(
@@ -286,9 +250,7 @@ def test_deleted_backend_profiles_and_attribution_cannot_be_reassociated() -> No
     original = backend()
     config = BackendConfiguration((original,))
     chat = ChatInferenceSettings().select_backend(config, original.id)
-    attribution = GenerationAttribution(
-        ModelRef(original.id, "model-a"), original.name, "Original model", "instance-a"
-    )
+    attribution = GenerationAttribution(ModelRef(original.id, "model-a"), original.name, "Original model", "instance-a")
     removed = config.remove_backend(original.id)
     recreated = backend()
     updated = removed.with_backend(recreated)
@@ -312,9 +274,7 @@ def test_duplicate_backend_and_model_ids_are_rejected() -> None:
         replace(selected, models=(model, model))
 
 
-def test_unsupported_and_unknown_parameters_keep_saved_values_without_emission() -> (
-    None
-):
+def test_unsupported_and_unknown_parameters_keep_saved_values_without_emission() -> None:
     saved = SamplingParameters(1.2, 0.3, 256)
     support = ParameterSupport(temperature=False, top_p=None, max_tokens=True)
     assert support.wire_values(saved) == {"max_tokens": 256}

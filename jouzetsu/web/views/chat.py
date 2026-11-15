@@ -172,9 +172,7 @@ def _streaming_assistant_message(view: ChatView) -> Message | None:
     return view.live_response
 
 
-def _composer_status(
-    view: ChatView, *, editing_message: Message | None
-) -> _ComposerStatus:
+def _composer_status(view: ChatView, *, editing_message: Message | None) -> _ComposerStatus:
     """Derive the composer status once for full and incremental chat renders."""
 
     return (
@@ -200,9 +198,7 @@ def _render_composer_status_content(status: _ComposerStatus) -> tuple[HTML, ...]
         ),
         Div(
             _render_composer_status_timer(status.stage_elapsed_seconds, timer="stage"),
-            _render_composer_status_timer(
-                status.overall_elapsed_seconds, timer="overall"
-            ),
+            _render_composer_status_timer(status.overall_elapsed_seconds, timer="overall"),
             cls="jouzetsu-composer-status-timers",
             aria_live="off",
             data_composer_status_timers="true",
@@ -239,11 +235,7 @@ def _render_composer_status_load_progress(progress: float | None) -> HTML:
     return Span(
         Span(
             cls="jouzetsu-composer-status-progress-fill",
-            style=(
-                f"--jouzetsu-composer-status-load-progress: {percent_text}%"
-                if percent_text is not None
-                else None
-            ),
+            style=(f"--jouzetsu-composer-status-load-progress: {percent_text}%" if percent_text is not None else None),
             data_composer_status_progress_fill="true",
         ),
         cls="jouzetsu-composer-status-progress",
@@ -278,11 +270,7 @@ def render_navigation_panel(view: NavigationView) -> HTML:
     chat_items: list[HTML] = []
     for chat in view.chats:
         generating: bool = chat.id in view.generating_chat_ids
-        classes: str = (
-            "jouzetsu-chat-item is-active"
-            if chat.id == view.selected_chat_id
-            else "jouzetsu-chat-item"
-        )
+        classes: str = "jouzetsu-chat-item is-active" if chat.id == view.selected_chat_id else "jouzetsu-chat-item"
         chat_items.append(
             A(
                 _icon("activity") if generating else None,
@@ -297,6 +285,16 @@ def render_navigation_panel(view: NavigationView) -> HTML:
 
     utility_links: list[HTML] = []
     if view.can_use_global_settings:
+        utility_links.append(
+            Button(
+                _icon("box", classes="jouzetsu-svg-icon jouzetsu-utility-icon"),
+                Span("Backends", cls="jouzetsu-utility-label"),
+                type="button",
+                cls="jouzetsu-utility-link",
+                data_dialog_open="backends-dialog",
+                data_testid="backends-button",
+            )
+        )
         utility_links.append(
             Button(
                 _icon("settings", classes="jouzetsu-svg-icon jouzetsu-utility-icon"),
@@ -470,11 +468,9 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                             ),
                             *(
                                 Option(
-                                    backend.name
-                                    + (" (disabled)" if not backend.enabled else ""),
+                                    backend.name + (" (disabled)" if not backend.enabled else ""),
                                     value=backend.id,
-                                    selected=chat.inference.selected_backend_id
-                                    == backend.id,
+                                    selected=chat.inference.selected_backend_id == backend.id,
                                 )
                                 for backend in view.backends.backends
                             ),
@@ -486,10 +482,7 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                                 )
                                 for backend_id in (chat.inference.selected_backend_id,)
                                 if backend_id is not None
-                                and all(
-                                    backend.id != backend_id
-                                    for backend in view.backends.backends
-                                )
+                                and all(backend.id != backend_id for backend in view.backends.backends)
                             ),
                             name="backend_id",
                             disabled=generating,
@@ -564,8 +557,7 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                     Small(
                         "Saved for this backend in this chat."
                         + (
-                            " Inactive parameters: "
-                            + ", ".join(view.inactive_parameters)
+                            " Inactive parameters: " + ", ".join(view.inactive_parameters)
                             if view.inactive_parameters
                             else ""
                         ),
@@ -809,9 +801,7 @@ def render_chat_fragment(
                 render_message_list(view, editing_message_id=edit_message_id),
                 cls="jouzetsu-main-content",
             ),
-            render_composer(
-                view, edit_message_id=edit_message_id, editing_message=editing_message
-            ),
+            render_composer(view, edit_message_id=edit_message_id, editing_message=editing_message),
             id="chat-fragment",
             cls="jouzetsu-chat-shell",
             data_chat_id=chat.id,
@@ -874,9 +864,7 @@ def render_chat_live_fragment(
         Div(
             *_render_composer_status_content(status),
             data_live_composer_status="true",
-            data_composer_status_stage_elapsed_seconds=_composer_status_elapsed_attribute(
-                status.stage_elapsed_seconds
-            ),
+            data_composer_status_stage_elapsed_seconds=_composer_status_elapsed_attribute(status.stage_elapsed_seconds),
             data_composer_status_overall_elapsed_seconds=_composer_status_elapsed_attribute(
                 status.overall_elapsed_seconds
             ),
@@ -895,8 +883,7 @@ def render_message_list(view: ChatView, *, editing_message_id: str) -> HTML:
     visible_messages: list[Message] = [
         message
         for message in chat.messages
-        if message.role in {"user", "assistant"}
-        and (view.live_response is None or message.id != view.replacement_id)
+        if message.role in {"user", "assistant"} and (view.live_response is None or message.id != view.replacement_id)
     ]
     if view.live_response is not None:
         visible_messages.append(view.live_response)
@@ -910,17 +897,13 @@ def render_message_list(view: ChatView, *, editing_message_id: str) -> HTML:
         )
     else:
         contents = tuple(
-            render_message(
-                view, visible_messages, index, editing_message_id=editing_message_id
-            )
+            render_message(view, visible_messages, index, editing_message_id=editing_message_id)
             for index in range(len(visible_messages))
         )
     return Section(
         *contents,
         Article(
-            P(
-                "A draft could not be saved to disk. The shared draft remains available in memory."
-            ),
+            P("A draft could not be saved to disk. The shared draft remains available in memory."),
             _post_button(
                 "Retry draft save",
                 action="/chat/retry-draft-save",
@@ -967,9 +950,7 @@ def render_message_list(view: ChatView, *, editing_message_id: str) -> HTML:
     )
 
 
-def render_message(
-    view: ChatView, messages: list[Message], index: int, *, editing_message_id: str
-) -> HTML:
+def render_message(view: ChatView, messages: list[Message], index: int, *, editing_message_id: str) -> HTML:
     """Render one bubble with only actions valid for the current state."""
 
     message: Message = messages[index]
@@ -978,22 +959,13 @@ def render_message(
     editing: bool = bool(editing_message_id)
     is_last: bool = index == len(messages) - 1
     is_last_assistant: bool = is_last and message.role == "assistant"
-    is_streaming: bool = (
-        view.live_response is not None and message.id == view.live_response.id
-    )
+    is_streaming: bool = view.live_response is not None and message.id == view.live_response.id
     can_change: bool = not generating and not editing
-    can_merge: bool = (
-        can_change and previous is not None and previous.role == message.role
-    )
+    can_merge: bool = can_change and previous is not None and previous.role == message.role
     can_resend: bool = (
-        can_change
-        and message.role == "user"
-        and is_last
-        and bool(message.content.strip() or message.images)
+        can_change and message.role == "user" and is_last and bool(message.content.strip() or message.images)
     )
-    can_continue: bool = (
-        can_change and is_last_assistant and bool(message.content.strip())
-    )
+    can_continue: bool = can_change and is_last_assistant and bool(message.content.strip())
     classes: list[str] = ["jouzetsu-message", f"is-{message.role}"]
     if is_streaming:
         classes.append("is-streaming")
@@ -1135,19 +1107,13 @@ def render_message(
     )
 
 
-def render_composer(
-    view: ChatView, *, edit_message_id: str, editing_message: Message | None
-) -> HTML:
+def render_composer(view: ChatView, *, edit_message_id: str, editing_message: Message | None) -> HTML:
     """Render the compact shared composer in normal or explicit edit mode."""
 
     generating: bool = view.generating
     editing: bool = editing_message is not None
-    has_images: bool = bool(
-        editing_message.images if editing_message else view.chat.draft_images
-    )
-    content: str = (
-        editing_message.content if editing_message is not None else view.chat.draft
-    )
+    has_images: bool = bool(editing_message.images if editing_message else view.chat.draft_images)
+    content: str = editing_message.content if editing_message is not None else view.chat.draft
     status: _ComposerStatus = _composer_status(view, editing_message=editing_message)
     action: str
     primary_label: str
@@ -1161,9 +1127,7 @@ def render_composer(
         primary_label = "Stop generating"
         primary_content = _icon("stop")
         primary_marker = "stop-generation-button"
-        primary_classes = (
-            "jouzetsu-button jouzetsu-button-danger jouzetsu-composer-primary is-icon"
-        )
+        primary_classes = "jouzetsu-button jouzetsu-button-danger jouzetsu-composer-primary is-icon"
         primary_disabled = False
         primary_title = primary_label
     elif editing:
@@ -1171,9 +1135,7 @@ def render_composer(
         primary_label = "Save edit"
         primary_content = _icon("save")
         primary_marker = "save-edit-button"
-        primary_classes = (
-            "jouzetsu-button jouzetsu-button-primary jouzetsu-composer-primary is-icon"
-        )
+        primary_classes = "jouzetsu-button jouzetsu-button-primary jouzetsu-composer-primary is-icon"
         primary_disabled = not content.strip() and not has_images
         primary_title = f"{primary_label} ({_COMPOSER_SUBMIT_SHORTCUT_HINT})"
     else:
@@ -1181,14 +1143,10 @@ def render_composer(
         primary_label = "Send"
         primary_content = _icon("send")
         primary_marker = "send-message-button"
-        primary_classes = (
-            "jouzetsu-button jouzetsu-button-primary jouzetsu-composer-primary is-icon"
-        )
+        primary_classes = "jouzetsu-button jouzetsu-button-primary jouzetsu-composer-primary is-icon"
         primary_disabled = not content.strip() and not has_images
         primary_title = f"{primary_label} ({_COMPOSER_SUBMIT_SHORTCUT_HINT})"
-    input_description: str = (
-        "composer-status composer-edit-validation" if editing else "composer-status"
-    )
+    input_description: str = "composer-status composer-edit-validation" if editing else "composer-status"
     message_input: HTML = Textarea(
         content,
         name="content",
@@ -1205,11 +1163,7 @@ def render_composer(
         data_draft_sync="true" if not editing else None,
         data_testid="message-input",
     )
-    hidden_edit: HTML | None = (
-        Input(type="hidden", name="message_id", value=edit_message_id)
-        if editing
-        else None
-    )
+    hidden_edit: HTML | None = Input(type="hidden", name="message_id", value=edit_message_id) if editing else None
     cancel_control: HTML | None = None
     if editing:
         cancel_control = A(
@@ -1229,12 +1183,8 @@ def render_composer(
         cls=status_classes,
         aria_live="polite",
         data_composer_status="true",
-        data_composer_status_stage_elapsed_seconds=_composer_status_elapsed_attribute(
-            status.stage_elapsed_seconds
-        ),
-        data_composer_status_overall_elapsed_seconds=_composer_status_elapsed_attribute(
-            status.overall_elapsed_seconds
-        ),
+        data_composer_status_stage_elapsed_seconds=_composer_status_elapsed_attribute(status.stage_elapsed_seconds),
+        data_composer_status_overall_elapsed_seconds=_composer_status_elapsed_attribute(status.overall_elapsed_seconds),
         data_testid="composer-action-status",
     )
     footer: HTML
@@ -1260,9 +1210,7 @@ def render_composer(
                 edit_validation,
                 cls="jouzetsu-composer-status-stack",
             ),
-            Div(cancel_control, cls="jouzetsu-composer-actions")
-            if cancel_control is not None
-            else None,
+            Div(cancel_control, cls="jouzetsu-composer-actions") if cancel_control is not None else None,
             cls="jouzetsu-composer-footer",
         )
 
@@ -1275,11 +1223,7 @@ def render_composer(
             data_testid="composer-resize-handle",
         ),
         _render_generation_reasoning(view.generation_reasoning),
-        (
-            render_image_gallery(editing_message.images)
-            if editing_message.images
-            else None
-        )
+        (render_image_gallery(editing_message.images) if editing_message.images else None)
         if editing_message is not None
         else render_image_upload(view.chat),
         P(
@@ -1315,9 +1259,7 @@ def render_composer(
                 )
                 if not editing
                 else None,
-                _render_reasoning_selector(view)
-                if view.reasoning_options and not editing
-                else None,
+                _render_reasoning_selector(view) if view.reasoning_options and not editing else None,
                 message_input,
                 Button(
                     primary_content,
@@ -1363,11 +1305,7 @@ def _render_reasoning_selector(view: ChatView) -> HTML:
         selected = "automatic"
     effective = view.reasoning_default if selected == "model_default" else selected
     state: Literal["automatic", "off", "on"] = (
-        "automatic"
-        if effective in (None, "automatic")
-        else "off"
-        if effective == "off"
-        else "on"
+        "automatic" if effective in (None, "automatic") else "off" if effective == "off" else "on"
     )
     label = (
         f"Model default ({effective.title()})"
@@ -1486,16 +1424,12 @@ def _format_runtime_status(status: RuntimeStatus) -> _ComposerStatus:
 
     model_name: str = status.model_name or status.model_key or "model"
     stage_started_at: float | None = (
-        status.phase_started_at
-        if status.phase_started_at is not None
-        else status.started_at
+        status.phase_started_at if status.phase_started_at is not None else status.started_at
     )
     stage_elapsed_seconds: float | None = _elapsed_seconds(stage_started_at)
     overall_elapsed_seconds: float | None = _elapsed_seconds(status.started_at)
     progress_percent: float | None = _progress_percent(status.progress)
-    progress: str = (
-        f"{round(progress_percent):d}%" if progress_percent is not None else ""
-    )
+    progress: str = f"{round(progress_percent):d}%" if progress_percent is not None else ""
 
     def timed_status(
         state: _ComposerStatusState,
@@ -1514,17 +1448,11 @@ def _format_runtime_status(status: RuntimeStatus) -> _ComposerStatus:
     if status.phase is RuntimePhase.CHECKING:
         return _ComposerStatus(_ComposerStatusState.CHECKING, "Backend")
     if status.phase is RuntimePhase.OFFLINE:
-        return _ComposerStatus(
-            _ComposerStatusState.OFFLINE, status.detail or "Backend unavailable"
-        )
+        return _ComposerStatus(_ComposerStatusState.OFFLINE, status.detail or "Backend unavailable")
     if status.phase is RuntimePhase.NO_MODEL_SELECTED:
-        return _ComposerStatus(
-            _ComposerStatusState.NO_MODEL, status.detail or "Select a model"
-        )
+        return _ComposerStatus(_ComposerStatusState.NO_MODEL, status.detail or "Select a model")
     if status.phase is RuntimePhase.MODEL_UNLOADED:
-        return _ComposerStatus(
-            _ComposerStatusState.UNLOADED, _status_detail(model_name, status.detail)
-        )
+        return _ComposerStatus(_ComposerStatusState.UNLOADED, _status_detail(model_name, status.detail))
     if status.phase is RuntimePhase.STARTING:
         return timed_status(
             _ComposerStatusState.PREPARING,
@@ -1537,18 +1465,12 @@ def _format_runtime_status(status: RuntimeStatus) -> _ComposerStatus:
             load_progress=status.progress,
         )
     if status.phase is RuntimePhase.PROCESSING_PROMPT:
-        return timed_status(
-            _ComposerStatusState.PROCESSING, _status_detail("Prompt", progress)
-        )
+        return timed_status(_ComposerStatusState.PROCESSING, _status_detail("Prompt", progress))
     if status.phase is RuntimePhase.REASONING:
-        token_detail: str = (
-            count_label(status.output_tokens, "token") if status.output_tokens else ""
-        )
+        token_detail: str = count_label(status.output_tokens, "token") if status.output_tokens else ""
         return timed_status(_ComposerStatusState.REASONING, token_detail)
     if status.phase is RuntimePhase.GENERATING:
-        token_detail = (
-            count_label(status.output_tokens, "token") if status.output_tokens else ""
-        )
+        token_detail = count_label(status.output_tokens, "token") if status.output_tokens else ""
         return timed_status(_ComposerStatusState.GENERATING, token_detail)
     if status.phase is RuntimePhase.QUEUED:
         return timed_status(_ComposerStatusState.QUEUED)
@@ -1558,9 +1480,7 @@ def _format_runtime_status(status: RuntimeStatus) -> _ComposerStatus:
         detail: str = " ".join(status.detail.split())
         return _ComposerStatus(_ComposerStatusState.ERROR, detail[:72])
     if status.phase is RuntimePhase.READY:
-        return _ComposerStatus(
-            _ComposerStatusState.READY, _ready_status_detail(status.metrics)
-        )
+        return _ComposerStatus(_ComposerStatusState.READY, _ready_status_detail(status.metrics))
     raise ValueError(f"unsupported runtime phase: {status.phase!r}")
 
 

@@ -117,9 +117,7 @@ class ChatStorageTests(unittest.TestCase):
             ):
                 storage.save_records([changed.to_dict()])
 
-            reloaded_by_id: dict[str, Chat] = {
-                chat.id: chat for chat in ChatStorage(storage.path).load_all()
-            }
+            reloaded_by_id: dict[str, Chat] = {chat.id: chat for chat in ChatStorage(storage.path).load_all()}
             self.assertEqual(reloaded_by_id[changed.id].title, "Changed")
             self.assertTrue(storage.path_for(unchanged.id).is_file())
 

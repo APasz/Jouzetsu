@@ -62,9 +62,7 @@ class BrowserTestBackend(FakeBackend):
     async def discover_models(self) -> ModelDiscovery:
         return ModelDiscovery(True, self.descriptors)
 
-    async def stream(
-        self, request: GenerationRequest
-    ) -> AsyncGenerator[ChatStreamEvent]:
+    async def stream(self, request: GenerationRequest) -> AsyncGenerator[ChatStreamEvent]:
         self.requests.append(request)
         yield ModelReady(request.model.model_id, "Browser test model", 4096)
         if self.first_token_delay_seconds:
@@ -75,9 +73,7 @@ class BrowserTestBackend(FakeBackend):
         yield PredictionFragment(self.response_content, 1, False)
         if self.completion_gate is not None:
             await asyncio.to_thread(self.completion_gate.wait)
-        yield PredictionComplete(
-            GenerationMetrics(output_tokens=1, tokens_per_second=20.0)
-        )
+        yield PredictionComplete(GenerationMetrics(output_tokens=1, tokens_per_second=20.0))
 
 
 async def _noop() -> None:
@@ -108,9 +104,7 @@ class BrowserServer:
             pass
 
 
-def create_browser_server(
-    root: Path, *, loop: Literal["asyncio", "uvloop"] = "asyncio"
-) -> BrowserServer:
+def create_browser_server(root: Path, *, loop: Literal["asyncio", "uvloop"] = "asyncio") -> BrowserServer:
     """Start an isolated local ASGI server suitable for one Playwright test."""
 
     paths: AppPaths = AppPaths.for_home(root)
@@ -134,9 +128,7 @@ def create_browser_server(
             ),
         ),
     )
-    configuration = BackendConfiguration(
-        backends=(configured,), default_backend_id=configured.id
-    )
+    configuration = BackendConfiguration(backends=(configured,), default_backend_id=configured.id)
     config = AppConfig(
         paths=paths,
         backends=configuration,
@@ -145,9 +137,7 @@ def create_browser_server(
     )
     client = BrowserTestBackend(configured)
     storage = ChatStorage(paths.chats_file)
-    storage.save_records(
-        (Chat(inference=ChatInferenceSettings.new_chat(configuration)).to_dict(),)
-    )
+    storage.save_records((Chat(inference=ChatInferenceSettings.new_chat(configuration)).to_dict(),))
     state = AppState(config, storage, backend_factory=lambda _: client)
 
     async def shutdown() -> None:

@@ -68,29 +68,21 @@ def decode_config(raw: object, *, paths: AppPaths) -> AppConfig:
     root: dict[str, object] = decoder.object(
         raw,
         path="config",
-        required=frozenset(
-            {"version", "generation", "ui", "logging", "access", "backends"}
-        ),
+        required=frozenset({"version", "generation", "ui", "logging", "access", "backends"}),
         optional=frozenset({"theme"}),
     )
-    version: int = decoder.integer(
-        root.get("version"), path="config.version", default=CONFIG_VERSION
-    )
+    version: int = decoder.integer(root.get("version"), path="config.version", default=CONFIG_VERSION)
     if version != CONFIG_VERSION:
         decoder.issue("config.version", f"must be {CONFIG_VERSION}")
 
     config: AppConfig = AppConfig(
         paths=paths,
-        generation=_decode_generation(
-            decoder, root.get("generation"), defaults.generation
-        ),
+        generation=_decode_generation(decoder, root.get("generation"), defaults.generation),
         ui=_decode_ui(decoder, root.get("ui"), defaults.ui),
         theme=_decode_theme(decoder, root.get("theme"), defaults.theme),
         logging=_decode_logging(decoder, root.get("logging"), defaults.logging, paths),
         access=_decode_access(decoder, root.get("access"), defaults.access),
-        backends=decode_backends(root["backends"])
-        if "backends" in root
-        else BackendConfiguration(),
+        backends=decode_backends(root["backends"]) if "backends" in root else BackendConfiguration(),
     )
     try:
         config.validate()
@@ -121,15 +113,12 @@ def encode_config(config: AppConfig) -> ConfigDocument:
                 "surface_color": config.ui.icon_colors.surface_color,
             },
             "starter_prompts": [
-                {"label": prompt.label, "content": prompt.content}
-                for prompt in config.ui.starter_prompts
+                {"label": prompt.label, "content": prompt.content} for prompt in config.ui.starter_prompts
             ],
         },
         "logging": {
             "enabled": config.logging.enabled,
-            "directory": _path_to_config_string(
-                config.log_directory, paths=config.paths
-            ),
+            "directory": _path_to_config_string(config.log_directory, paths=config.paths),
         },
         "access": {
             "approval_phrase": config.access.approval_phrase,
@@ -151,9 +140,7 @@ def encode_config(config: AppConfig) -> ConfigDocument:
     return document
 
 
-def _decode_generation(
-    decoder: _Decoder, raw: object, defaults: GenerationSettings
-) -> GenerationSettings:
+def _decode_generation(decoder: _Decoder, raw: object, defaults: GenerationSettings) -> GenerationSettings:
     values: dict[str, object] = decoder.object(
         raw,
         path="config.generation",
@@ -183,9 +170,7 @@ def _decode_generation(
             path="config.generation.temperature",
             default=defaults.temperature,
         ),
-        top_p=decoder.number(
-            values.get("top_p"), path="config.generation.top_p", default=defaults.top_p
-        ),
+        top_p=decoder.number(values.get("top_p"), path="config.generation.top_p", default=defaults.top_p),
         max_tokens=decoder.integer(
             values.get("max_tokens"),
             path="config.generation.max_tokens",
@@ -228,12 +213,8 @@ def _decode_ui(decoder: _Decoder, raw: object, defaults: UiSettings) -> UiSettin
     )
     icon_defaults: IconColorSettings = defaults.icon_colors
     return UiSettings(
-        host=decoder.string(
-            values.get("host"), path="config.ui.host", default=defaults.host
-        ),
-        port=decoder.integer(
-            values.get("port"), path="config.ui.port", default=defaults.port
-        ),
+        host=decoder.string(values.get("host"), path="config.ui.host", default=defaults.host),
+        port=decoder.integer(values.get("port"), path="config.ui.port", default=defaults.port),
         dark_mode=decoder.boolean(
             values.get("dark_mode"),
             path="config.ui.dark_mode",
@@ -244,9 +225,7 @@ def _decode_ui(decoder: _Decoder, raw: object, defaults: UiSettings) -> UiSettin
             path="config.ui.auto_open_browser",
             default=defaults.auto_open_browser,
         ),
-        message_action_style=_decode_message_action_style(
-            decoder, values, defaults.message_action_style
-        ),
+        message_action_style=_decode_message_action_style(decoder, values, defaults.message_action_style),
         icon_colors=IconColorSettings(
             linework_color=_decode_hex(
                 decoder,
@@ -304,31 +283,21 @@ def _decode_message_action_style(
         return default
 
 
-def _decode_theme(
-    decoder: _Decoder, raw: object, defaults: ThemeSettings
-) -> ThemeSettings:
+def _decode_theme(decoder: _Decoder, raw: object, defaults: ThemeSettings) -> ThemeSettings:
     if raw is None:
         return defaults
     if isinstance(raw, dict) and "primary" in raw:
         return _decode_legacy_theme(decoder, cast(object, raw), defaults)
-    values = decoder.object(
-        cast(object, raw), path="config.theme", required=frozenset(defaults.values())
-    )
+    values = decoder.object(cast(object, raw), path="config.theme", required=frozenset(defaults.values()))
     return ThemeSettings(
         app=_decode_colorway(decoder, values.get("app"), defaults.app, "app"),
         user=_decode_colorway(decoder, values.get("user"), defaults.user, "user"),
-        assistant=_decode_colorway(
-            decoder, values.get("assistant"), defaults.assistant, "assistant"
-        ),
-        system=_decode_colorway(
-            decoder, values.get("system"), defaults.system, "system"
-        ),
+        assistant=_decode_colorway(decoder, values.get("assistant"), defaults.assistant, "assistant"),
+        system=_decode_colorway(decoder, values.get("system"), defaults.system, "system"),
     )
 
 
-def _decode_colorway[C: ColorwaySettings](
-    decoder: _Decoder, raw: object, defaults: C, name: str
-) -> C:
+def _decode_colorway[C: ColorwaySettings](decoder: _Decoder, raw: object, defaults: C, name: str) -> C:
     path = f"config.theme.{name}"
     values = decoder.object(
         raw,
@@ -352,17 +321,13 @@ def _decode_colorway[C: ColorwaySettings](
     return replace(defaults, **decoded)
 
 
-def _decode_legacy_theme(
-    decoder: _Decoder, raw: object, defaults: ThemeSettings
-) -> ThemeSettings:
+def _decode_legacy_theme(decoder: _Decoder, raw: object, defaults: ThemeSettings) -> ThemeSettings:
     """Retain old accents and deliberate overrides without pinning automatic shades."""
 
     legacy = legacy_theme_values()
     values = decoder.object(raw, path="config.theme", required=frozenset(legacy))
     decoded = {
-        name: _decode_hex(
-            decoder, values.get(name), path=f"config.theme.{name}", default=default
-        )
+        name: _decode_hex(decoder, values.get(name), path=f"config.theme.{name}", default=default)
         for name, default in legacy.items()
     }
 
@@ -380,9 +345,7 @@ def _decode_legacy_theme(
     def action_override(action: MessageAction) -> str | None:
         muted_override: str | None = override(f"action_{action.value}_muted")
         primary_field: str | None = _LEGACY_PRIMARY_ACTION_FIELDS.get(action)
-        return muted_override or (
-            override(primary_field) if primary_field is not None else None
-        )
+        return muted_override or (override(primary_field) if primary_field is not None else None)
 
     return ThemeSettings(
         app=AppColorwaySettings(
@@ -402,9 +365,7 @@ def _decode_legacy_theme(
     )
 
 
-def _decode_logging(
-    decoder: _Decoder, raw: object, defaults: LoggingSettings, paths: AppPaths
-) -> LoggingSettings:
+def _decode_logging(decoder: _Decoder, raw: object, defaults: LoggingSettings, paths: AppPaths) -> LoggingSettings:
     values: dict[str, object] = decoder.object(
         raw,
         path="config.logging",
@@ -428,9 +389,7 @@ def _decode_logging(
     )
 
 
-def _decode_access(
-    decoder: _Decoder, raw: object, defaults: AccessSettings
-) -> AccessSettings:
+def _decode_access(decoder: _Decoder, raw: object, defaults: AccessSettings) -> AccessSettings:
     values: dict[str, object] = decoder.object(
         raw,
         path="config.access",
@@ -441,9 +400,7 @@ def _decode_access(
             }
         ),
     )
-    devices_raw: dict[str, object] = decoder.mapping(
-        values.get("devices"), path="config.access.devices"
-    )
+    devices_raw: dict[str, object] = decoder.mapping(values.get("devices"), path="config.access.devices")
     devices: dict[str, DeviceAccessSettings] = {}
     required_device_fields: frozenset[str] = frozenset(
         {
@@ -503,9 +460,7 @@ def _decode_access(
     )
 
 
-def _decode_replacements(
-    decoder: _Decoder, raw: object, *, path: str
-) -> list[SpellingReplacement]:
+def _decode_replacements(decoder: _Decoder, raw: object, *, path: str) -> list[SpellingReplacement]:
     replacements: list[SpellingReplacement] = []
     for index, item in enumerate(decoder.list(raw, path=path)):
         values: dict[str, object] = decoder.object(
@@ -515,9 +470,7 @@ def _decode_replacements(
         )
         replacements.append(
             SpellingReplacement(
-                source=decoder.string(
-                    values.get("source"), path=f"{path}[{index}].source", default=""
-                ),
+                source=decoder.string(values.get("source"), path=f"{path}[{index}].source", default=""),
                 replacement=decoder.string(
                     values.get("replacement"),
                     path=f"{path}[{index}].replacement",
@@ -528,9 +481,7 @@ def _decode_replacements(
     return replacements
 
 
-def _decode_starter_prompts(
-    decoder: _Decoder, raw: object, *, defaults: list[StarterPrompt]
-) -> list[StarterPrompt]:
+def _decode_starter_prompts(decoder: _Decoder, raw: object, *, defaults: list[StarterPrompt]) -> list[StarterPrompt]:
     prompts: list[StarterPrompt] = []
     for index, item in enumerate(decoder.list(raw, path="config.ui.starter_prompts")):
         values: dict[str, object] = decoder.object(
@@ -573,8 +524,7 @@ def _encode_generation(settings: GenerationSettings) -> dict[str, object]:
     }
     if tuple(settings.british_spelling_replacements) != builtin_spelling_replacements():
         values["british_spelling_replacements"] = [
-            {"source": item.source, "replacement": item.replacement}
-            for item in settings.british_spelling_replacements
+            {"source": item.source, "replacement": item.replacement} for item in settings.british_spelling_replacements
         ]
     return values
 

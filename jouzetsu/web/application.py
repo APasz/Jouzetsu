@@ -89,18 +89,13 @@ async def _static_asset_response(asset_path: str) -> Response:
 
     static_directory: Path = _ASSET_DIRECTORY.resolve()
     resolved_asset: Path = (static_directory / asset_path).resolve()
-    if (
-        not resolved_asset.is_relative_to(static_directory)
-        or not resolved_asset.is_file()
-    ):
+    if not resolved_asset.is_relative_to(static_directory) or not resolved_asset.is_file():
         return Response(status_code=404)
     try:
         content: bytes = await run_in_worker(resolved_asset.read_bytes)
     except OSError:
         return Response(status_code=404)
-    media_type: str = (
-        mimetypes.guess_type(resolved_asset.name)[0] or "application/octet-stream"
-    )
+    media_type: str = mimetypes.guess_type(resolved_asset.name)[0] or "application/octet-stream"
     return Response(content, media_type=media_type)
 
 
@@ -117,11 +112,11 @@ class WebApplication:
     ) -> None:
         self.config: AppConfig = config
         self.state: AppState = state
-        self.character_preset_catalog: CharacterPresetCatalog = (
-            CharacterPresetCatalog.load(config.character_presets_directory)
+        self.character_preset_catalog: CharacterPresetCatalog = CharacterPresetCatalog.load(
+            config.character_presets_directory
         )
-        self.character_name_suggestions: CharacterNameSuggestionsCatalog = (
-            CharacterNameSuggestionsCatalog.load(config.character_name_suggestions_file)
+        self.character_name_suggestions: CharacterNameSuggestionsCatalog = CharacterNameSuggestionsCatalog.load(
+            config.character_name_suggestions_file
         )
         self._on_startup: StartupCallback = on_startup
         self._on_shutdown: ShutdownCallback = on_shutdown
@@ -146,10 +141,7 @@ class WebApplication:
                     href=app_icon_url(config.ui.icon_colors),
                     type="image/svg+xml",
                 ),
-                *(
-                    Link(rel="stylesheet", href=_static_asset_url(stylesheet))
-                    for stylesheet in _THEME_STYLESHEETS
-                ),
+                *(Link(rel="stylesheet", href=_static_asset_url(stylesheet)) for stylesheet in _THEME_STYLESHEETS),
                 Link(rel="stylesheet", href="/theme.css", data_live_theme="true"),
                 Script(src=_static_asset_url("app.js"), type="module"),
             ),
@@ -206,9 +198,7 @@ class WebApplication:
 
         self._event_broker.close()
 
-    def _route(
-        self, method: HttpMethod, path: str, name: str
-    ) -> Callable[[RouteHandler], RouteHandler]:
+    def _route(self, method: HttpMethod, path: str, name: str) -> Callable[[RouteHandler], RouteHandler]:
         """Register one typed FastHTML endpoint through its declared route API."""
 
         route: Callable[..., object] = cast(Callable[..., object], self.app.route)
@@ -233,9 +223,7 @@ class WebApplication:
 
         return _chat_settings_view(self.state, chat_id)
 
-    def _navigation_view(
-        self, context: PageContext, chat_id: str = ""
-    ) -> NavigationView:
+    def _navigation_view(self, context: PageContext, chat_id: str = "") -> NavigationView:
         """Capture the request-aware data required by the navigation drawer."""
 
         return _navigation_view(self.state, context, chat_id)
@@ -250,26 +238,18 @@ class WebApplication:
     ) -> Character:
         """Validate and persist one editor submission before a character-dependent action."""
 
-        revision: int = _require_integer(
-            form.required_text("revision"), field_name="character revision"
-        )
+        revision: int = _require_integer(form.required_text("revision"), field_name="character revision")
         fields: list[CharacterField] = _character_fields_from_form(form)
         if additional_fields:
             fields.extend(additional_fields)
         base_preset_id: str = form.text("base_preset").strip()
-        selected_presets = self.character_preset_catalog.selected(
-            base_preset_id, form.texts("extra_preset")
-        )
+        selected_presets = self.character_preset_catalog.selected(base_preset_id, form.texts("extra_preset"))
         presets: CharacterPresetSelection = CharacterPresetSelection(
             base_id=base_preset_id,
-            extra_ids=tuple(
-                preset.id for preset in selected_presets if preset.layer == "extra"
-            ),
+            extra_ids=tuple(preset.id for preset in selected_presets if preset.layer == "extra"),
         )
         fallback_name: CharacterName | None = (
-            self.state.character(character_id).name_parts
-            if preserve_existing_name_if_blank
-            else None
+            self.state.character(character_id).name_parts if preserve_existing_name_if_blank else None
         )
         return await self.state.update_character(
             character_id,

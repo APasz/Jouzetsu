@@ -110,7 +110,7 @@ from .views.pages import (
 log: logging.Logger = logging.getLogger(__name__)
 _NOTICE_MAXIMUM_LENGTH: Final[int] = 240
 _ASSET_DIRECTORY: Path = Path(__file__).resolve().parent / "static"
-_DIALOG_NAMES: Final[frozenset[str]] = frozenset({"global", "access"})
+_DIALOG_NAMES: Final[frozenset[str]] = frozenset({"global", "access", "backends"})
 
 type HttpMethod = Literal["GET", "POST"]
 type RouteResult = FT | Response
@@ -166,13 +166,9 @@ def _register_page_routes(context: RouteContext) -> None:
     async def image_attachment(request: Request) -> Response:
         _ = await context.access.require(request)
         try:
-            image: ImageAttachment = context.state.image_attachment(
-                _path_text(request, "image_id")
-            )
+            image: ImageAttachment = context.state.image_attachment(_path_text(request, "image_id"))
             thumbnail: bool = _query_text(request, "thumbnail") == "1"
-            path: Path = await run_in_worker(
-                context.state.images.available_path, image, thumbnail=thumbnail
-            )
+            path: Path = await run_in_worker(context.state.images.available_path, image, thumbnail=thumbnail)
             if not path.is_file():
                 raise ValueError("image file is missing")
         except ValueError as exc:
@@ -190,9 +186,7 @@ def _register_page_routes(context: RouteContext) -> None:
         """Serve the canonical icon artwork with the active palette."""
 
         return Response(
-            configured_icon_svg(
-                icon_artwork_path(_ASSET_DIRECTORY), context.config.ui.icon_colors
-            ),
+            configured_icon_svg(icon_artwork_path(_ASSET_DIRECTORY), context.config.ui.icon_colors),
             media_type="image/svg+xml",
             headers={"Cache-Control": "no-store"},
         )
@@ -206,14 +200,11 @@ def _register_page_routes(context: RouteContext) -> None:
         )
 
     async def render_chat_page(request: Request) -> FT:
-        request_context: _RequestContext = await context.access.context(
-            request, register_device=True
-        )
+        request_context: _RequestContext = await context.access.context(request, register_device=True)
         if not request_context.page.decision.access_allowed:
             return render_locked_access_page(
                 request_context.page,
-                bootstrap_device=request_context.page.decision.reason
-                == "missing_device_id",
+                bootstrap_device=request_context.page.decision.reason == "missing_device_id",
                 approval_phrase_enabled=bool(context.config.access.approval_phrase),
             )
         return render_main_page(
@@ -231,14 +222,11 @@ def _register_page_routes(context: RouteContext) -> None:
 
     @context.route("GET", "/", "index")
     async def index(request: Request) -> FT:
-        request_context: _RequestContext = await context.access.context(
-            request, register_device=True
-        )
+        request_context: _RequestContext = await context.access.context(request, register_device=True)
         if not request_context.page.decision.access_allowed:
             return render_locked_access_page(
                 request_context.page,
-                bootstrap_device=request_context.page.decision.reason
-                == "missing_device_id",
+                bootstrap_device=request_context.page.decision.reason == "missing_device_id",
                 approval_phrase_enabled=bool(context.config.access.approval_phrase),
             )
         return render_launch_page(
@@ -252,9 +240,7 @@ def _register_page_routes(context: RouteContext) -> None:
     async def access_denied_preview(request: Request) -> FT:
         """Let localhost administrators view the page shown to unapproved browsers."""
 
-        request_context: _RequestContext = await context.access.require(
-            request, require_access_management=True
-        )
+        request_context: _RequestContext = await context.access.require(request, require_access_management=True)
         return render_locked_access_page(
             request_context.page,
             bootstrap_device=False,
@@ -268,20 +254,14 @@ def _register_page_routes(context: RouteContext) -> None:
         if not request_context.page.decision.access_allowed:
             return render_locked_access_page(
                 request_context.page,
-                bootstrap_device=request_context.page.decision.reason
-                == "missing_device_id",
+                bootstrap_device=request_context.page.decision.reason == "missing_device_id",
                 approval_phrase_enabled=bool(context.config.access.approval_phrase),
             )
         if context.state.chats:
             remembered = request.cookies.get(LAST_CHAT_COOKIE_NAME, "")
-            chat_id = (
-                remembered
-                if remembered in context.state.registry
-                else context.state.chats[0].id
-            )
+            chat_id = remembered if remembered in context.state.registry else context.state.chats[0].id
             return RedirectResponse(
-                f"/chats/{chat_id}"
-                + (f"?{request.url.query}" if request.url.query else ""),
+                f"/chats/{chat_id}" + (f"?{request.url.query}" if request.url.query else ""),
                 status_code=303,
             )
         return render_empty_chat_page(
@@ -300,8 +280,7 @@ def _register_page_routes(context: RouteContext) -> None:
         if not request_context.page.decision.access_allowed:
             return render_locked_access_page(
                 request_context.page,
-                bootstrap_device=request_context.page.decision.reason
-                == "missing_device_id",
+                bootstrap_device=request_context.page.decision.reason == "missing_device_id",
                 approval_phrase_enabled=bool(context.config.access.approval_phrase),
             )
         try:
@@ -312,14 +291,11 @@ def _register_page_routes(context: RouteContext) -> None:
 
     @context.route("GET", "/characters", "characters")
     async def characters(request: Request) -> FT:
-        request_context: _RequestContext = await context.access.context(
-            request, register_device=True
-        )
+        request_context: _RequestContext = await context.access.context(request, register_device=True)
         if not request_context.page.decision.access_allowed:
             return render_locked_access_page(
                 request_context.page,
-                bootstrap_device=request_context.page.decision.reason
-                == "missing_device_id",
+                bootstrap_device=request_context.page.decision.reason == "missing_device_id",
                 approval_phrase_enabled=bool(context.config.access.approval_phrase),
             )
         return render_character_page(
@@ -333,14 +309,11 @@ def _register_page_routes(context: RouteContext) -> None:
 
     @context.route("GET", "/characters/{character_id}", "character")
     async def character(request: Request) -> FT:
-        request_context: _RequestContext = await context.access.context(
-            request, register_device=True
-        )
+        request_context: _RequestContext = await context.access.context(request, register_device=True)
         if not request_context.page.decision.access_allowed:
             return render_locked_access_page(
                 request_context.page,
-                bootstrap_device=request_context.page.decision.reason
-                == "missing_device_id",
+                bootstrap_device=request_context.page.decision.reason == "missing_device_id",
                 approval_phrase_enabled=bool(context.config.access.approval_phrase),
             )
         character_id: str = _path_text(request, "character_id")
@@ -382,16 +355,12 @@ def _register_page_routes(context: RouteContext) -> None:
             edit_message_id=_query_text(request, "edit"),
         )
 
-    @context.route(
-        "GET", "/fragments/messages/{message_id}/details", "message_details_fragment"
-    )
+    @context.route("GET", "/fragments/messages/{message_id}/details", "message_details_fragment")
     async def message_details_fragment(request: Request) -> FT:
         _ = await context.access.require(request)
         message_id: str = _path_text(request, "message_id")
         try:
-            message: Message = context.mutations.require_visible_message(
-                _chat_id(request), message_id
-            )
+            message: Message = context.mutations.require_visible_message(_chat_id(request), message_id)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
         return render_message_details_content(message)
@@ -399,16 +368,12 @@ def _register_page_routes(context: RouteContext) -> None:
     @context.route("GET", "/fragments/navigation", "navigation_fragment")
     async def navigation_fragment(request: Request) -> FT:
         request_context: _RequestContext = await context.access.require(request)
-        return render_navigation_panel(
-            context.navigation_view(request_context.page, _chat_id(request))
-        )
+        return render_navigation_panel(context.navigation_view(request_context.page, _chat_id(request)))
 
     @context.route("GET", "/fragments/settings", "settings_fragment")
     async def settings_fragment(request: Request) -> FT:
         _ = await context.access.require(request)
-        return render_settings_panel(
-            context.chat_settings_view(_existing_chat_id(context.state, request))
-        )
+        return render_settings_panel(context.chat_settings_view(_existing_chat_id(context.state, request)))
 
     @context.route("GET", "/fragments/global", "global_fragment")
     async def global_fragment(request: Request) -> FT:
@@ -417,9 +382,7 @@ def _register_page_routes(context: RouteContext) -> None:
             render_global_settings_dialog,
         )
 
-        request_context = await context.access.require(
-            request, require_global_settings=True
-        )
+        request_context = await context.access.require(request, require_global_settings=True)
         return render_global_settings_dialog(
             context.state,
             request_context.page,
@@ -430,19 +393,22 @@ def _register_page_routes(context: RouteContext) -> None:
     async def access_fragment(request: Request) -> FT:
         from .views.access import render_access_dialog
 
-        request_context = await context.access.require(
-            request, require_access_management=True
-        )
+        request_context = await context.access.require(request, require_access_management=True)
         return render_access_dialog(context.state, request_context.page)
+
+    @context.route("GET", "/fragments/backends", "backends_fragment")
+    async def backends_fragment(request: Request) -> FT:
+        from .views.backends import render_backends_dialog
+
+        _ = await context.access.require(request, require_global_settings=True)
+        return render_backends_dialog(context.state, active_tab=_query_text(request, "tab"))
 
     @context.route("GET", "/events", "events")
     async def events(request: Request) -> Response:
         _ = await context.access.require(request)
         queue: asyncio.Queue[_UiEvent] = context.events.subscribe()
         return StreamingResponse(
-            _stream_events(
-                context.events, queue, lambda: context.access.allowed(request)
-            ),
+            _stream_events(context.events, queue, lambda: context.access.allowed(request)),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -479,9 +445,7 @@ def _register_character_routes(context: RouteContext) -> None:
             return _character_redirect(character_id, error=str(exc))
         return _character_redirect(character.id, notice="Character saved")
 
-    @context.route(
-        "POST", "/characters/{character_id}/fields/add", "add_character_field"
-    )
+    @context.route("POST", "/characters/{character_id}/fields/add", "add_character_field")
     async def add_character_field(request: Request) -> Response:
         """Add a field through ordinary form navigation when browser enhancement is unavailable."""
 
@@ -506,9 +470,7 @@ def _register_character_routes(context: RouteContext) -> None:
             return _character_redirect(character_id, error=str(exc))
         return _character_redirect(character.id, notice="Field added")
 
-    @context.route(
-        "POST", "/characters/{character_id}/presets/apply", "apply_character_presets"
-    )
+    @context.route("POST", "/characters/{character_id}/presets/apply", "apply_character_presets")
     async def apply_character_presets(request: Request) -> Response:
         """Apply selected field templates through ordinary form navigation."""
 
@@ -519,9 +481,7 @@ def _register_character_routes(context: RouteContext) -> None:
             fields: list[CharacterField] = _character_fields_from_form(form)
             additions: list[CharacterField] = _missing_preset_fields(
                 fields,
-                context.character_presets.selected(
-                    form.text("base_preset"), form.texts("extra_preset")
-                ),
+                context.character_presets.selected(form.text("base_preset"), form.texts("extra_preset")),
             )
             character: Character = await context.update_character(
                 character_id,
@@ -576,9 +536,7 @@ def _register_character_routes(context: RouteContext) -> None:
         except HTTPException:
             raise
         except Exception as exc:
-            log.exception(
-                "character chat creation failed character_id=%s", character_id
-            )
+            log.exception("character chat creation failed character_id=%s", character_id)
             return _character_redirect(character_id, error=str(exc))
         return RedirectResponse(
             f"/chats/{chat.id}",
@@ -589,9 +547,7 @@ def _register_character_routes(context: RouteContext) -> None:
 def _register_chat_routes(context: RouteContext) -> None:
     @context.route("POST", "/chats/new", "create_chat")
     async def create_chat(request: Request) -> Response:
-        return await context.mutations.perform(
-            request, context.state.new_chat, notice="New chat created"
-        )
+        return await context.mutations.perform(request, context.state.new_chat, notice="New chat created")
 
     @context.route("POST", "/chat/draft", "save_draft")
     async def save_draft(request: Request) -> Response:
@@ -602,9 +558,7 @@ def _register_chat_routes(context: RouteContext) -> None:
                 form.required_text("chat_id"),
                 _revision(form, "draft_revision"),
                 form.text("draft"),
-                images=context.state.session(
-                    form.required_text("chat_id")
-                ).chat.draft_images,
+                images=context.state.session(form.required_text("chat_id")).chat.draft_images,
             )
         except RevisionConflict as exc:
             return PlainTextResponse(str(exc), status_code=409)
@@ -621,18 +575,14 @@ def _register_chat_routes(context: RouteContext) -> None:
             chat_id = form.required_text("chat_id")
             chat = context.state.session(chat_id).chat
             revision = _revision(form)
-            message_id = _path_text(request, "message_id", required=False) or form.text(
-                "message_id"
-            )
+            message_id = _path_text(request, "message_id", required=False) or form.text("message_id")
             if action == "send":
                 return await runtime.send_message(
                     chat_id,
                     revision,
                     form.required_text("submission_id"),
                     form.text("content"),
-                    images=image_attachments_from_json(
-                        json.loads(form.text("images", default="[]"))
-                    ),
+                    images=image_attachments_from_json(json.loads(form.text("images", default="[]"))),
                     generate=form.flag("generate") if form.has("generate") else True,
                     expected_draft_revision=_revision(form, "draft_revision"),
                 )
@@ -669,9 +619,7 @@ def _register_chat_routes(context: RouteContext) -> None:
                 )
                 return await runtime.generate(chat_id, revision, mode=mode)
             if action == "backend":
-                await runtime.select_backend(
-                    chat_id, revision, BackendId(form.required_text("backend_id"))
-                )
+                await runtime.select_backend(chat_id, revision, BackendId(form.required_text("backend_id")))
                 return None
             if action in {"model", "sampling", "reasoning-level"}:
                 selected = chat.inference.selected_backend_id
@@ -683,26 +631,20 @@ def _register_chat_routes(context: RouteContext) -> None:
                     profile = replace(
                         profile,
                         model_id=model_id,
-                        reasoning="model_default"
-                        if model_id != profile.model_id
-                        else profile.reasoning,
+                        reasoning="model_default" if model_id != profile.model_id else profile.reasoning,
                     )
                 elif action == "reasoning-level":
                     value = form.required_text("reasoning_level")
                     backend = context.state.config.backends.backend(selected)
                     if not backend.kind.supports_reasoning_controls:
-                        raise ValueError(
-                            "reasoning controls are unavailable for this backend"
-                        )
+                        raise ValueError("reasoning controls are unavailable for this backend")
                     model = backend.model(profile.model_id or "")
                     if value not in (
                         "model_default",
                         "automatic",
                         *model.reasoning_options,
                     ):
-                        raise ValueError(
-                            "reasoning level is not available for this model"
-                        )
+                        raise ValueError("reasoning level is not available for this model")
                     profile = replace(profile, reasoning=value)
                 else:
                     profile = replace(profile, parameters=_sampling(form))
@@ -719,9 +661,7 @@ def _register_chat_routes(context: RouteContext) -> None:
                         raise ValueError("title cannot be blank")
                     candidate.set_manual_title(title)
                 elif action in {"prompt", "reset"}:
-                    candidate.system_prompt = (
-                        form.text("prompt").strip() if action == "prompt" else ""
-                    )
+                    candidate.system_prompt = form.text("prompt").strip() if action == "prompt" else ""
                 elif action == "british-spellings":
                     candidate.postprocess_british_spellings = form.flag("enabled")
                 elif action == "reasoning":
@@ -743,9 +683,7 @@ def _register_chat_routes(context: RouteContext) -> None:
                         candidate.truncate_to_message(message_id)
                     elif action == "merge":
                         merged = candidate.merge_message_with_previous(message_id)
-                        context.state.images.limits.validate_image_count(
-                            len(merged.images)
-                        )
+                        context.state.images.limits.validate_image_count(len(merged.images))
                     else:
                         raise ValueError("unknown chat action")
 
@@ -822,15 +760,9 @@ def _register_chat_routes(context: RouteContext) -> None:
                 total_bytes += len(data)
                 if total_bytes > limits.max_batch_bytes:
                     raise ValueError("the combined images exceed the upload limit")
-                images.append(
-                    await run_in_worker(
-                        context.state.images.store, data, upload.filename or "image"
-                    )
-                )
+                images.append(await run_in_worker(context.state.images.store, data, upload.filename or "image"))
             chat = context.state.session(chat_id).chat
-            merged_images = tuple(
-                {image.id: image for image in (*chat.draft_images, *images)}.values()
-            )
+            merged_images = tuple({image.id: image for image in (*chat.draft_images, *images)}.values())
             limits.validate_image_count(len(merged_images))
             await context.state.inference.update_draft(
                 chat_id,
@@ -848,9 +780,7 @@ def _register_chat_routes(context: RouteContext) -> None:
         finally:
             await request.close()
 
-    @context.route(
-        "POST", "/chats/{chat_id}/images/{image_id}/remove", "remove_chat_image"
-    )
+    @context.route("POST", "/chats/{chat_id}/images/{image_id}/remove", "remove_chat_image")
     async def remove_chat_image(request: Request) -> Response:
         form = await _form_values(request)
 
@@ -864,20 +794,14 @@ def _register_chat_routes(context: RouteContext) -> None:
                 chat_id,
                 _revision(form, "draft_revision"),
                 chat.draft,
-                images=tuple(
-                    image for image in chat.draft_images if image.id != image_id
-                ),
+                images=tuple(image for image in chat.draft_images if image.id != image_id),
             )
 
         result = await context.mutations.perform(request, operation, notice="")
         if result.status_code != 303:
             return result
         return JSONResponse(
-            {
-                "draft_revision": context.state.session(
-                    form.required_text("chat_id")
-                ).chat.draft_revision
-            }
+            {"draft_revision": context.state.session(form.required_text("chat_id")).chat.draft_revision}
         )
 
 
@@ -927,12 +851,8 @@ def _register_settings_routes(context: RouteContext) -> None:
 
         async def operation() -> None:
             theme: ThemeSettings = _updated_theme_settings(context.state, form)
-            icon_colors: IconColorSettings = _updated_icon_color_settings(
-                context.state, form
-            )
-            message_action_style: MessageActionStyle = _message_action_style_from_form(
-                context.state, form
-            )
+            icon_colors: IconColorSettings = _updated_icon_color_settings(context.state, form)
+            message_action_style: MessageActionStyle = _message_action_style_from_form(context.state, form)
             await context.state.set_appearance_settings(
                 theme,
                 icon_colors,
@@ -949,9 +869,7 @@ def _register_settings_routes(context: RouteContext) -> None:
             dialog_tab="appearance",
         )
 
-    @context.route(
-        "POST", "/settings/global/appearance/reset", "reset_global_appearance"
-    )
+    @context.route("POST", "/settings/global/appearance/reset", "reset_global_appearance")
     async def reset_global_appearance(request: Request) -> Response:
         return await context.mutations.perform(
             request,
@@ -968,9 +886,7 @@ def _register_settings_routes(context: RouteContext) -> None:
         "reset_theme_colorway",
     )
     async def reset_theme_colorway(request: Request) -> Response:
-        colorway: ThemeColorway = _theme_colorway_from_text(
-            _path_text(request, "colorway")
-        )
+        colorway: ThemeColorway = _theme_colorway_from_text(_path_text(request, "colorway"))
         return await context.mutations.perform(
             request,
             lambda: context.state.reset_theme_colorway(colorway),
@@ -1001,9 +917,7 @@ def _register_settings_routes(context: RouteContext) -> None:
             dialog_tab="behaviour",
         )
 
-    @context.route(
-        "POST", "/settings/global/generation/reset", "reset_global_generation"
-    )
+    @context.route("POST", "/settings/global/generation/reset", "reset_global_generation")
     async def reset_global_generation(request: Request) -> Response:
         return await context.mutations.perform(
             request,
@@ -1016,9 +930,7 @@ def _register_settings_routes(context: RouteContext) -> None:
 
 
 def _register_access_routes(context: RouteContext) -> None:
-    @context.route(
-        "POST", "/access/current-device/activity", "record_current_device_activity"
-    )
+    @context.route("POST", "/access/current-device/activity", "record_current_device_activity")
     async def record_current_device_activity(request: Request) -> Response:
         """Accept a CSRF-protected, visible-tab browser activity heartbeat."""
 
@@ -1031,9 +943,7 @@ def _register_access_routes(context: RouteContext) -> None:
         await require_csrf_token(request)
         form = await _form_values(request)
         try:
-            await context.access.approve_with_phrase(
-                request, form.text("approval_phrase"), label=form.text("label")
-            )
+            await context.access.approve_with_phrase(request, form.text("approval_phrase"), label=form.text("label"))
         except (ValueError, TypeError, KeyError) as exc:
             return PlainTextResponse(str(exc), status_code=400)
         return context.mutations.redirect(notice="Browser approved")
@@ -1043,20 +953,12 @@ def _register_access_routes(context: RouteContext) -> None:
         form: _FormValues = await _form_values(request)
 
         async def operation() -> None:
-            request_context: _RequestContext = await context.access.context(
-                request, register_device=False
-            )
+            request_context: _RequestContext = await context.access.context(request, register_device=False)
             if not request_context.page.decision.device_id:
-                raise ValueError(
-                    "this browser does not have a valid device identifier yet"
-                )
-            await context.state.set_access_device_label(
-                request_context.page.decision.device_id, form.text("label")
-            )
+                raise ValueError("this browser does not have a valid device identifier yet")
+            await context.state.set_access_device_label(request_context.page.decision.device_id, form.text("label"))
 
-        return await context.mutations.perform(
-            request, operation, notice="Device label saved"
-        )
+        return await context.mutations.perform(request, operation, notice="Device label saved")
 
     @context.route("POST", "/access/phrase", "save_approval_phrase")
     async def save_approval_phrase(request: Request) -> Response:
@@ -1083,16 +985,12 @@ def _register_access_routes(context: RouteContext) -> None:
             dialog="access",
         )
 
-    @context.route(
-        "POST", "/access/devices/{device_id}/forget", "forget_pending_device"
-    )
+    @context.route("POST", "/access/devices/{device_id}/forget", "forget_pending_device")
     async def forget_pending_device(request: Request) -> Response:
         device_id: str = _path_text(request, "device_id")
 
         async def operation() -> None:
-            request_context: _RequestContext = await context.access.context(
-                request, register_device=False
-            )
+            request_context: _RequestContext = await context.access.context(request, register_device=False)
             if device_id == request_context.page.decision.device_id:
                 raise ValueError("the current browser cannot be forgotten")
             await context.state.forget_pending_access_device(device_id)
@@ -1111,9 +1009,7 @@ def _register_access_routes(context: RouteContext) -> None:
         form: _FormValues = await _form_values(request)
         return await context.mutations.perform(
             request,
-            lambda: context.state.set_access_device_label(
-                device_id, form.text("label")
-            ),
+            lambda: context.state.set_access_device_label(device_id, form.text("label")),
             notice="Device label saved",
             require_access_management=True,
             dialog="access",
@@ -1154,9 +1050,7 @@ def _query_dialog_name(request: Request) -> _DialogName:
 
 
 def _chat_id(request: Request) -> str:
-    value = _path_text(request, "chat_id", required=False) or _query_text(
-        request, "chat_id"
-    )
+    value = _path_text(request, "chat_id", required=False) or _query_text(request, "chat_id")
     if not value:
         raise HTTPException(400, "explicit chat_id is required")
     return value
@@ -1167,21 +1061,21 @@ def _register_backend_routes(context: RouteContext) -> None:
     async def new_backend(request: Request) -> Response:
         form = await _form_values(request)
 
-        async def operation() -> None:
+        async def operation() -> BackendConfig:
             backend = BackendConfig.create(
                 BackendKind(form.required_text("kind")),
                 form.required_text("name").strip(),
                 form.required_text("base_url").strip(),
             )
             await context.state.inference.update_backend(backend)
+            return backend
 
         return await context.mutations.perform(
             request,
             operation,
             notice="Backend added",
             require_global_settings=True,
-            dialog="global",
-            dialog_tab="backends",
+            dialog="backends",
         )
 
     @context.route("POST", "/settings/backends/default", "default_backend")
@@ -1195,17 +1089,14 @@ def _register_backend_routes(context: RouteContext) -> None:
             ),
             notice="Default backend saved",
             require_global_settings=True,
-            dialog="global",
-            dialog_tab="backends",
+            dialog="backends",
         )
 
-    @context.route(
-        "POST", "/settings/backends/{backend_id}/{action}", "backend_command"
-    )
+    @context.route("POST", "/settings/backends/{backend_id}/{action}", "backend_command")
     async def backend_command(request: Request) -> Response:
         form = await _form_values(request)
 
-        async def operation() -> None:
+        async def operation() -> BackendConfig | None:
             backend_id = BackendId(_path_text(request, "backend_id"))
             runtime = context.state.inference
             try:
@@ -1238,9 +1129,7 @@ def _register_backend_routes(context: RouteContext) -> None:
                     await runtime.unload_model(model)
                 await runtime.refresh_backend(backend_id)
                 return
-            runtime.validate_backend_snapshot(
-                backend, form.required_text("backend_fingerprint")
-            )
+            runtime.validate_backend_snapshot(backend, form.required_text("backend_fingerprint"))
             if action == "save":
                 management = (
                     replace(
@@ -1271,63 +1160,46 @@ def _register_backend_routes(context: RouteContext) -> None:
                     )
                     if backend.kind is BackendKind.OLLAMA
                     else None,
-                    defaults=GenerationProfile(
-                        model_id=form.text("model") or None, parameters=_sampling(form)
-                    ),
+                    defaults=GenerationProfile(model_id=form.text("model") or None, parameters=_sampling(form)),
                     model_management=management,
                 )
+            elif action == "default-model":
+                model_id = form.required_text("model_id")
+                _ = backend.model(model_id)
+                candidate = replace(backend, defaults=replace(backend.defaults, model_id=model_id))
             elif action == "alias":
-                candidate = backend.set_model_alias(
-                    form.required_text("model_id"), form.text("alias").strip()
-                )
+                candidate = backend.set_model_alias(form.required_text("model_id"), form.text("alias").strip())
                 if form.has("reasoning_default"):
                     if not backend.kind.supports_reasoning_controls:
-                        raise ValueError(
-                            "reasoning controls are unavailable for this backend"
-                        )
+                        raise ValueError("reasoning controls are unavailable for this backend")
                     model = candidate.model(form.required_text("model_id"))
                     options = (
-                        tuple(
-                            option
-                            for option in REASONING_OPTIONS
-                            if form.flag(f"reasoning_option_{option}")
-                        )
+                        tuple(option for option in REASONING_OPTIONS if form.flag(f"reasoning_option_{option}"))
                         if form.has("reasoning_override")
                         else model.reasoning_options_override
                     )
                     default = form.text("reasoning_default")
-                    available = (
-                        options or model.descriptor.capabilities.reasoning_options
-                    )
+                    available = options or model.descriptor.capabilities.reasoning_options
                     default_unavailable = False
                     if default and default not in available:
                         if default != model.reasoning_default:
-                            raise ValueError(
-                                "reasoning default is not available for this model"
-                            )
+                            raise ValueError("reasoning default is not available for this model")
                         if options != model.reasoning_options_override:
                             default = ""
                             default_unavailable = True
                     updated = replace(
                         model,
-                        reasoning_default=cast(ReasoningOption, default)
-                        if default
-                        else None,
+                        reasoning_default=cast(ReasoningOption, default) if default else None,
                         reasoning_options_override=options,
                         reasoning_default_unavailable=default_unavailable,
                     )
                     candidate = replace(
                         candidate,
-                        models=tuple(
-                            updated if item is model else item
-                            for item in candidate.models
-                        ),
+                        models=tuple(updated if item is model else item for item in candidate.models),
                     )
             elif action == "register-model":
                 model_id = form.required_text("model_id").strip()
-                candidate = backend.register_model(
-                    model_id, alias=form.text("alias").strip()
-                )
+                candidate = backend.register_model(model_id, alias=form.text("alias").strip())
             else:
                 raise ValueError("unknown backend action")
             await runtime.update_backend(
@@ -1335,29 +1207,22 @@ def _register_backend_routes(context: RouteContext) -> None:
                 expected=backend,
                 expected_fingerprint=form.required_text("backend_fingerprint"),
             )
+            return candidate
 
         return await context.mutations.perform(
             request,
             operation,
             notice="Backend updated",
             require_global_settings=True,
-            dialog="global",
-            dialog_tab="backends",
+            dialog="backends",
+            dialog_tab=BackendId(_path_text(request, "backend_id")),
         )
 
 
-def _character_redirect(
-    character_id: str = "", *, notice: str = "", error: str = ""
-) -> RedirectResponse:
-    values = {
-        key: value[:240]
-        for key, value in {"notice": notice, "error": error}.items()
-        if value
-    }
+def _character_redirect(character_id: str = "", *, notice: str = "", error: str = "") -> RedirectResponse:
+    values = {key: value[:240] for key, value in {"notice": notice, "error": error}.items() if value}
     path = f"/characters/{character_id}" if character_id else "/characters"
-    return RedirectResponse(
-        path + (f"?{urlencode(values)}" if values else ""), status_code=303
-    )
+    return RedirectResponse(path + (f"?{urlencode(values)}" if values else ""), status_code=303)
 
 
 def _existing_chat_id(state: AppState, request: Request) -> str:

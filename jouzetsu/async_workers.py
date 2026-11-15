@@ -14,9 +14,7 @@ _WORKER_EXECUTOR: ThreadPoolExecutor = ThreadPoolExecutor(
 )
 
 
-async def run_in_worker[**P, T](
-    function: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
-) -> T:
+async def run_in_worker[**P, T](function: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T:
     """Run a short blocking operation without relying on asyncio's default executor."""
 
     callback: Callable[[], T] = partial(function, *args, **kwargs)

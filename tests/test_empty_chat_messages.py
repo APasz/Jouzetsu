@@ -15,19 +15,14 @@ from jouzetsu.empty_chat_messages import (
 
 
 def test_builtin_empty_chat_messages_are_between_one_and_twenty_words() -> None:
-    assert all(
-        1 <= len(message.split()) <= MAX_EMPTY_CHAT_MESSAGE_WORDS
-        for message in BUILTIN_EMPTY_CHAT_MESSAGES
-    )
+    assert all(1 <= len(message.split()) <= MAX_EMPTY_CHAT_MESSAGE_WORDS for message in BUILTIN_EMPTY_CHAT_MESSAGES)
 
 
 def test_empty_chat_message_file_adds_valid_lines_and_skips_comments(
     tmp_path: Path,
 ) -> None:
     custom_path: Path = tmp_path / EMPTY_CHAT_MESSAGES_FILE_NAME
-    _ = custom_path.write_text(
-        "# A comment\n\nOne word\nA neatly custom message\n", encoding="utf-8"
-    )
+    _ = custom_path.write_text("# A comment\n\nOne word\nA neatly custom message\n", encoding="utf-8")
 
     provider = EmptyChatMessageProvider(tmp_path)
 
@@ -36,9 +31,7 @@ def test_empty_chat_message_file_adds_valid_lines_and_skips_comments(
         "One word",
         "A neatly custom message",
     )
-    with patch(
-        "jouzetsu.empty_chat_messages.secrets.choice", side_effect=_select_last_message
-    ):
+    with patch("jouzetsu.empty_chat_messages.secrets.choice", side_effect=_select_last_message):
         assert provider.choose() == "A neatly custom message"
 
 
@@ -50,9 +43,7 @@ def test_empty_chat_message_file_reloads_for_later_new_chats(tmp_path: Path) -> 
     assert provider.available_messages[-1] == "A late arrival"
 
 
-def test_empty_chat_message_file_ignores_lines_over_twenty_words(
-    tmp_path: Path, caplog: LogCaptureFixture
-) -> None:
+def test_empty_chat_message_file_ignores_lines_over_twenty_words(tmp_path: Path, caplog: LogCaptureFixture) -> None:
     custom_path: Path = tmp_path / EMPTY_CHAT_MESSAGES_FILE_NAME
     _ = custom_path.write_text(
         " ".join("word" for _ in range(MAX_EMPTY_CHAT_MESSAGE_WORDS + 1)),

@@ -20,16 +20,10 @@ def chat_view(state: AppState, chat_id: str) -> ChatView:
     status = session.runtime_status
     selected = session.chat.inference.selected_backend_id
     profile = session.chat.inference.selected_profile
-    backend = next(
-        (item for item in state.config.backends.backends if item.id == selected), None
-    )
+    backend = next((item for item in state.config.backends.backends if item.id == selected), None)
     model = (
         next(
-            (
-                item
-                for item in backend.models
-                if profile and item.descriptor.key == profile.model_id
-            ),
+            (item for item in backend.models if profile and item.descriptor.key == profile.model_id),
             None,
         )
         if backend and backend.kind.supports_reasoning_controls
@@ -49,10 +43,7 @@ def chat_view(state: AppState, chat_id: str) -> ChatView:
                     phase=RuntimePhase.ERROR,
                     detail="Selected backend was removed",
                 )
-            elif (
-                not backend.enabled
-                or state.inference.health(selected).state is BackendReachability.OFFLINE
-            ):
+            elif not backend.enabled or state.inference.health(selected).state is BackendReachability.OFFLINE:
                 status = replace(
                     status,
                     phase=RuntimePhase.OFFLINE,
@@ -78,10 +69,7 @@ def chat_view(state: AppState, chat_id: str) -> ChatView:
             and profile
             and (
                 not model.resolve_reasoning(profile.reasoning)[1]
-                or (
-                    profile.reasoning == "model_default"
-                    and model.reasoning_default_unavailable
-                )
+                or (profile.reasoning == "model_default" and model.reasoning_default_unavailable)
             )
         ),
     )
@@ -91,19 +79,13 @@ def chat_settings_view(state: AppState, chat_id: str) -> ChatSettingsView:
     chat = state.session(chat_id).chat
     backend_id = chat.inference.selected_backend_id
     backend = next(
-        (
-            backend
-            for backend in state.config.backends.backends
-            if backend.id == backend_id
-        ),
+        (backend for backend in state.config.backends.backends if backend.id == backend_id),
         None,
     )
     profile = chat.inference.selected_profile or GenerationProfile()
     support = backend.support_for_model(profile.model_id) if backend else None
     inactive = tuple(
-        name
-        for name in ("temperature", "top_p", "max_tokens")
-        if support is None or getattr(support, name) is not True
+        name for name in ("temperature", "top_p", "max_tokens") if support is None or getattr(support, name) is not True
     )
     return ChatSettingsView(
         chat=chat,
@@ -115,17 +97,13 @@ def chat_settings_view(state: AppState, chat_id: str) -> ChatSettingsView:
     )
 
 
-def navigation_view(
-    state: AppState, context: PageContext, chat_id: str = ""
-) -> NavigationView:
+def navigation_view(state: AppState, context: PageContext, chat_id: str = "") -> NavigationView:
     device = state.config.access.devices.get(context.decision.device_id)
     chats = tuple(state.chats)
     return NavigationView(
         chats=chats,
         selected_chat_id=chat_id,
-        generating_chat_ids=frozenset(
-            chat.id for chat in chats if state.is_generating(chat.id)
-        ),
+        generating_chat_ids=frozenset(chat.id for chat in chats if state.is_generating(chat.id)),
         app_icon_url=app_icon_url(state.config.ui.icon_colors),
         can_use_global_settings=context.decision.can_use_global_settings,
         can_manage_access=context.decision.can_manage_access,

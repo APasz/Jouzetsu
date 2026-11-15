@@ -37,40 +37,20 @@ class AccessTests(unittest.TestCase):
         self.assertEqual(decision.reason, "missing_device_id")
 
     def test_device_access_approval_phrase_requires_exact_match(self) -> None:
-        self.assertTrue(
-            is_device_access_approval_phrase(
-                "configured-phrase", required_phrase="configured-phrase"
-            )
-        )
-        self.assertFalse(
-            is_device_access_approval_phrase(
-                " configured-phrase ", required_phrase="configured-phrase"
-            )
-        )
-        self.assertFalse(
-            is_device_access_approval_phrase(
-                "CONFIGURED-PHRASE", required_phrase="configured-phrase"
-            )
-        )
-        self.assertFalse(
-            is_device_access_approval_phrase(None, required_phrase="configured-phrase")
-        )
+        self.assertTrue(is_device_access_approval_phrase("configured-phrase", required_phrase="configured-phrase"))
+        self.assertFalse(is_device_access_approval_phrase(" configured-phrase ", required_phrase="configured-phrase"))
+        self.assertFalse(is_device_access_approval_phrase("CONFIGURED-PHRASE", required_phrase="configured-phrase"))
+        self.assertFalse(is_device_access_approval_phrase(None, required_phrase="configured-phrase"))
         self.assertFalse(is_device_access_approval_phrase("", required_phrase=""))
 
     def test_remote_device_requires_explicit_allow(self) -> None:
         device_id = "dvc_12345678-abcd-4000-abcd-123456789abc"
         config = AppConfig()
 
-        changed = register_seen_device(
-            config, device_id=device_id, label="192.168.1.20"
-        )
-        pending = access_decision(
-            config, client_ip="192.168.1.20", raw_device_id=device_id
-        )
+        changed = register_seen_device(config, device_id=device_id, label="192.168.1.20")
+        pending = access_decision(config, client_ip="192.168.1.20", raw_device_id=device_id)
         set_device_access(config, device_id=device_id, access_allowed=True)
-        approved = access_decision(
-            config, client_ip="192.168.1.20", raw_device_id=device_id
-        )
+        approved = access_decision(config, client_ip="192.168.1.20", raw_device_id=device_id)
 
         self.assertTrue(changed)
         self.assertFalse(pending.access_allowed)
@@ -94,16 +74,12 @@ class AccessTests(unittest.TestCase):
         approved_device_id = "dvc_abcdef12-abcd-4000-abcd-123456789abc"
         config = AppConfig()
         config.access.devices[pending_device_id] = DeviceAccessSettings()
-        config.access.devices[approved_device_id] = DeviceAccessSettings(
-            access_allowed=True
-        )
+        config.access.devices[approved_device_id] = DeviceAccessSettings(access_allowed=True)
 
         forget_pending_device(config, device_id=pending_device_id)
 
         self.assertNotIn(pending_device_id, config.access.devices)
-        with self.assertRaisesRegex(
-            ValueError, "approved devices must have access revoked instead"
-        ):
+        with self.assertRaisesRegex(ValueError, "approved devices must have access revoked instead"):
             forget_pending_device(config, device_id=approved_device_id)
         self.assertIn(approved_device_id, config.access.devices)
 
@@ -136,9 +112,7 @@ class AccessTests(unittest.TestCase):
             last_seen_at="2026-08-26T12:00:00Z",
         )
 
-        with patch(
-            "jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:01:00Z"
-        ):
+        with patch("jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:01:00Z"):
             changed = refresh_seen_device(
                 config,
                 device_id=device_id,
@@ -147,13 +121,9 @@ class AccessTests(unittest.TestCase):
             )
 
         self.assertFalse(changed)
-        self.assertEqual(
-            config.access.devices[device_id].last_seen_at, "2026-08-26T12:00:00Z"
-        )
+        self.assertEqual(config.access.devices[device_id].last_seen_at, "2026-08-26T12:00:00Z")
 
-        with patch(
-            "jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:02:00Z"
-        ):
+        with patch("jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:02:00Z"):
             changed = refresh_seen_device(
                 config,
                 device_id=device_id,
@@ -162,13 +132,9 @@ class AccessTests(unittest.TestCase):
             )
 
         self.assertTrue(changed)
-        self.assertEqual(
-            config.access.devices[device_id].last_seen_at, "2026-08-26T12:02:00Z"
-        )
+        self.assertEqual(config.access.devices[device_id].last_seen_at, "2026-08-26T12:02:00Z")
 
-        with patch(
-            "jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:02:30Z"
-        ):
+        with patch("jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:02:30Z"):
             changed = refresh_seen_device(
                 config,
                 device_id=device_id,
@@ -180,13 +146,9 @@ class AccessTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(config.access.devices[device_id].last_ip, "192.168.1.21")
         self.assertEqual(config.access.devices[device_id].hostname, "new-phone.local")
-        self.assertEqual(
-            config.access.devices[device_id].last_seen_at, "2026-08-26T12:02:30Z"
-        )
+        self.assertEqual(config.access.devices[device_id].last_seen_at, "2026-08-26T12:02:30Z")
 
-        with patch(
-            "jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:03:00Z"
-        ):
+        with patch("jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:03:00Z"):
             changed = refresh_seen_device(
                 config,
                 device_id=device_id,
@@ -224,9 +186,7 @@ class AccessTests(unittest.TestCase):
             last_seen_at="2026-08-26T12:00:00Z",
         )
 
-        with patch(
-            "jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:01:00Z"
-        ):
+        with patch("jouzetsu.access.utc_timestamp", return_value="2026-08-26T12:01:00Z"):
             changed = refresh_seen_device(
                 config,
                 device_id=device_id,
@@ -237,9 +197,7 @@ class AccessTests(unittest.TestCase):
             )
 
         self.assertFalse(changed)
-        self.assertEqual(
-            config.access.devices[device_id].last_seen_at, "2026-08-26T12:00:00Z"
-        )
+        self.assertEqual(config.access.devices[device_id].last_seen_at, "2026-08-26T12:00:00Z")
 
     def test_network_reassociation_is_disabled_by_default(self) -> None:
         old_device_id = "dvc_12345678-abcd-4000-abcd-123456789abc"

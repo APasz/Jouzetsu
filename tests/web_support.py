@@ -29,6 +29,4 @@ async def close_web_application(web: WebApplication, state: AppState) -> None:
 
 
 def transport(web: WebApplication, *, client_ip: str) -> httpx.ASGITransport:
-    return httpx.ASGITransport(
-        app=web.app, raise_app_exceptions=True, client=(client_ip, 43123)
-    )
+    return httpx.ASGITransport(app=web.app, raise_app_exceptions=True, client=(client_ip, 43123))

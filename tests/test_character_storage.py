@@ -33,9 +33,7 @@ def test_character_storage_persists_each_profile_in_its_own_file() -> None:
         assert saved["is_draft"] is False
 
 
-def test_character_storage_loads_an_unversioned_document_and_round_trips_it_as_v1() -> (
-    None
-):
+def test_character_storage_loads_an_unversioned_document_and_round_trips_it_as_v1() -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         directory: Path = Path(temporary_directory) / "characters"
         storage = CharacterStorage(directory)
@@ -43,9 +41,7 @@ def test_character_storage_loads_an_unversioned_document_and_round_trips_it_as_v
         legacy_document: dict[str, object] = dict(legacy.to_dict())
         _ = legacy_document.pop("schema_version")
         _ = legacy_document.pop("is_draft")
-        _ = storage.path_for(legacy.id).write_text(
-            json.dumps(legacy_document), encoding="utf-8"
-        )
+        _ = storage.path_for(legacy.id).write_text(json.dumps(legacy_document), encoding="utf-8")
 
         [loaded] = storage.load_all()
         storage.save(loaded)

@@ -38,17 +38,13 @@ from jouzetsu.runtime import ModelCapabilities
     ("choice", "expected"),
     [("model_default", "on"), ("automatic", None), ("off", "off"), ("high", None)],
 )
-def test_reasoning_selection_reaches_request_and_attribution(
-    tmp_path: Path, choice: str, expected: str | None
-) -> None:
+def test_reasoning_selection_reaches_request_and_attribution(tmp_path: Path, choice: str, expected: str | None) -> None:
     async def exercise() -> None:
         config = backend(native=True)
         original = config.models[0]
         descriptor = replace(
             original.descriptor,
-            capabilities=ModelCapabilities(
-                reasoning=True, reasoning_options=("off", "on")
-            ),
+            capabilities=ModelCapabilities(reasoning=True, reasoning_options=("off", "on")),
         )
         config = replace(
             config,
@@ -58,9 +54,7 @@ def test_reasoning_selection_reaches_request_and_attribution(
         chat = await h.chat()
         profile = chat.inference.selected_profile
         assert profile is not None
-        await h.runtime.set_profile(
-            chat.id, chat.revision, replace(profile, reasoning=choice)
-        )  # type: ignore[arg-type]
+        await h.runtime.set_profile(chat.id, chat.revision, replace(profile, reasoning=choice))  # type: ignore[arg-type]
         job = await h.runtime.generate(chat.id, chat.revision)
         assert job is not None
         await job.wait()
@@ -83,9 +77,7 @@ def test_unknown_reasoning_capability_does_not_erase_chat_selection(
         chat = await h.chat()
         profile = chat.inference.selected_profile
         assert profile is not None
-        await h.runtime.set_profile(
-            chat.id, chat.revision, replace(profile, reasoning="high")
-        )
+        await h.runtime.set_profile(chat.id, chat.revision, replace(profile, reasoning="high"))
         job = await h.runtime.generate(chat.id, chat.revision)
         assert job is not None
         await job.wait()
@@ -181,12 +173,8 @@ def test_cancel_before_task_start_or_while_queued(tmp_path: Path, queued: bool) 
     asyncio.run(exercise())
 
 
-@pytest.mark.parametrize(
-    "text,reasoning", [("", ""), ("", "private reasoning"), ("partial", "trace")]
-)
-def test_failure_preserves_only_actual_text_and_error_is_ephemeral(
-    tmp_path: Path, text: str, reasoning: str
-) -> None:
+@pytest.mark.parametrize("text,reasoning", [("", ""), ("", "private reasoning"), ("partial", "trace")])
+def test_failure_preserves_only_actual_text_and_error_is_ephemeral(tmp_path: Path, text: str, reasoning: str) -> None:
     async def exercise() -> None:
         config = backend()
         h = Harness(tmp_path, (config,))
@@ -220,9 +208,7 @@ def test_failure_preserves_only_actual_text_and_error_is_ephemeral(
 
 
 @pytest.mark.parametrize("text", ["", "new partial"])
-def test_regeneration_keeps_original_until_real_text_then_saves_replacement(
-    tmp_path: Path, text: str
-) -> None:
+def test_regeneration_keeps_original_until_real_text_then_saves_replacement(tmp_path: Path, text: str) -> None:
     async def exercise() -> None:
         config = backend()
         h = Harness(tmp_path, (config,))
@@ -233,9 +219,7 @@ def test_regeneration_keeps_original_until_real_text_then_saves_replacement(
         original = chat.messages[-1]
         plan = Plan(text=text, reasoning="reasoning alone", hold=True)
         h.adapters[config.id].plans.append(plan)
-        job = await h.runtime.generate(
-            chat.id, chat.revision, GenerationMode.REGENERATE
-        )
+        job = await h.runtime.generate(chat.id, chat.revision, GenerationMode.REGENERATE)
         assert job
         await plan.produced.wait()
         assert chat.messages[-1] is original
@@ -311,9 +295,7 @@ def test_save_failure_retains_output_for_save_retry_and_keeps_drafts_safe(
         config = backend()
         h = Harness(tmp_path, (config,))
         chat = await h.chat()
-        with patch.object(
-            h.persistence.storage, "save_records", side_effect=OSError("disk full")
-        ):
+        with patch.object(h.persistence.storage, "save_records", side_effect=OSError("disk full")):
             job = await h.runtime.generate(chat.id, chat.revision)
             assert job
             await job.wait()
@@ -348,9 +330,7 @@ def test_offline_send_persists_user_and_duplicate_survives_restart_and_edits(
         sent = await h.runtime.send_message(chat.id, 0, "receipt", "Saved offline")
         assert sent.job is None and not sent.duplicate
         assert h.registry.get(chat.id).latest_error is not None
-        await h.runtime.edit_chat(
-            chat.id, chat.revision, lambda candidate: candidate.messages.clear()
-        )
+        await h.runtime.edit_chat(chat.id, chat.revision, lambda candidate: candidate.messages.clear())
         assert await h.runtime.shutdown()
         reloaded = h.reload(chat)
         h2 = Harness(tmp_path, (config,))
@@ -358,9 +338,7 @@ def test_offline_send_persists_user_and_duplicate_survives_restart_and_edits(
             reloaded,
             runtime_status=h.registry.get(chat.id).runtime_status,
         )
-        duplicate = await h2.runtime.send_message(
-            chat.id, 0, "receipt", "Saved offline"
-        )
+        duplicate = await h2.runtime.send_message(chat.id, 0, "receipt", "Saved offline")
         assert duplicate.message_id == sent.message_id
         assert duplicate.duplicate and duplicate.job is None
         assert not reloaded.messages
@@ -385,9 +363,7 @@ def test_concurrent_revision_edits_reject_stale_write_and_preserve_identity(
                 revision,
                 lambda candidate: candidate.set_manual_title("Winner"),
             ),
-            h.runtime.edit_chat(
-                chat.id, revision, lambda candidate: candidate.set_manual_title("Loser")
-            ),
+            h.runtime.edit_chat(chat.id, revision, lambda candidate: candidate.set_manual_title("Loser")),
             return_exceptions=True,
         )
         assert results[0] is None and isinstance(results[1], RevisionConflict)
@@ -413,9 +389,7 @@ def test_failed_send_has_no_success_event_or_idempotency_receipt(
         ):
             await h.runtime.send_message(chat.id, 0, "retry", "Rejected")
         assert not h.changes and not chat.messages and not chat.submissions
-        result = await h.runtime.send_message(
-            chat.id, 0, "retry", "Different valid text", generate=False
-        )
+        result = await h.runtime.send_message(chat.id, 0, "retry", "Different valid text", generate=False)
         assert not result.duplicate
         assert h.reload(chat).messages[0].content == "Different valid text"
         assert not h.adapters[config.id].requests
@@ -445,9 +419,7 @@ def test_slow_commit_does_not_block_other_chat_and_cancel_still_publishes(
 
         with patch.object(h.storage, "save_records", side_effect=slow):
             edit = asyncio.create_task(
-                h.runtime.edit_chat(
-                    a.id, a.revision, lambda chat: chat.set_manual_title("Durable")
-                )
+                h.runtime.edit_chat(a.id, a.revision, lambda chat: chat.set_manual_title("Durable"))
             )
             while not entered.is_set():
                 await asyncio.sleep(0)
@@ -484,10 +456,7 @@ def test_disruptive_backend_edits_blocked_but_rename_snapshots_attribution(
         plan.release.set()
         await job.wait()
         assert chat.messages[-1].attributions[0].backend_name == "Local"
-        assert (
-            ConfigStore.for_home(tmp_path).load().backends.backend(config.id).name
-            == "Renamed"
-        )
+        assert ConfigStore.for_home(tmp_path).load().backends.backend(config.id).name == "Renamed"
         await h.runtime.set_default_backend(None)
         await h.runtime.remove_backend(config.id)
         assert chat.inference.selected_backend_id == config.id
@@ -524,9 +493,7 @@ def test_unknown_vision_blocks_without_stripping_history(tmp_path: Path) -> None
         h = Harness(tmp_path, (config,))
         chat = await h.runtime.create_chat()
         image = ImageAttachment("a" * 64, "image.png", ImageMediaType.PNG, 1, 1, 1)
-        sent = await h.runtime.send_message(
-            chat.id, 0, "image", "Look", images=(image,)
-        )
+        sent = await h.runtime.send_message(chat.id, 0, "image", "Look", images=(image,))
         assert sent.job is None
         assert chat.messages[0].images == (image,)
         assert not h.adapters[config.id].requests
@@ -543,9 +510,7 @@ def test_prompt_order_and_consecutive_roles_exclude_draft_reasoning_and_errors(
         config = backend()
         h = Harness(tmp_path, (config,))
         chat = await h.chat("First")
-        _ = await h.runtime.send_message(
-            chat.id, chat.revision, "second", "Second", generate=False
-        )
+        _ = await h.runtime.send_message(chat.id, chat.revision, "second", "Second", generate=False)
         _ = await h.runtime.update_draft(chat.id, 0, "Not in prompt")
         job = await h.runtime.generate(chat.id, chat.revision)
         assert job
@@ -574,9 +539,7 @@ def test_native_loading_unload_protection_and_idle_scope(tmp_path: Path) -> None
         assert job
         await plan.produced.wait()
         with pytest.raises(ChatBusy):
-            await h.runtime.update_backend(
-                replace(config, lmstudio_transport=LMStudioTransport.RESPONSES)
-            )
+            await h.runtime.update_backend(replace(config, lmstudio_transport=LMStudioTransport.RESPONSES))
         with pytest.raises(ChatBusy):
             await h.runtime.unload_model(ModelRef(config.id, "model"))
         assert adapter.loads == ["model"]
@@ -591,23 +554,17 @@ def test_native_loading_unload_protection_and_idle_scope(tmp_path: Path) -> None
 
 
 @pytest.mark.parametrize("automatic", [False, True])
-def test_native_load_failures_create_no_assistant(
-    tmp_path: Path, automatic: bool
-) -> None:
+def test_native_load_failures_create_no_assistant(tmp_path: Path, automatic: bool) -> None:
     async def exercise() -> None:
         config = backend(native=True)
         assert config.model_management
         config = replace(
             config,
-            model_management=replace(
-                config.model_management, automatic_loading=automatic
-            ),
+            model_management=replace(config.model_management, automatic_loading=automatic),
         )
         h = Harness(tmp_path, (config,))
         adapter = h.adapters[config.id]
-        adapter.load_error = BackendError(
-            BackendErrorCategory.LOAD_FAILURE, "Load failed."
-        )
+        adapter.load_error = BackendError(BackendErrorCategory.LOAD_FAILURE, "Load failed.")
         chat = await h.chat()
         job = await h.runtime.generate(chat.id, chat.revision)
         assert job
@@ -735,21 +692,15 @@ def test_continue_preserves_original_on_empty_failure_then_adds_a_new_message(
         assert first
         await first.wait()
         original = chat.messages[-1]
-        h.adapters[config.id].plans.append(
-            Plan(text="", error=BackendError(BackendErrorCategory.PROTOCOL, "Rejected"))
-        )
-        failed = await h.runtime.generate(
-            chat.id, chat.revision, GenerationMode.CONTINUE
-        )
+        h.adapters[config.id].plans.append(Plan(text="", error=BackendError(BackendErrorCategory.PROTOCOL, "Rejected")))
+        failed = await h.runtime.generate(chat.id, chat.revision, GenerationMode.CONTINUE)
         assert failed
         await failed.wait()
         assert original.content == "Reply"
         assert len(chat.messages) == 2
         assert h.reload(chat).to_dict() == chat.to_dict()
         h.adapters[config.id].plans.append(Plan(text=" continued"))
-        continued = await h.runtime.generate(
-            chat.id, chat.revision, GenerationMode.CONTINUE
-        )
+        continued = await h.runtime.generate(chat.id, chat.revision, GenerationMode.CONTINUE)
         assert continued
         await continued.wait()
         assert chat.messages[-2] is original and original.content == "Reply"
@@ -762,9 +713,7 @@ def test_continue_preserves_original_on_empty_failure_then_adds_a_new_message(
 
 
 @pytest.mark.parametrize("operation", ["create", "fork", "delete"])
-def test_lifecycle_storage_rejection_has_no_publication(
-    tmp_path: Path, operation: str
-) -> None:
+def test_lifecycle_storage_rejection_has_no_publication(tmp_path: Path, operation: str) -> None:
     async def exercise() -> None:
         h = Harness(tmp_path, (backend(),))
         chat = await h.chat()
@@ -777,9 +726,7 @@ def test_lifecycle_storage_rejection_has_no_publication(
             if operation == "create":
                 _ = await h.runtime.create_chat()
             elif operation == "fork":
-                _ = await h.runtime.fork_chat(
-                    chat.id, chat.revision, chat.messages[0].id
-                )
+                _ = await h.runtime.fork_chat(chat.id, chat.revision, chat.messages[0].id)
             else:
                 await h.runtime.delete_chat(chat.id, chat.revision)
         assert len(h.registry) == 1 and not h.changes
@@ -860,9 +807,7 @@ def test_queued_request_retains_accepted_parameters_and_labels(tmp_path: Path) -
         queued = await h.runtime.generate(b.id, b.revision)
         assert queued
         accepted = queued.request
-        await h.runtime.update_backend(
-            replace(config, name="New name", defaults=GenerationProfile("new-default"))
-        )
+        await h.runtime.update_backend(replace(config, name="New name", defaults=GenerationProfile("new-default")))
         with pytest.raises(ChatBusy):
             await h.runtime.set_profile(b.id, b.revision, GenerationProfile("other"))
         plan.release.set()
@@ -885,9 +830,7 @@ def test_queued_request_retains_accepted_parameters_and_labels(tmp_path: Path) -
         ("submissions", [{"id": "a", "message_id": "b", "fingerprint": "bad"}]),
     ],
 )
-def test_invalid_persisted_runtime_fields_fail_loudly(
-    field: str, value: object
-) -> None:
+def test_invalid_persisted_runtime_fields_fail_loudly(field: str, value: object) -> None:
     document: dict[str, object] = dict(Chat().to_dict())
     document[field] = value
     with pytest.raises((ValueError, TypeError)):
@@ -903,12 +846,7 @@ def test_config_notifications_observe_complete_backend_publication(
 
         async def notify(change: RuntimeChange) -> None:
             if change.kind is ChangeKind.CONFIG:
-                observed.append(
-                    all(
-                        h.runtime.health(item.id)
-                        for item in h.runtime.configuration.backends
-                    )
-                )
+                observed.append(all(h.runtime.health(item.id) for item in h.runtime.configuration.backends))
 
         h.runtime._notify_callback = notify  # pyright: ignore[reportPrivateUsage]
         config = backend()

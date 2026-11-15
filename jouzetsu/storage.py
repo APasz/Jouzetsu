@@ -40,9 +40,7 @@ class ChatStorage:
         """Load valid documents without moving or repairing unreadable files."""
 
         chats: list[Chat] = self._load_documents()
-        log.info(
-            "loaded chat store directory=%s chat_count=%d", self.directory, len(chats)
-        )
+        log.info("loaded chat store directory=%s chat_count=%d", self.directory, len(chats))
         return chats
 
     @property
@@ -57,9 +55,7 @@ class ChatStorage:
         expected_ids: set[str] = _chat_record_ids(chat_records)
         expected_ids.update(self._isolated_ids)
         deleted_chat_ids: set[str] = {
-            path.stem
-            for path in self.directory.glob("*.json")
-            if path.stem not in expected_ids
+            path.stem for path in self.directory.glob("*.json") if path.stem not in expected_ids
         }
         self.save_records(chat_records, deleted_chat_ids=deleted_chat_ids)
 
@@ -88,9 +84,7 @@ class ChatStorage:
         deleted_ids: set[str] = set(deleted_chat_ids)
         overlap: set[str] = record_ids.intersection(deleted_ids)
         if overlap:
-            raise ValueError(
-                f"cannot save and delete the same chat: {sorted(overlap)!r}"
-            )
+            raise ValueError(f"cannot save and delete the same chat: {sorted(overlap)!r}")
 
         # Move deletions first. A sudden process failure can therefore leave a
         # prior snapshot in place, but cannot revive a successfully removed
@@ -143,10 +137,7 @@ class ChatStorage:
         timestamp: str = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         sequence: int = 1
         while candidate.exists():
-            candidate = (
-                self.trash_directory
-                / f"{path.stem}.deleted-{timestamp}-{sequence}.json"
-            )
+            candidate = self.trash_directory / f"{path.stem}.deleted-{timestamp}-{sequence}.json"
             sequence += 1
         return candidate
 
@@ -174,9 +165,7 @@ class ChatStorage:
             if not isinstance(raw, dict):
                 raise TypeError("root must be an object")
             mapping: dict[object, object] = cast(dict[object, object], raw)
-            chat: Chat = Chat.from_dict(
-                {key: value for key, value in mapping.items() if isinstance(key, str)}
-            )
+            chat: Chat = Chat.from_dict({key: value for key, value in mapping.items() if isinstance(key, str)})
             if path.stem != chat.id:
                 raise ValueError("document id does not match its file name")
             return chat

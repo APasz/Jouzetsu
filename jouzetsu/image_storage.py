@@ -60,9 +60,7 @@ class ImageLimits:
         """Apply the same per-message count policy to uploads and merged turns."""
 
         if count > self.max_images_per_message:
-            raise ValueError(
-                f"a message can contain at most {self.max_images_per_message} images"
-            )
+            raise ValueError(f"a message can contain at most {self.max_images_per_message} images")
 
 
 class ImageStorage:
@@ -77,16 +75,12 @@ class ImageStorage:
         """Decode and validate an image before publishing its original and preview."""
 
         if not data or len(data) > self.limits.max_image_bytes:
-            raise ValueError(
-                f"each image must be between 1 and {self.limits.max_image_bytes:,} bytes"
-            )
+            raise ValueError(f"each image must be between 1 and {self.limits.max_image_bytes:,} bytes")
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", Image.DecompressionBombWarning)
                 with Image.open(BytesIO(data)) as source:
-                    media_type: ImageMediaType | None = _IMAGE_FORMATS.get(
-                        source.format or ""
-                    )
+                    media_type: ImageMediaType | None = _IMAGE_FORMATS.get(source.format or "")
                     if media_type is None:
                         raise ValueError("images must be JPEG, PNG, or WebP")
                     width, height = source.size
@@ -107,17 +101,10 @@ class ImageStorage:
             Image.DecompressionBombWarning,
             Image.DecompressionBombError,
         ) as exc:
-            raise ValueError(
-                "image is invalid, damaged, or too large to decode"
-            ) from exc
+            raise ValueError("image is invalid, damaged, or too large to decode") from exc
 
         clean_name: str = Path(name.replace("\\", "/")).name
-        clean_name = (
-            "".join(
-                character for character in clean_name if character.isprintable()
-            ).strip()
-            or "image"
-        )
+        clean_name = "".join(character for character in clean_name if character.isprintable()).strip() or "image"
         image = ImageAttachment(
             id=hashlib.sha256(data).hexdigest(),
             name=clean_name,
@@ -136,14 +123,10 @@ class ImageStorage:
     def path_for(self, image: ImageAttachment, *, thumbnail: bool = False) -> Path:
         """Resolve only validated content identifiers, never uploaded path names."""
 
-        suffix: str = (
-            "preview.jpg" if thumbnail else image.media_type.value.split("/")[1]
-        )
+        suffix: str = "preview.jpg" if thumbnail else image.media_type.value.split("/")[1]
         return self.directory / f"{image.id}.{suffix}"
 
-    def available_path(
-        self, image: ImageAttachment, *, thumbnail: bool = False
-    ) -> Path:
+    def available_path(self, image: ImageAttachment, *, thumbnail: bool = False) -> Path:
         """Repair a missing preview only from its verified original."""
         original = self.path_for(image)
         if not original.is_file():
@@ -167,13 +150,8 @@ class ImageStorage:
         try:
             data: bytes = self.path_for(image).read_bytes()
         except FileNotFoundError as exc:
-            raise ValueError(
-                f"original image is missing or damaged: {image.name}"
-            ) from exc
-        if (
-            len(data) != image.size_bytes
-            or hashlib.sha256(data).hexdigest() != image.id
-        ):
+            raise ValueError(f"original image is missing or damaged: {image.name}") from exc
+        if len(data) != image.size_bytes or hashlib.sha256(data).hexdigest() != image.id:
             raise ValueError(f"original image is missing or damaged: {image.name}")
         return data
 

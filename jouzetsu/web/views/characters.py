@@ -81,11 +81,7 @@ def render_character_page(
 
     characters: list[Character] = state.characters
     selected_character: Character | None = next(
-        (
-            character
-            for character in characters
-            if character.id == selected_character_id
-        ),
+        (character for character in characters if character.id == selected_character_id),
         None,
     )
     editor: HTML = (
@@ -140,11 +136,7 @@ def _character_workspace_header(state: AppState) -> HTML:
 
 def _character_library(characters: list[Character], selected_character_id: str) -> HTML:
     selected_character_name: str = next(
-        (
-            character.display_name
-            for character in characters
-            if character.id == selected_character_id
-        ),
+        (character.display_name for character in characters if character.id == selected_character_id),
         "Choose a character",
     )
     character_links: tuple[HTML, ...] = tuple(
@@ -176,9 +168,7 @@ def _character_library(characters: list[Character], selected_character_id: str) 
         ),
         Button(
             Span("Characters", cls="jouzetsu-character-library-toggle-label"),
-            Span(
-                selected_character_name, cls="jouzetsu-character-library-toggle-value"
-            ),
+            Span(selected_character_name, cls="jouzetsu-character-library-toggle-value"),
             type="button",
             cls="jouzetsu-character-library-toggle",
             aria_controls="character-library-picker",
@@ -221,9 +211,7 @@ def _render_character_editor(
     """Render profile metadata from the character's own field definitions."""
 
     is_onboarding: bool = character.is_draft
-    fields: tuple[HTML, ...] = tuple(
-        _render_character_field(profile_field) for profile_field in character.fields
-    )
+    fields: tuple[HTML, ...] = tuple(_render_character_field(profile_field) for profile_field in character.fields)
     return Section(
         Form(
             Div(
@@ -235,9 +223,7 @@ def _render_character_editor(
                     (
                         "Name your character, then add their defining details."
                         if is_onboarding
-                        else (
-                            f"Revision {character.revision} · existing chats keep their original profile."
-                        )
+                        else (f"Revision {character.revision} · existing chats keep their original profile.")
                     ),
                     cls="jouzetsu-character-intro",
                 ),
@@ -250,9 +236,7 @@ def _render_character_editor(
                 name_suggestions,
                 is_onboarding=is_onboarding,
             ),
-            _render_character_preset_controls(
-                character, preset_catalog, is_onboarding=is_onboarding
-            ),
+            _render_character_preset_controls(character, preset_catalog, is_onboarding=is_onboarding),
             Div(
                 Div(
                     H2("Profile fields", cls="jouzetsu-section-title"),
@@ -348,15 +332,11 @@ def _render_character_editor(
     )
 
 
-def _render_character_cast_controls(
-    character: Character, characters: list[Character]
-) -> HTML:
+def _render_character_cast_controls(character: Character, characters: list[Character]) -> HTML:
     """Let an editor start a cast chat while always retaining its own profile."""
 
     other_characters: tuple[Character, ...] = tuple(
-        candidate
-        for candidate in characters
-        if candidate.id != character.id and not candidate.is_draft
+        candidate for candidate in characters if candidate.id != character.id and not candidate.is_draft
     )
     other_member_controls: tuple[HTML, ...] = tuple(
         Label(
@@ -512,17 +492,14 @@ def _render_character_name_control(
             is_onboarding=is_onboarding,
         ),
         P(
-            f"Custom name suggestions could not be loaded: "
-            f"{name_suggestions.load_issue.message}",
+            f"Custom name suggestions could not be loaded: {name_suggestions.load_issue.message}",
             cls="jouzetsu-character-field-help",
         )
         if is_onboarding and name_suggestions.load_issue is not None
         else None,
         cls="jouzetsu-character-name-control",
         data_character_name_control="true",
-        data_character_random_names=(
-            name_suggestions.suggestions.to_client_json() if is_onboarding else None
-        ),
+        data_character_random_names=(name_suggestions.suggestions.to_client_json() if is_onboarding else None),
     )
 
 
@@ -559,11 +536,7 @@ def _render_character_name_field(
         )
         if is_onboarding
         else None,
-        cls=(
-            "jouzetsu-character-name-row is-randomizable"
-            if is_onboarding
-            else "jouzetsu-character-name-row"
-        ),
+        cls=("jouzetsu-character-name-row is-randomizable" if is_onboarding else "jouzetsu-character-name-row"),
     )
 
 
@@ -680,9 +653,7 @@ def _render_character_preset_controls(
     )
 
 
-def _render_character_extra_preset(
-    preset: CharacterFieldPreset, *, checked: bool
-) -> HTML:
+def _render_character_extra_preset(preset: CharacterFieldPreset, *, checked: bool) -> HTML:
     return Label(
         Input(
             type="checkbox",

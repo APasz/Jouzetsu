@@ -123,9 +123,7 @@ def lmstudio_server_root(base_url: str) -> str:
 class LMStudioClient:
     """LM Studio model management and full-history chat streaming."""
 
-    def __init__(
-        self, server: ServerSettings, *, image_storage: ImageStorage | None = None
-    ) -> None:
+    def __init__(self, server: ServerSettings, *, image_storage: ImageStorage | None = None) -> None:
         self._server: ServerSettings = server
         self._images: ImageStorage | None = image_storage
         self._session: aiohttp.ClientSession | None = None
@@ -152,9 +150,7 @@ class LMStudioClient:
                 body: str = await response.text()
                 if response.status != 200:
                     raise LMStudioError(f"Model query returned HTTP {response.status}")
-                payload: dict[str, object] | None = _as_object_mapping(
-                    _parse_json(body)
-                )
+                payload: dict[str, object] | None = _as_object_mapping(_parse_json(body))
         except LMStudioError as exc:
             log.warning("LM Studio model inventory request failed error=%s", exc)
             raise
@@ -165,9 +161,7 @@ class LMStudioClient:
         return self.parse_model_inventory(payload)
 
     @classmethod
-    def parse_model_inventory(
-        cls, payload: dict[str, object] | None
-    ) -> tuple[ModelDescriptor, ...]:
+    def parse_model_inventory(cls, payload: dict[str, object] | None) -> tuple[ModelDescriptor, ...]:
         """Decode native inventory metadata independently of HTTP transport."""
 
         if payload is None:
@@ -185,66 +179,35 @@ class LMStudioClient:
                 continue
             key: object | None = model.get("key")
             display_name: object | None = model.get("display_name")
-            if (
-                not isinstance(key, str)
-                or not key.strip()
-                or key != key.strip()
-                or not isinstance(display_name, str)
-            ):
-                raise LMStudioError(
-                    "Model inventory contains an invalid model identity"
-                )
+            if not isinstance(key, str) or not key.strip() or key != key.strip() or not isinstance(display_name, str):
+                raise LMStudioError("Model inventory contains an invalid model identity")
             raw_instances: object | None = model.get("loaded_instances")
             if raw_instances is not None and not isinstance(raw_instances, list):
                 raise LMStudioError("Model inventory contains invalid instances")
-            instances: list[object] = (
-                cast(list[object], raw_instances)
-                if isinstance(raw_instances, list)
-                else []
-            )
+            instances: list[object] = cast(list[object], raw_instances) if isinstance(raw_instances, list) else []
             loaded_instances: list[ModelInstanceDescriptor] = []
             for raw_instance in instances:
                 instance: dict[str, object] | None = _as_object_mapping(raw_instance)
                 if instance is None:
                     raise LMStudioError("Model inventory contains an invalid instance")
                 instance_id: object | None = instance.get("id")
-                if (
-                    not isinstance(instance_id, str)
-                    or not instance_id.strip()
-                    or instance_id != instance_id.strip()
-                ):
-                    raise LMStudioError(
-                        "Model inventory contains an invalid instance identity"
-                    )
-                loaded_instances.append(
-                    cls._model_instance_descriptor(instance_id, instance)
-                )
+                if not isinstance(instance_id, str) or not instance_id.strip() or instance_id != instance_id.strip():
+                    raise LMStudioError("Model inventory contains an invalid instance identity")
+                loaded_instances.append(cls._model_instance_descriptor(instance_id, instance))
             context_length: int | None = cls._first_context_length(instances)
             max_context_length: object | None = model.get("max_context_length")
             publisher: object | None = model.get("publisher")
             architecture: object | None = model.get("architecture")
-            quantization: dict[str, object] | None = _as_object_mapping(
-                model.get("quantization")
-            )
-            quantization_name: object | None = (
-                quantization.get("name") if quantization is not None else None
-            )
-            bits_per_weight: object | None = (
-                quantization.get("bits_per_weight")
-                if quantization is not None
-                else None
-            )
+            quantization: dict[str, object] | None = _as_object_mapping(model.get("quantization"))
+            quantization_name: object | None = quantization.get("name") if quantization is not None else None
+            bits_per_weight: object | None = quantization.get("bits_per_weight") if quantization is not None else None
             size_bytes: object | None = model.get("size_bytes")
             params_string: object | None = model.get("params_string")
             model_format: object | None = model.get("format")
             description: object | None = model.get("description")
             raw_variants: object | None = model.get("variants")
             variants: list[str] = (
-                [
-                    item
-                    for item in cast(list[object], raw_variants)
-                    if isinstance(item, str)
-                ]
+                [item for item in cast(list[object], raw_variants) if isinstance(item, str)]
                 if isinstance(raw_variants, list)
                 else []
             )
@@ -253,39 +216,24 @@ class LMStudioClient:
                 ModelDescriptor(
                     key=key,
                     display_name=display_name,
-                    loaded_instance_ids=tuple(
-                        instance.id for instance in loaded_instances
-                    ),
-                    loaded_instances=tuple[ModelInstanceDescriptor, ...](
-                        loaded_instances
-                    ),
+                    loaded_instance_ids=tuple(instance.id for instance in loaded_instances),
+                    loaded_instances=tuple[ModelInstanceDescriptor, ...](loaded_instances),
                     context_length=context_length,
-                    max_context_length=max_context_length
-                    if isinstance(max_context_length, int)
-                    else None,
-                    auto_unload_minutes=cls._first_auto_unload_minutes(
-                        model, instances
-                    ),
+                    max_context_length=max_context_length if isinstance(max_context_length, int) else None,
+                    auto_unload_minutes=cls._first_auto_unload_minutes(model, instances),
                     publisher=publisher if isinstance(publisher, str) else "",
                     architecture=architecture if isinstance(architecture, str) else "",
-                    quantization_name=quantization_name
-                    if isinstance(quantization_name, str)
-                    else "",
+                    quantization_name=quantization_name if isinstance(quantization_name, str) else "",
                     bits_per_weight=float(bits_per_weight)
-                    if isinstance(bits_per_weight, int | float)
-                    and not isinstance(bits_per_weight, bool)
+                    if isinstance(bits_per_weight, int | float) and not isinstance(bits_per_weight, bool)
                     else None,
                     size_bytes=size_bytes if isinstance(size_bytes, int) else None,
-                    params_string=params_string
-                    if isinstance(params_string, str)
-                    else "",
+                    params_string=params_string if isinstance(params_string, str) else "",
                     format=cls._model_format(model_format),
                     capabilities=cls._model_capabilities(model),
                     description=description if isinstance(description, str) else "",
                     variants=tuple[str, ...](variants),
-                    selected_variant=selected_variant
-                    if isinstance(selected_variant, str)
-                    else "",
+                    selected_variant=selected_variant if isinstance(selected_variant, str) else "",
                 )
             )
         log.debug(
@@ -363,14 +311,10 @@ class LMStudioClient:
                         ttl_seconds,
                     )
 
-            context_length: int = (
-                descriptor.context_length or descriptor.max_context_length or 0
-            )
+            context_length: int = descriptor.context_length or descriptor.max_context_length or 0
             yield ModelReady(descriptor.key, descriptor.display_name, context_length)
             yield PromptProcessingProgress(None)
-            async for event in self._stream_completion(
-                chat, descriptor.key, generation
-            ):
+            async for event in self._stream_completion(chat, descriptor.key, generation):
                 yield event
         except asyncio.CancelledError:
             raise
@@ -393,8 +337,7 @@ class LMStudioClient:
                 (
                     model
                     for model in inventory
-                    if model.key == requested_model
-                    or requested_model in model.loaded_instance_ids
+                    if model.key == requested_model or requested_model in model.loaded_instance_ids
                 ),
                 None,
             )
@@ -409,9 +352,7 @@ class LMStudioClient:
 
     async def _require_loaded_model(self, model_key: str) -> ModelDescriptor:
         inventory: tuple[ModelDescriptor, ...] = await self.list_model_inventory()
-        descriptor: ModelDescriptor | None = next(
-            (model for model in inventory if model.key == model_key), None
-        )
+        descriptor: ModelDescriptor | None = next((model for model in inventory if model.key == model_key), None)
         if descriptor is None or not descriptor.is_loaded:
             raise LMStudioError(f"LM Studio did not load model: {model_key}")
         return descriptor
@@ -425,20 +366,12 @@ class LMStudioClient:
             url,
             json=payload,
             headers=self._headers(),
-            timeout=aiohttp.ClientTimeout(
-                total=_MODEL_LOAD_TIMEOUT_SECONDS, sock_connect=_CONNECT_TIMEOUT_SECONDS
-            ),
+            timeout=aiohttp.ClientTimeout(total=_MODEL_LOAD_TIMEOUT_SECONDS, sock_connect=_CONNECT_TIMEOUT_SECONDS),
         ) as response:
             if response.status != 200:
-                inventory: tuple[
-                    ModelDescriptor, ...
-                ] = await self.list_model_inventory()
-                if any(
-                    model.key == model_key and model.is_loaded for model in inventory
-                ):
-                    log.info(
-                        "LM Studio model was already loaded model_key=%s", model_key
-                    )
+                inventory: tuple[ModelDescriptor, ...] = await self.list_model_inventory()
+                if any(model.key == model_key and model.is_loaded for model in inventory):
+                    log.info("LM Studio model was already loaded model_key=%s", model_key)
                     return
                 raise LMStudioError(f"Model load returned HTTP {response.status}")
         log.info("LM Studio model load accepted model_key=%s", model_key)
@@ -518,9 +451,7 @@ class LMStudioClient:
             yield data
 
     @staticmethod
-    def _model_instance_descriptor(
-        instance_id: str, instance: dict[str, object]
-    ) -> ModelInstanceDescriptor:
+    def _model_instance_descriptor(instance_id: str, instance: dict[str, object]) -> ModelInstanceDescriptor:
         config: dict[str, object] | None = _as_object_mapping(instance.get("config"))
         return ModelInstanceDescriptor(
             id=instance_id,
@@ -530,9 +461,7 @@ class LMStudioClient:
             flash_attention=_optional_bool(config, "flash_attention"),
             num_experts=_optional_int(config, "num_experts"),
             offload_kv_cache_to_gpu=_optional_bool(config, "offload_kv_cache_to_gpu"),
-            auto_unload_minutes=LMStudioClient._first_auto_unload_minutes(
-                {}, [instance]
-            ),
+            auto_unload_minutes=LMStudioClient._first_auto_unload_minutes({}, [instance]),
         )
 
     @staticmethod
@@ -543,35 +472,25 @@ class LMStudioClient:
 
     @staticmethod
     def _model_capabilities(model: dict[str, object]) -> ModelCapabilities:
-        capabilities: dict[str, object] | None = _as_object_mapping(
-            model.get("capabilities")
-        )
+        capabilities: dict[str, object] | None = _as_object_mapping(model.get("capabilities"))
         if capabilities is None:
             return ModelCapabilities()
-        reasoning: dict[str, object] | None = _as_object_mapping(
-            capabilities.get("reasoning")
-        )
+        reasoning: dict[str, object] | None = _as_object_mapping(capabilities.get("reasoning"))
         reasoning_options: tuple[ReasoningOption, ...] = ()
         reasoning_default: object | None = None
         if reasoning is not None:
             raw_allowed_options: object | None = reasoning.get("allowed_options")
             if isinstance(raw_allowed_options, list):
                 reasoning_options = tuple(
-                    option
-                    for option in cast(list[object], raw_allowed_options)
-                    if option in REASONING_OPTIONS
+                    option for option in cast(list[object], raw_allowed_options) if option in REASONING_OPTIONS
                 )
             reasoning_default = reasoning.get("default")
         return ModelCapabilities(
             vision=_optional_bool(capabilities, "vision"),
             trained_for_tool_use=_optional_bool(capabilities, "trained_for_tool_use"),
-            reasoning=True
-            if reasoning is not None
-            else _optional_bool(capabilities, "reasoning"),
+            reasoning=True if reasoning is not None else _optional_bool(capabilities, "reasoning"),
             reasoning_options=reasoning_options,
-            reasoning_default=reasoning_default
-            if reasoning_default in REASONING_OPTIONS
-            else None,
+            reasoning_default=reasoning_default if reasoning_default in REASONING_OPTIONS else None,
         )
 
     @staticmethod
@@ -580,9 +499,7 @@ class LMStudioClient:
             instance: dict[str, object] | None = _as_object_mapping(raw_instance)
             if instance is None:
                 continue
-            config: dict[str, object] | None = _as_object_mapping(
-                instance.get("config")
-            )
+            config: dict[str, object] | None = _as_object_mapping(instance.get("config"))
             if config is None:
                 continue
             context_length: object | None = config.get("context_length")
@@ -591,9 +508,7 @@ class LMStudioClient:
         return None
 
     @classmethod
-    def _first_auto_unload_minutes(
-        cls, model: dict[str, object], instances: list[object]
-    ) -> int | None:
+    def _first_auto_unload_minutes(cls, model: dict[str, object], instances: list[object]) -> int | None:
         for raw_value in (
             model.get("ttl"),
             model.get("idle_ttl_seconds"),
@@ -614,9 +529,7 @@ class LMStudioClient:
                 minutes = cls._ttl_minutes(raw_value)
                 if minutes is not None:
                     return minutes
-            config: dict[str, object] | None = _as_object_mapping(
-                instance.get("config")
-            )
+            config: dict[str, object] | None = _as_object_mapping(instance.get("config"))
             if config is None:
                 continue
             for raw_value in (
@@ -649,20 +562,15 @@ class LMStudioClient:
     def _build_messages(
         chat: Chat, generation: GenerationSettings, images: ImageStorage | None = None
     ) -> list[WireMessage]:
-        system_prompt: str = (
-            chat.system_prompt.strip() or generation.system_prompt.strip()
-        )
+        system_prompt: str = chat.system_prompt.strip() or generation.system_prompt.strip()
         if generation.british_english:
-            system_prompt = "\n\n".join(
-                part for part in (system_prompt, BRITISH_ENGLISH_INSTRUCTION) if part
-            )
+            system_prompt = "\n\n".join(part for part in (system_prompt, BRITISH_ENGLISH_INSTRUCTION) if part)
         messages: list[InferenceMessage] = []
         if system_prompt:
             messages.append(InferenceMessage("system", system_prompt))
         messages.extend(
             InferenceMessage(message.role, message.content, message.images)
             for message in chat.messages
-            if message.role in {"user", "assistant"}
-            and (message.content or message.images)
+            if message.role in {"user", "assistant"} and (message.content or message.images)
         )
         return build_messages(messages, images)

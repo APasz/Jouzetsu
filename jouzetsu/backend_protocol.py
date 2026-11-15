@@ -116,18 +116,12 @@ class GenerationRequest:
         if self.reasoning is not None and self.reasoning not in REASONING_OPTIONS:
             raise ValueError("unknown reasoning option")
         if not isinstance(cast(object, self.messages), tuple) or not all(
-            isinstance(cast(object, message), InferenceMessage)
-            for message in self.messages
+            isinstance(cast(object, message), InferenceMessage) for message in self.messages
         ):
-            raise TypeError(
-                "request messages must be an immutable tuple of InferenceMessage values"
-            )
+            raise TypeError("request messages must be an immutable tuple of InferenceMessage values")
         if not self.messages:
             raise ValueError("generation requires at least one prompt message")
-        if (
-            any(message.images for message in self.messages)
-            and self.capabilities.vision is not True
-        ):
+        if any(message.images for message in self.messages) and self.capabilities.vision is not True:
             raise BackendError(
                 BackendErrorCategory.INCOMPATIBLE,
                 "The selected model is not known to support images.",
@@ -144,9 +138,7 @@ class GenerationRequest:
 
     @property
     def wire_parameters(self) -> dict[ParameterName, float | int]:
-        return self.parameter_support.restrict_by(
-            self.capabilities.parameters
-        ).wire_values(self.parameters)
+        return self.parameter_support.restrict_by(self.capabilities.parameters).wire_values(self.parameters)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,9 +154,7 @@ class ModelDiscovery:
         if not isinstance(cast(object, self.models), tuple) or not all(
             isinstance(cast(object, model), ModelDescriptor) for model in self.models
         ):
-            raise TypeError(
-                "discovery models must be an immutable tuple of descriptors"
-            )
+            raise TypeError("discovery models must be an immutable tuple of descriptors")
         if not self.supported and self.models:
             raise ValueError("unsupported discovery cannot return model metadata")
         ids = [model.key for model in self.models]
@@ -175,9 +165,7 @@ class ModelDiscovery:
 class ModelManagement(Protocol):
     """Optional native operations, scoped to the adapter's backend identity."""
 
-    def load_model(
-        self, model_id: str
-    ) -> AsyncGenerator[ModelLoadProgress | ModelReady]: ...
+    def load_model(self, model_id: str) -> AsyncGenerator[ModelLoadProgress | ModelReady]: ...
 
     async def unload_model(self, instance_id: str) -> None: ...
 

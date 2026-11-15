@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
 
-from ...backend_models import BackendConfig
+from ...backend_models import BackendConfig, RegisteredModel
 from ...runtime import ModelCapabilities
 from ..html import HTML, Button, Div, Input, Small, Span
 from .icons import IconName, render_icon
@@ -61,14 +61,18 @@ class ModelChoice:
     capabilities: ModelCapabilities | None = None
 
 
-def model_choices(
-    backend: BackendConfig | None, selected_model: str | None = None
-) -> tuple[ModelChoice, ...]:
+def model_label(model: RegisteredModel) -> str:
+    """Use the same model name in pickers, management cards, and dialogs."""
+
+    return model.alias or model.descriptor.display_name or model.descriptor.key
+
+
+def model_choices(backend: BackendConfig | None, selected_model: str | None = None) -> tuple[ModelChoice, ...]:
     choices = (
         [
             ModelChoice(
                 model.descriptor.key,
-                model.alias or model.descriptor.display_name or model.descriptor.key,
+                model_label(model),
                 capabilities=model.descriptor.capabilities,
             )
             for model in backend.models
@@ -84,12 +88,8 @@ def model_choices(
 def _choice_content(choice: ModelChoice) -> HTML:
     return Span(
         Span(choice.label, cls="jouzetsu-model-choice-label"),
-        Small(choice.detail, cls="jouzetsu-model-choice-detail")
-        if choice.detail
-        else None,
-        render_model_capabilities(choice.capabilities)
-        if choice.capabilities is not None
-        else None,
+        Small(choice.detail, cls="jouzetsu-model-choice-detail") if choice.detail else None,
+        render_model_capabilities(choice.capabilities) if choice.capabilities is not None else None,
         cls="jouzetsu-model-choice-content",
         data_model_choice_content="true",
     )
@@ -108,9 +108,7 @@ def render_model_picker(
     """Render a labelled model combobox with the same icon rows in its popup."""
 
     options = (ModelChoice("", empty_label), *choices)
-    selected = next(
-        (choice for choice in options if choice.key == selected_model), None
-    )
+    selected = next((choice for choice in options if choice.key == selected_model), None)
     if selected is None:
         raise ValueError("selected model must be included in the model choices")
     label_id = f"{marker}-label"
@@ -149,9 +147,7 @@ def render_model_picker(
                     role="option",
                     aria_selected="true" if choice.key == selected_model else "false",
                     aria_disabled="true"
-                    if disabled
-                    or not choice.selectable
-                    and choice.key != selected_model
+                    if disabled or not choice.selectable and choice.key != selected_model
                     else None,
                     title=choice.key or empty_label,
                     data_model_picker_option="true",

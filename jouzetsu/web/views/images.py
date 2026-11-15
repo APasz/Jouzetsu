@@ -11,9 +11,7 @@ from .icons import render_icon
 _IMAGE_UPLOAD_FORM_ID: Final[str] = "composer-image-upload"
 
 
-def render_image_gallery(
-    images: tuple[ImageAttachment, ...], *, chat_id: str = ""
-) -> HTML:
+def render_image_gallery(images: tuple[ImageAttachment, ...], *, chat_id: str = "") -> HTML:
     """Show protected previews with original-image links and optional draft removal."""
 
     return Div(
@@ -65,9 +63,7 @@ def render_image_upload(chat: Chat) -> HTML:
             cls="jouzetsu-form-help",
             data_image_upload_pending="true",
         ),
-        Noscript(
-            Button("Attach selected images", type="submit", cls="jouzetsu-button")
-        ),
+        Noscript(Button("Attach selected images", type="submit", cls="jouzetsu-button")),
         action=f"/chats/{chat.id}/images",
         id=_IMAGE_UPLOAD_FORM_ID,
         method="post",

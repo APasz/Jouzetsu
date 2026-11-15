@@ -94,9 +94,7 @@ class CharacterStorage:
             return character
         except FutureSchemaVersionError as exc:
             self._isolated_ids.add(path.stem)
-            log.warning(
-                "skipped future character document path=%s reason=%s", path, exc
-            )
+            log.warning("skipped future character document path=%s reason=%s", path, exc)
             return None
         except Exception as exc:  # noqa: BLE001
             self._isolated_ids.add(path.stem)

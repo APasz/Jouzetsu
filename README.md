@@ -112,7 +112,7 @@ The new path used 16 composer renders. Resource Timing response bytes fell by
 Browser regressions check unchanged transcript nodes and draft conflict/attachment
 preservation without timing thresholds.
 
-Fresh installs have no backend. Add one in **Global settings → Backends**, register
+Fresh installs have no backend. Add one in **Backends → + New Backend**, register
 or discover models, choose its default profile, and optionally select it as the
 new-chat default. Each chat keeps an independent profile for each backend it has
 used. Changing defaults affects new chats and explicit profile resets. Removing a
@@ -124,8 +124,8 @@ No credentials or arbitrary generation parameters are exposed.
 LM Studio models with known reasoning options show a lightbulb beside the
 composer's **+** button. Choose the model default, Automatic, or an advertised
 option; the selection persists in the chat until changed or the model changes.
-Set per-model defaults in **Global settings → Backends**. If discovery does not
-provide options, configure them on the model there. Automatic leaves the choice
+Set per-model reasoning defaults by opening a model card in **Backends**. If discovery does not
+provide options, configure them in that dialog. Automatic leaves the choice
 to LM Studio. Message details records the requested level or a level reported by
 the server. LM Studio's Chat Completions handling can vary by model and version.
 
@@ -210,7 +210,15 @@ fails. In-flight resources remain available after a timeout; callers must report
 the outcome and can retry shutdown after pending work finishes. Adapter cleanup
 failures are logged and retried without rejecting an already committed edit.
 
-Global Settings separates Behaviour, Appearance and Backends. Appearance retains
+**Backends** sits beside **Global settings** and **Access & Logs** in the chat menu.
+Each connection has a tab with model cards; opening a card shows its configuration
+and load/unload actions. Only loaded models have an Unload button on their card.
+Backend connection settings and defaults are in the collapsible Backend settings section.
+Connection and chat defaults are grouped, with backend-specific URL examples when
+adding a connection. The dialog header keeps Close and backend navigation visible;
+New Backend stays pinned when tabs overflow. Model actions show progress and keep
+their success or error feedback inside the active dialog.
+Global Settings separates Behaviour and Appearance. Appearance retains
 the existing App, User, Assistant and System colourways, automatic shades,
 light/dark mode, icon colours and semantic message-action colours (the default).
 Interface icons use locally bundled Phosphor SVGs; their licence and source

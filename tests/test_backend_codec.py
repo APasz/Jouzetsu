@@ -42,52 +42,33 @@ def test_reasoning_settings_and_attribution_round_trip() -> None:
     )
     backend = replace(backend, models=(model, *backend.models[1:]))
     configuration = BackendConfiguration((backend,), backend.id)
-    assert (
-        decode_backends(json_round_trip(encode_backends(configuration)))
-        == configuration
-    )
-    unavailable = replace(
-        model, reasoning_default=None, reasoning_default_unavailable=True
-    )
+    assert decode_backends(json_round_trip(encode_backends(configuration))) == configuration
+    unavailable = replace(model, reasoning_default=None, reasoning_default_unavailable=True)
     fallback_config = replace(
         configuration,
         backends=(replace(backend, models=(unavailable, *backend.models[1:])),),
     )
-    assert (
-        decode_backends(json_round_trip(encode_backends(fallback_config)))
-        == fallback_config
-    )
+    assert decode_backends(json_round_trip(encode_backends(fallback_config))) == fallback_config
     inference = ChatInferenceSettings(
         backend.id,
         {backend.id: GenerationProfile(model.descriptor.key, reasoning="off")},
     )
     assert decode_inference(json_round_trip(encode_inference(inference))) == inference
-    attribution = GenerationAttribution(
-        ModelRef(backend.id, model.descriptor.key), "Backend", "Model", reasoning="off"
-    )
-    assert (
-        decode_attribution(json_round_trip(encode_attribution(attribution)))
-        == attribution
-    )
+    attribution = GenerationAttribution(ModelRef(backend.id, model.descriptor.key), "Backend", "Model", reasoning="off")
+    assert decode_attribution(json_round_trip(encode_attribution(attribution))) == attribution
 
 
 def test_attribution_rejects_invalid_reasoning_level() -> None:
     backend = configured_backend()
-    attribution = GenerationAttribution(
-        ModelRef(backend.id, "model"), "Backend", "Model"
-    )
+    attribution = GenerationAttribution(ModelRef(backend.id, "model"), "Backend", "Model")
     raw = encode_attribution(attribution)
     raw["reasoning"] = "invalid"
     with pytest.raises(JsonValidationError, match="attribution.reasoning"):
         decode_attribution(raw)
 
 
-def test_responses_transport_round_trips_and_old_config_defaults_to_chat_completions() -> (
-    None
-):
-    backend = replace(
-        configured_backend(), lmstudio_transport=LMStudioTransport.RESPONSES
-    )
+def test_responses_transport_round_trips_and_old_config_defaults_to_chat_completions() -> None:
+    backend = replace(configured_backend(), lmstudio_transport=LMStudioTransport.RESPONSES)
     configuration = BackendConfiguration((backend,), backend.id)
     encoded = encode_backends(configuration)
     assert decode_backends(json_round_trip(encoded)) == configuration
@@ -112,12 +93,7 @@ def test_ollama_idle_unload_round_trip_and_legacy_default() -> None:
     assert decode_backends(json_round_trip(encoded)) == configuration
     item = cast(list[dict[str, object]], encoded["backends"])[0]
     del item["ollama_idle_unload_minutes"]
-    assert (
-        decode_backends(json_round_trip(encoded))
-        .backend(backend.id)
-        .ollama_idle_unload_minutes
-        is None
-    )
+    assert decode_backends(json_round_trip(encoded)).backend(backend.id).ollama_idle_unload_minutes is None
     item["ollama_idle_unload_minutes"] = 0
     with pytest.raises(JsonValidationError, match="idle unload"):
         decode_backends(json_round_trip(encoded))
@@ -151,14 +127,10 @@ def configured_backend() -> BackendConfig:
     )
     return (
         replace(
-            BackendConfig.create(
-                BackendKind.LM_STUDIO, "Local", "http://localhost:1234/v1"
-            ),
+            BackendConfig.create(BackendKind.LM_STUDIO, "Local", "http://localhost:1234/v1"),
             enabled=False,
             concurrency_limit=2,
-            defaults=GenerationProfile(
-                descriptor.key, SamplingParameters(0.5, 0.8, 1000)
-            ),
+            defaults=GenerationProfile(descriptor.key, SamplingParameters(0.5, 0.8, 1000)),
         )
         .merge_discovery((descriptor,))
         .set_model_alias(descriptor.key, "My model")
@@ -166,15 +138,9 @@ def configured_backend() -> BackendConfig:
     )
 
 
-def set_json_path(
-    raw: dict[str, object], path: tuple[str | int, ...], value: object
-) -> None:
+def set_json_path(raw: dict[str, object], path: tuple[str | int, ...], value: object) -> None:
     def lookup(node: object, key: str | int) -> object:
-        return (
-            cast(list[object], node)[key]
-            if isinstance(key, int)
-            else cast(dict[str, object], node)[key]
-        )
+        return cast(list[object], node)[key] if isinstance(key, int) else cast(dict[str, object], node)[key]
 
     node: object = raw
     for part in path[:-1]:
@@ -186,13 +152,9 @@ def set_json_path(
         cast(dict[str, object], node)[final] = value
 
 
-def test_backend_configuration_round_trip_preserves_cached_metadata_and_tombstones() -> (
-    None
-):
+def test_backend_configuration_round_trip_preserves_cached_metadata_and_tombstones() -> None:
     active = configured_backend()
-    retired = BackendConfig.create(
-        BackendKind.OPENAI_COMPATIBLE, "Old", active.base_url
-    )
+    retired = BackendConfig.create(BackendKind.OPENAI_COMPATIBLE, "Old", active.base_url)
     config = replace(
         BackendConfiguration((active, retired)).remove_backend(retired.id),
         default_backend_id=active.id,
@@ -202,33 +164,17 @@ def test_backend_configuration_round_trip_preserves_cached_metadata_and_tombston
     text = json.dumps(encoded)
     assert "loaded_instance" not in text
     assert "api_key" not in text
-    assert (
-        decode_backends(encoded)
-        .backend(active.id)
-        .model("manual")
-        .descriptor.capabilities.vision
-        is None
-    )
+    assert decode_backends(encoded).backend(active.id).model("manual").descriptor.capabilities.vision is None
 
 
 def test_fresh_backend_and_unassigned_chat_components_round_trip() -> None:
-    assert (
-        decode_backends(json_round_trip(encode_backends(BackendConfiguration())))
-        == BackendConfiguration()
-    )
-    assert (
-        decode_inference(json_round_trip(encode_inference(ChatInferenceSettings())))
-        == ChatInferenceSettings()
-    )
+    assert decode_backends(json_round_trip(encode_backends(BackendConfiguration()))) == BackendConfiguration()
+    assert decode_inference(json_round_trip(encode_inference(ChatInferenceSettings()))) == ChatInferenceSettings()
 
 
-def test_chat_profiles_and_generation_labels_survive_backend_deletion_and_rename() -> (
-    None
-):
+def test_chat_profiles_and_generation_labels_survive_backend_deletion_and_rename() -> None:
     first = configured_backend()
-    second = BackendConfig.create(
-        BackendKind.OPENAI_COMPATIBLE, "Second", first.base_url
-    )
+    second = BackendConfig.create(BackendKind.OPENAI_COMPATIBLE, "Second", first.base_url)
     config = BackendConfiguration((first, second), first.id)
     chat = ChatInferenceSettings.new_chat(config).select_backend(config, second.id)
     attribution = GenerationAttribution(
@@ -240,10 +186,7 @@ def test_chat_profiles_and_generation_labels_survive_backend_deletion_and_rename
     assert decoded == chat
     assert first.id in decoded.profiles
     assert renamed.backend(second.id).name == "Renamed"
-    assert (
-        decode_attribution(json_round_trip(encode_attribution(attribution)))
-        == attribution
-    )
+    assert decode_attribution(json_round_trip(encode_attribution(attribution))) == attribution
     assert attribution.backend_name == "Local"
 
 
@@ -284,9 +227,7 @@ def test_chat_profiles_and_generation_labels_survive_backend_deletion_and_rename
         (("backends", 0, "models", 0, "loaded_instance_ids"), ["live"]),
     ],
 )
-def test_invalid_backend_documents_fail_with_a_location(
-    path: tuple[str | int, ...], value: object
-) -> None:
+def test_invalid_backend_documents_fail_with_a_location(path: tuple[str | int, ...], value: object) -> None:
     config = BackendConfiguration((configured_backend(),))
     raw = encode_backends(config)
     set_json_path(raw, path, value)
@@ -311,9 +252,7 @@ def test_duplicate_active_retired_and_model_ids_are_rejected() -> None:
     with pytest.raises(JsonValidationError, match="unique"):
         decode_backends(raw)
     raw = encode_backends(BackendConfiguration((backend,)))
-    raw["retired_backends"] = [
-        {"id": backend.id, "kind": backend.kind.value, "name": backend.name}
-    ]
+    raw["retired_backends"] = [{"id": backend.id, "kind": backend.kind.value, "name": backend.name}]
     with pytest.raises(JsonValidationError, match="unique"):
         decode_backends(raw)
     raw = encode_backends(BackendConfiguration((backend,)))
@@ -344,9 +283,7 @@ def test_invalid_inference_document_is_rejected(field: str, value: object) -> No
 
 def test_profile_requires_valid_identity_and_selected_profile() -> None:
     backend = configured_backend()
-    raw = encode_inference(
-        ChatInferenceSettings(backend.id, {backend.id: backend.defaults})
-    )
+    raw = encode_inference(ChatInferenceSettings(backend.id, {backend.id: backend.defaults}))
     raw["profiles"] = {}
     with pytest.raises(JsonValidationError, match="stored chat profile"):
         decode_inference(raw)
@@ -363,9 +300,7 @@ def test_profile_requires_valid_identity_and_selected_profile() -> None:
 
 def test_attribution_rejects_missing_or_blank_actual_identity() -> None:
     backend = configured_backend()
-    raw = encode_attribution(
-        GenerationAttribution(ModelRef(backend.id, "model"), "Local", "Model")
-    )
+    raw = encode_attribution(GenerationAttribution(ModelRef(backend.id, "model"), "Local", "Model"))
     raw["backend_id"] = ""
     with pytest.raises(JsonValidationError, match="backend id"):
         decode_attribution(raw)

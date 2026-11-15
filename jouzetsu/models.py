@@ -34,9 +34,7 @@ def _json_list(raw: object, *, path: str) -> list[object]:
 CHARACTER_PROMPT_NAME_TEMPLATE: str = "You are roleplaying as {name}."
 CHARACTER_PROMPT_PROFILE_HEADING: str = "Character profile:"
 CHARACTER_PROMPT_EMPTY_PROFILE: str = "No additional profile details are defined."
-CHARACTER_PROMPT_CLOSING: str = (
-    "Stay consistent with this profile while responding naturally to the user."
-)
+CHARACTER_PROMPT_CLOSING: str = "Stay consistent with this profile while responding naturally to the user."
 CHARACTER_CAST_PROMPT_INTRO: str = "You are roleplaying as the following characters."
 CHARACTER_CAST_HEADING: str = "Character cast:"
 CHARACTER_CAST_MEMBER_TEMPLATE: str = "{name}:"
@@ -54,12 +52,9 @@ CHARACTER_ASSISTANT_PROMPT_CLOSING: str = (
     "Answer as one clear assistant by default; identify a specific character only "
     "when it genuinely helps. Do not roleplay a scene unless the user asks."
 )
-CHARACTER_STORY_PROMPT_NAME_TEMPLATE: str = (
-    "You are the narrator of an immersive collaborative story featuring {name}."
-)
+CHARACTER_STORY_PROMPT_NAME_TEMPLATE: str = "You are the narrator of an immersive collaborative story featuring {name}."
 CHARACTER_STORY_CAST_PROMPT_INTRO: str = (
-    "You are the narrator of an immersive collaborative story featuring the "
-    "following characters."
+    "You are the narrator of an immersive collaborative story featuring the following characters."
 )
 CHARACTER_STORY_DIRECTION_HEADING: str = "Story direction:"
 CHARACTER_STORY_PROMPT_CLOSING: str = (
@@ -77,15 +72,12 @@ CHARACTER_DRAFT_DISPLAY_NAME: Final[str] = "Untitled character"
 class FutureSchemaVersionError(ValueError):
     """A persisted document requires a newer application version to load safely."""
 
-    def __init__(
-        self, *, document_name: str, version: int, supported_version: int
-    ) -> None:
+    def __init__(self, *, document_name: str, version: int, supported_version: int) -> None:
         self.document_name: str = document_name
         self.version: int = version
         self.supported_version: int = supported_version
         super().__init__(
-            f"{document_name} schema version {version} is newer than supported "
-            f"version {supported_version}"
+            f"{document_name} schema version {version} is newer than supported version {supported_version}"
         )
 
 
@@ -248,11 +240,7 @@ class CharacterName:
     def display_name(self) -> str:
         """Return the display name shared by prompts, lists, and chat snapshots."""
 
-        return (
-            f"{self.given_name} {self.family_name}"
-            if self.family_name
-            else self.given_name
-        )
+        return f"{self.given_name} {self.family_name}" if self.family_name else self.given_name
 
     def to_dict(self) -> CharacterNameJSON:
         """Return the structured persistence shape for this name."""
@@ -267,16 +255,12 @@ class CharacterName:
         if not isinstance(raw_family_name, str):
             raise TypeError("character.name.family must be text")
         return cls(
-            given_name=_required_string(
-                raw.get("given"), field_name="character.name.given"
-            ),
+            given_name=_required_string(raw.get("given"), field_name="character.name.given"),
             family_name=raw_family_name,
         )
 
 
-_LEGACY_DRAFT_CHARACTER_NAME: Final[CharacterName] = CharacterName(
-    given_name="New", family_name="character"
-)
+_LEGACY_DRAFT_CHARACTER_NAME: Final[CharacterName] = CharacterName(given_name="New", family_name="character")
 
 
 def _new_id() -> str:
@@ -299,15 +283,11 @@ def _integer_from_json(raw: object, *, field_name: str, minimum: int) -> int:
     if isinstance(raw, bool) or not isinstance(raw, int):
         raise TypeError(f"{field_name} must be an integer")
     if raw < minimum:
-        raise ValueError(
-            f"{field_name} must be an integer greater than or equal to {minimum}"
-        )
+        raise ValueError(f"{field_name} must be an integer greater than or equal to {minimum}")
     return raw
 
 
-def _document_schema_version(
-    raw: Mapping[str, object], *, document_name: str, supported_version: int
-) -> int | None:
+def _document_schema_version(raw: Mapping[str, object], *, document_name: str, supported_version: int) -> int | None:
     """Read an optional document version and reject versions this build cannot load."""
 
     if "schema_version" not in raw:
@@ -418,23 +398,17 @@ class CharacterChatBinding:
         return cls(
             id=_required_string(raw.get("id"), field_name="chat.character.id"),
             name=_required_string(raw.get("name"), field_name="chat.character.name"),
-            revision=_integer_from_json(
-                raw.get("revision"), field_name="chat.character.revision", minimum=1
-            ),
+            revision=_integer_from_json(raw.get("revision"), field_name="chat.character.revision", minimum=1),
         )
 
 
-def _character_cast_from_dict(
-    raw: object, *, field_name: str
-) -> tuple[CharacterChatBinding, ...]:
+def _character_cast_from_dict(raw: object, *, field_name: str) -> tuple[CharacterChatBinding, ...]:
     """Load an ordered cast of immutable profile revision bindings."""
 
     if not isinstance(raw, list):
         raise TypeError(f"{field_name} must be a list")
     character_bindings: tuple[CharacterChatBinding, ...] = tuple(
-        CharacterChatBinding.from_dict(
-            _string_mapping(item, field_name=f"{field_name} item")
-        )
+        CharacterChatBinding.from_dict(_string_mapping(item, field_name=f"{field_name} item"))
         for item in cast(list[object], raw)
     )
     character_ids: tuple[str, ...] = tuple(binding.id for binding in character_bindings)
@@ -451,18 +425,12 @@ def _character_cast_from_chat(
     if "character_cast" in raw:
         if "character" in raw:
             raise ValueError("chat cannot define both character and character_cast")
-        return _character_cast_from_dict(
-            raw["character_cast"], field_name="chat.character_cast"
-        )
+        return _character_cast_from_dict(raw["character_cast"], field_name="chat.character_cast")
 
     raw_character: object = raw.get("character")
     if raw_character is None:
         return ()
-    return (
-        CharacterChatBinding.from_dict(
-            _string_mapping(raw_character, field_name="chat.character")
-        ),
-    )
+    return (CharacterChatBinding.from_dict(_string_mapping(raw_character, field_name="chat.character")),)
 
 
 def chat_prompt_mode_from_text(raw: str) -> ChatPromptMode:
@@ -475,9 +443,7 @@ def chat_prompt_mode_from_text(raw: str) -> ChatPromptMode:
         raise ValueError(f"unknown chat prompt mode: {raw!r}") from exc
 
 
-def _chat_prompt_mode_from_chat(
-    raw: Mapping[str, object], *, has_character_cast: bool
-) -> ChatPromptMode | None:
+def _chat_prompt_mode_from_chat(raw: Mapping[str, object], *, has_character_cast: bool) -> ChatPromptMode | None:
     """Load a saved mode, treating pre-mode character chats as roleplay chats."""
 
     raw_mode: object = raw.get("prompt_mode")
@@ -530,9 +496,7 @@ class CharacterField:
             raise TypeError("character field value must be text")
         return cls(
             id=_required_string(raw.get("id"), field_name="character.fields.id"),
-            label=_required_string(
-                raw.get("label"), field_name="character.fields.label"
-            ),
+            label=_required_string(raw.get("label"), field_name="character.fields.label"),
             kind=cast(CharacterFieldKind, raw_kind),
             value=raw_value,
         )
@@ -557,13 +521,8 @@ class CharacterPresetSelection:
             raise TypeError("character extra preset ids must be text")
         if self.base_id != self.base_id.strip():
             raise ValueError("character base preset id must be trimmed text")
-        if any(
-            not preset_id or preset_id != preset_id.strip()
-            for preset_id in self.extra_ids
-        ):
-            raise ValueError(
-                "character extra preset ids must be non-empty trimmed text"
-            )
+        if any(not preset_id or preset_id != preset_id.strip() for preset_id in self.extra_ids):
+            raise ValueError("character extra preset ids must be non-empty trimmed text")
         if len(self.extra_ids) != len(set(self.extra_ids)):
             raise ValueError("character extra preset ids must be unique")
 
@@ -576,9 +535,7 @@ class CharacterPresetSelection:
         if not isinstance(raw_base_id, str):
             raise TypeError("character.presets.base must be text")
         if raw_base_id != raw_base_id.strip():
-            raise ValueError(
-                "character.presets.base must not have surrounding whitespace"
-            )
+            raise ValueError("character.presets.base must not have surrounding whitespace")
         base_id: str = raw_base_id.strip()
         raw_extra_ids: object = raw.get("extras", [])
         if not isinstance(raw_extra_ids, list):
@@ -588,9 +545,7 @@ class CharacterPresetSelection:
             raise TypeError("character.presets.extras must be a list of text values")
         extra_values: list[str] = [cast(str, preset_id) for preset_id in extra_items]
         if any(preset_id != preset_id.strip() for preset_id in extra_values):
-            raise ValueError(
-                "character.presets.extras must not have surrounding whitespace"
-            )
+            raise ValueError("character.presets.extras must not have surrounding whitespace")
         extra_ids: tuple[str, ...] = tuple(extra_values)
         return cls(base_id=base_id, extra_ids=extra_ids)
 
@@ -658,9 +613,7 @@ class Character:
     def display_name(self) -> str:
         """Return a safe UI label for either a saved character or an unnamed draft."""
 
-        return (
-            self.name if self.name_parts is not None else CHARACTER_DRAFT_DISPLAY_NAME
-        )
+        return self.name if self.name_parts is not None else CHARACTER_DRAFT_DISPLAY_NAME
 
     def revised_profile(
         self,
@@ -680,9 +633,7 @@ class Character:
         field_ids: list[str] = [profile_field.id for profile_field in next_fields]
         if len(field_ids) != len(set(field_ids)):
             raise ValueError("character field ids must be unique")
-        next_presets: CharacterPresetSelection = (
-            self.presets if presets is None else presets
-        )
+        next_presets: CharacterPresetSelection = self.presets if presets is None else presets
         if (
             self.name_parts == next_name
             and self.is_draft == next_is_draft
@@ -734,19 +685,12 @@ class Character:
         """Return only the populated profile lines shared by prompt compilers."""
 
         populated_fields: list[CharacterField] = [
-            profile_field
-            for profile_field in self.fields
-            if profile_field.value.strip()
+            profile_field for profile_field in self.fields if profile_field.value.strip()
         ]
         profile_lines: list[str] = [
-            f"{profile_field.label.strip()}: {profile_field.value.strip()}"
-            for profile_field in populated_fields
+            f"{profile_field.label.strip()}: {profile_field.value.strip()}" for profile_field in populated_fields
         ]
-        return (
-            "\n".join(profile_lines)
-            if profile_lines
-            else CHARACTER_PROMPT_EMPTY_PROFILE
-        )
+        return "\n".join(profile_lines) if profile_lines else CHARACTER_PROMPT_EMPTY_PROFILE
 
     def to_dict(self) -> CharacterJSON:
         return {
@@ -773,9 +717,7 @@ class Character:
         if not isinstance(raw_fields, list):
             raise TypeError("character.fields must be a list")
         fields: list[CharacterField] = [
-            CharacterField.from_dict(
-                _string_mapping(item, field_name="character.fields item")
-            )
+            CharacterField.from_dict(_string_mapping(item, field_name="character.fields item"))
             for item in cast(list[object], raw_fields)
         ]
         presets: CharacterPresetSelection = CharacterPresetSelection.from_dict(
@@ -795,20 +737,14 @@ class Character:
         else:
             if "is_draft" not in raw:
                 raise ValueError("character.is_draft is required")
-            is_draft = _required_bool_from_json(
-                raw["is_draft"], field_name="character.is_draft"
-            )
+            is_draft = _required_bool_from_json(raw["is_draft"], field_name="character.is_draft")
             if is_draft != (name_parts is None):
-                raise ValueError(
-                    "character.is_draft must match whether character.name is null"
-                )
+                raise ValueError("character.is_draft must match whether character.name is null")
         return cls(
             id=_required_string(raw.get("id"), field_name="character.id"),
             name_parts=name_parts,
             is_draft=is_draft,
-            revision=_integer_from_json(
-                raw.get("revision", 1), field_name="character.revision", minimum=1
-            ),
+            revision=_integer_from_json(raw.get("revision", 1), field_name="character.revision", minimum=1),
             created_at=_float_from_json(raw.get("created_at"), default=now),
             updated_at=_float_from_json(raw.get("updated_at"), default=now),
             fields=fields,
@@ -840,9 +776,7 @@ def compiled_character_chat_system_prompt(
 def compiled_character_cast_system_prompt(characters: Sequence[Character]) -> str:
     """Compile the legacy default roleplay prompt for an ordered character cast."""
 
-    return compiled_character_chat_system_prompt(
-        characters, mode=ChatPromptMode.ROLEPLAY
-    )
+    return compiled_character_chat_system_prompt(characters, mode=ChatPromptMode.ROLEPLAY)
 
 
 def _compiled_roleplay_character_prompt(
@@ -865,21 +799,14 @@ def _compiled_assistant_character_prompt(
     """Compile a profile-guided assistant prompt for one or more characters."""
 
     intro: str = (
-        CHARACTER_ASSISTANT_PROMPT_NAME_TEMPLATE.format(
-            name=character_cast[0].name.strip()
-        )
+        CHARACTER_ASSISTANT_PROMPT_NAME_TEMPLATE.format(name=character_cast[0].name.strip())
         if len(character_cast) == 1
         else CHARACTER_ASSISTANT_CAST_PROMPT_INTRO
     )
-    return (
-        f"{intro}\n\n{_compiled_character_cast_profiles(character_cast)}\n\n"
-        f"{CHARACTER_ASSISTANT_PROMPT_CLOSING}"
-    )
+    return f"{intro}\n\n{_compiled_character_cast_profiles(character_cast)}\n\n{CHARACTER_ASSISTANT_PROMPT_CLOSING}"
 
 
-def _compiled_story_character_prompt(
-    character_cast: tuple[Character, ...], story_direction: str
-) -> str:
+def _compiled_story_character_prompt(character_cast: tuple[Character, ...], story_direction: str) -> str:
     """Compile third-person narrative guidance for one or more cast members."""
 
     intro: str = (
@@ -888,9 +815,7 @@ def _compiled_story_character_prompt(
         else CHARACTER_STORY_CAST_PROMPT_INTRO
     )
     direction: str = _normalized_story_direction(story_direction)
-    direction_block: str = (
-        f"{CHARACTER_STORY_DIRECTION_HEADING}\n{direction}\n\n" if direction else ""
-    )
+    direction_block: str = f"{CHARACTER_STORY_DIRECTION_HEADING}\n{direction}\n\n" if direction else ""
     return (
         f"{intro}\n\n{direction_block}"
         f"{_compiled_character_cast_profiles(character_cast)}\n\n"
@@ -950,9 +875,7 @@ def character_cast_chat_title(characters: Sequence[Character]) -> str:
     """Return a concise, stable title for a manually started cast chat."""
 
     character_cast: tuple[Character, ...] = _validated_character_cast(characters)
-    names: tuple[str, ...] = tuple(
-        character.name.strip() for character in character_cast
-    )
+    names: tuple[str, ...] = tuple(character.name.strip() for character in character_cast)
     if len(names) == 1:
         return names[0]
     if len(names) == 2:
@@ -1014,18 +937,10 @@ class ImageAttachment:
         return cls(
             id=_required_string(raw.get("id"), field_name="image.id"),
             name=_required_string(raw.get("name"), field_name="image.name"),
-            media_type=ImageMediaType(
-                _required_string(raw.get("media_type"), field_name="image.media_type")
-            ),
-            width=_integer_from_json(
-                raw.get("width"), field_name="image.width", minimum=1
-            ),
-            height=_integer_from_json(
-                raw.get("height"), field_name="image.height", minimum=1
-            ),
-            size_bytes=_integer_from_json(
-                raw.get("size_bytes"), field_name="image.size_bytes", minimum=1
-            ),
+            media_type=ImageMediaType(_required_string(raw.get("media_type"), field_name="image.media_type")),
+            width=_integer_from_json(raw.get("width"), field_name="image.width", minimum=1),
+            height=_integer_from_json(raw.get("height"), field_name="image.height", minimum=1),
+            size_bytes=_integer_from_json(raw.get("size_bytes"), field_name="image.size_bytes", minimum=1),
         )
 
 
@@ -1035,8 +950,7 @@ def image_attachments_from_json(raw: object) -> tuple[ImageAttachment, ...]:
     if not isinstance(raw, list):
         raise TypeError("images must be a list")
     return tuple(
-        ImageAttachment.from_dict(_string_mapping(item, field_name="image"))
-        for item in cast(list[object], raw)
+        ImageAttachment.from_dict(_string_mapping(item, field_name="image")) for item in cast(list[object], raw)
     )
 
 
@@ -1068,12 +982,9 @@ class Message:
     def __post_init__(self) -> None:
         _validate_image_references(self.images)
         if not isinstance(cast(object, self.attributions), tuple) or not all(
-            isinstance(cast(object, item), GenerationAttribution)
-            for item in self.attributions
+            isinstance(cast(object, item), GenerationAttribution) for item in self.attributions
         ):
-            raise TypeError(
-                "attributions must be an immutable tuple of generation attributions"
-            )
+            raise TypeError("attributions must be an immutable tuple of generation attributions")
         if self.attributions and self.role != "assistant":
             raise ValueError("only assistant messages can have generation attribution")
         if self.images and self.role != "user":
@@ -1138,9 +1049,7 @@ class Message:
             images=image_attachments_from_json(raw.get("images", [])),
             attributions=tuple(
                 decode_attribution(item)
-                for item in _json_list(
-                    raw.get("attributions", []), path="message.attributions"
-                )
+                for item in _json_list(raw.get("attributions", []), path="message.attributions")
             ),
             created_at=created_at,
             updated_at=_float_from_json(raw.get("updated_at"), default=created_at),
@@ -1181,10 +1090,7 @@ class Chat:
             isinstance(cast(object, item), Submission) for item in self.submissions
         ):
             raise TypeError("submissions must be an immutable tuple of receipts")
-        if any(
-            type(value) is not int or value < 0
-            for value in (self.revision, self.draft_revision)
-        ):
+        if any(type(value) is not int or value < 0 for value in (self.revision, self.draft_revision)):
             raise ValueError("chat revisions must be nonnegative integers")
         if len({receipt.id for receipt in self.submissions}) != len(self.submissions):
             raise ValueError("duplicate submission identifiers")
@@ -1197,13 +1103,9 @@ class Chat:
         if not isinstance(raw_character_cast, tuple):
             raise TypeError("chat character cast must be an immutable tuple")
         raw_bindings: tuple[object, ...] = cast(tuple[object, ...], raw_character_cast)
-        if not all(
-            isinstance(binding, CharacterChatBinding) for binding in raw_bindings
-        ):
+        if not all(isinstance(binding, CharacterChatBinding) for binding in raw_bindings):
             raise TypeError("chat character cast must contain character bindings")
-        character_ids: tuple[str, ...] = tuple(
-            binding.id for binding in self.character_cast
-        )
+        character_ids: tuple[str, ...] = tuple(binding.id for binding in self.character_cast)
         if len(character_ids) != len(set(character_ids)):
             raise ValueError("chat character cast cannot contain duplicate characters")
         raw_prompt_mode: object = cast(object, self.prompt_mode)
@@ -1318,11 +1220,7 @@ class Chat:
     def merge_message_with_previous(self, message_id: str) -> Message:
         """Merge a message into its immediate predecessor and remove it."""
         target_index: int | None = next(
-            (
-                index
-                for index, message in enumerate[Message](self.messages)
-                if message.id == message_id
-            ),
+            (index for index, message in enumerate[Message](self.messages) if message.id == message_id),
             None,
         )
         if target_index is None:
@@ -1335,14 +1233,10 @@ class Chat:
         if previous_message.role != target_message.role:
             raise ValueError("previous message must have the same role")
 
-        previous_message.update_content(
-            _merge_message_content(previous_message.content, target_message.content)
-        )
+        previous_message.update_content(_merge_message_content(previous_message.content, target_message.content))
         previous_message.images += target_message.images
         previous_message.attributions = tuple(
-            dict.fromkeys(
-                (*previous_message.attributions, *target_message.attributions)
-            )
+            dict.fromkeys((*previous_message.attributions, *target_message.attributions))
         )
         del self.messages[target_index]
         self.touch()
@@ -1351,11 +1245,7 @@ class Chat:
     def fork_through(self, message_id: str) -> Chat:
         """Create an independent chat containing messages through the target."""
         target_index: int | None = next(
-            (
-                index
-                for index, message in enumerate[Message](self.messages)
-                if message.id == message_id
-            ),
+            (index for index, message in enumerate[Message](self.messages) if message.id == message_id),
             None,
         )
         if target_index is None:
@@ -1447,19 +1337,13 @@ class Chat:
             Message.from_dict(_string_mapping(item, field_name="chat.messages item"))
             for item in cast(list[object], raw_messages)
         ]
-        character_cast: tuple[CharacterChatBinding, ...] = _character_cast_from_chat(
-            raw
-        )
-        prompt_mode: ChatPromptMode | None = _chat_prompt_mode_from_chat(
-            raw, has_character_cast=bool(character_cast)
-        )
+        character_cast: tuple[CharacterChatBinding, ...] = _character_cast_from_chat(raw)
+        prompt_mode: ChatPromptMode | None = _chat_prompt_mode_from_chat(raw, has_character_cast=bool(character_cast))
         title: str = str(raw.get("title", "New chat"))
         title_source: ChatTitleSource = (
             _title_source_from_json(raw["title_source"])
             if "title_source" in raw
-            else (
-                ChatTitleSource.AUTO if title == "New chat" else ChatTitleSource.MANUAL
-            )
+            else (ChatTitleSource.AUTO if title == "New chat" else ChatTitleSource.MANUAL)
         )
         return cls(
             id=str(raw.get("id") or _new_id()),
@@ -1478,22 +1362,15 @@ class Chat:
             draft_images=image_attachments_from_json(raw.get("draft_images", [])),
             character_cast=character_cast,
             messages=messages,
-            inference=decode_inference(raw["inference"])
-            if "inference" in raw
-            else ChatInferenceSettings(),
-            revision=_integer_from_json(
-                raw.get("revision", 0), field_name="chat.revision", minimum=0
-            ),
+            inference=decode_inference(raw["inference"]) if "inference" in raw else ChatInferenceSettings(),
+            revision=_integer_from_json(raw.get("revision", 0), field_name="chat.revision", minimum=0),
             draft_revision=_integer_from_json(
                 raw.get("draft_revision", 0),
                 field_name="chat.draft_revision",
                 minimum=0,
             ),
             submissions=tuple(
-                Submission.from_dict(item)
-                for item in _json_list(
-                    raw.get("submissions", []), path="chat.submissions"
-                )
+                Submission.from_dict(item) for item in _json_list(raw.get("submissions", []), path="chat.submissions")
             ),
         )
 

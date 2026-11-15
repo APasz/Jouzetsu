@@ -823,11 +823,15 @@
 }
 
 .jouzetsu-dialog {
+    position: fixed;
+    top: 16px;
+    bottom: auto;
     width: min(620px, calc(100vw - 32px));
     max-height: calc(100dvh - 32px);
-    margin: auto;
+    margin: 0 auto;
     padding: 0;
     overflow: auto;
+    scrollbar-gutter: stable both-edges;
     border: 1px solid var(--jouzetsu-app-border-strong);
     background: var(--jouzetsu-app-surface);
     color: var(--jouzetsu-app-text);
@@ -934,4 +938,286 @@
     width: 100%;
     min-width: 0;
     font-family: var(--jouzetsu-font-mono);
+}
+
+.jouzetsu-backends-dialog {
+    width: min(860px, calc(100vw - 32px));
+}
+
+.jouzetsu-backends-dialog > .jouzetsu-modal-card,
+.jouzetsu-model-dialog > .jouzetsu-modal-card {
+    gap: 0;
+    padding: 0;
+}
+
+.jouzetsu-dialog-header {
+    position: sticky;
+    z-index: 2;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 16px 0;
+    border-bottom: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface);
+}
+
+.jouzetsu-model-dialog .jouzetsu-dialog-header {
+    padding-bottom: 12px;
+}
+
+.jouzetsu-dialog-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.jouzetsu-dialog-heading .jouzetsu-modal-title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.jouzetsu-dialog-heading > button {
+    flex: 0 0 auto;
+}
+
+.jouzetsu-dialog-header > .jouzetsu-dialog-feedback {
+    margin-bottom: 10px;
+}
+
+.jouzetsu-dialog-body,
+.jouzetsu-dialog-body > form:not(.jouzetsu-inline-form) {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.jouzetsu-dialog-body {
+    padding: 16px;
+}
+
+.jouzetsu-dialog-body > form.jouzetsu-backend-default-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 10px;
+    margin: 0;
+}
+
+.jouzetsu-backends-dialog .jouzetsu-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
+    max-width: 240px;
+    overflow-wrap: anywhere;
+    text-align: left;
+}
+
+.jouzetsu-backends-dialog .jouzetsu-tab[data-tab-pinned] {
+    position: sticky;
+    z-index: 1;
+    right: 0;
+    margin-left: auto;
+    background: var(--jouzetsu-app-surface);
+    box-shadow: -6px 0 0 var(--jouzetsu-app-surface);
+}
+
+.jouzetsu-backends-dialog .jouzetsu-tab[data-tab-pinned]:hover,
+.jouzetsu-backends-dialog .jouzetsu-tab[data-tab-pinned]:focus-visible {
+    background: var(--jouzetsu-app-surface-raised);
+}
+
+.jouzetsu-tab-detail {
+    color: var(--jouzetsu-app-text-muted);
+    font-size: 10px;
+}
+
+.jouzetsu-tab-indicator {
+    align-self: stretch;
+    height: 2px;
+}
+
+.jouzetsu-tab-indicator[data-tab-indicator="success"] {
+    background: var(--jouzetsu-status-success);
+}
+
+.jouzetsu-tab-indicator[data-tab-indicator="error"] {
+    background: var(--jouzetsu-status-error);
+}
+
+.jouzetsu-tab-indicator[data-tab-indicator="warning"] {
+    background: var(--jouzetsu-status-warning);
+}
+
+.jouzetsu-tab-indicator[data-tab-indicator="neutral"] {
+    background: var(--jouzetsu-status-neutral);
+}
+
+.jouzetsu-tab-indicator.is-subdued {
+    opacity: 0.4;
+}
+
+.jouzetsu-backend-panel,
+.jouzetsu-backend-form {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.jouzetsu-backend-form {
+    margin: 0;
+}
+
+.jouzetsu-backend-settings-group,
+.jouzetsu-backend-idle-control {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.jouzetsu-backend-settings-group + .jouzetsu-backend-settings-group {
+    padding-top: 12px;
+    border-top: 1px solid var(--jouzetsu-app-border);
+}
+
+.jouzetsu-backend-settings-group .jouzetsu-form-grid {
+    align-items: end;
+}
+
+.jouzetsu-backend-settings-group .jouzetsu-form-help {
+    margin: 0;
+    line-height: 1.4;
+}
+
+form[aria-busy="true"] [data-busy-label] {
+    cursor: progress;
+}
+
+.jouzetsu-backend-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+    gap: 12px;
+}
+
+.jouzetsu-backend-heading > div {
+    min-width: 0;
+}
+
+.jouzetsu-backend-url {
+    display: block;
+    margin-top: 4px;
+    overflow-wrap: anywhere;
+    color: var(--jouzetsu-app-text-muted);
+    font-size: 11px;
+}
+
+.jouzetsu-backend-details {
+    padding: 10px;
+    border: 1px solid var(--jouzetsu-app-border);
+}
+
+.jouzetsu-backend-details > summary {
+    color: var(--jouzetsu-app-text-muted);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.jouzetsu-backend-details > :not(summary) {
+    margin-top: 12px;
+}
+
+.jouzetsu-model-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+    gap: 10px;
+}
+
+.jouzetsu-model-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    border: 1px solid var(--jouzetsu-app-border);
+    background: var(--jouzetsu-app-surface-raised);
+}
+
+.jouzetsu-model-card:focus-within,
+.jouzetsu-model-card:hover {
+    border-color: var(--jouzetsu-app-key-visual);
+}
+
+.jouzetsu-model-card-open {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px;
+    border: 0;
+    background: transparent;
+    color: var(--jouzetsu-app-text);
+    text-align: left;
+}
+
+.jouzetsu-model-card-open:focus-visible {
+    outline: 2px solid var(--jouzetsu-app-accent);
+    outline-offset: -2px;
+}
+
+.jouzetsu-model-card-name {
+    overflow-wrap: anywhere;
+    color: var(--jouzetsu-app-foreground);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.jouzetsu-model-identifier,
+.jouzetsu-model-metadata {
+    overflow-wrap: anywhere;
+    color: var(--jouzetsu-app-text-muted);
+    font-size: 11px;
+}
+
+.jouzetsu-model-identifier {
+    margin: 0;
+    font-family: var(--jouzetsu-font-mono);
+}
+
+.jouzetsu-model-card-state {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: auto;
+    padding-top: 4px;
+}
+
+.jouzetsu-model-load-state,
+.jouzetsu-model-default {
+    color: var(--jouzetsu-app-text-muted);
+    font-size: 10px;
+}
+
+.jouzetsu-model-load-state.is-loaded,
+.jouzetsu-model-default {
+    color: var(--jouzetsu-app-foreground);
+}
+
+.jouzetsu-model-card > form {
+    align-self: flex-end;
+    margin: 0;
+    padding: 0 10px 10px;
+}
+
+.jouzetsu-model-card > form > button {
+    min-height: 30px;
+    font-size: 11px;
 }

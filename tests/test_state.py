@@ -72,9 +72,7 @@ class AppStateTests(unittest.TestCase):
     ) -> None:
         async def scenario() -> None:
             character: Character = await self.state.new_character()
-            self.state.character_storage = FailingCharacterStorage(
-                Path(self.tmp_dir.name) / "failing-characters"
-            )
+            self.state.character_storage = FailingCharacterStorage(Path(self.tmp_dir.name) / "failing-characters")
 
             with self.assertRaisesRegex(OSError, "character storage unavailable"):
                 _ = await self.state.update_character(
@@ -89,9 +87,7 @@ class AppStateTests(unittest.TestCase):
             self.assertIsNone(character.name_parts)
             self.assertEqual(character.fields, [])
 
-            self.state.character_storage = FailingCharacterStorage(
-                Path(self.tmp_dir.name) / "failing-new-characters"
-            )
+            self.state.character_storage = FailingCharacterStorage(Path(self.tmp_dir.name) / "failing-new-characters")
             with self.assertRaisesRegex(OSError, "character storage unavailable"):
                 _ = await self.state.new_character()
             self.assertEqual(self.state.characters, [character])
@@ -129,9 +125,7 @@ class AppStateTests(unittest.TestCase):
             self.assertIn("Role: Pilot", chat.system_prompt)
             self.assertEqual(chat.messages, [])
 
-            _ = await self.state.inference.send_message(
-                chat.id, chat.revision, "hello", "Hello Mira", generate=False
-            )
+            _ = await self.state.inference.send_message(chat.id, chat.revision, "hello", "Hello Mira", generate=False)
             self.assertEqual(chat.title, "Mira")
 
         asyncio.run(scenario())
@@ -153,24 +147,18 @@ class AppStateTests(unittest.TestCase):
                 fields=[CharacterField(label="Role", value="Pilot")],
             )
 
-            chat: Chat = await self.state.start_chat_from_characters(
-                (saved_mira.id, saved_ren.id)
-            )
+            chat: Chat = await self.state.start_chat_from_characters((saved_mira.id, saved_ren.id))
 
             self.assertEqual(chat.title, "Mira & Ren")
             self.assertEqual(
-                tuple(
-                    (binding.id, binding.revision) for binding in chat.character_cast
-                ),
+                tuple((binding.id, binding.revision) for binding in chat.character_cast),
                 (
                     (saved_mira.id, saved_mira.revision),
                     (saved_ren.id, saved_ren.revision),
                 ),
             )
             self.assertIsNone(chat.character)
-            self.assertIn(
-                "Mira:\nCharacter profile:\nRole: Cartographer", chat.system_prompt
-            )
+            self.assertIn("Mira:\nCharacter profile:\nRole: Cartographer", chat.system_prompt)
             self.assertIn("Ren:\nCharacter profile:\nRole: Pilot", chat.system_prompt)
             self.assertIn("Clearly attribute each speaker", chat.system_prompt)
 
@@ -195,9 +183,7 @@ class AppStateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "at least one character"):
                 _ = await self.state.start_chat_from_characters(())
             with self.assertRaisesRegex(ValueError, "duplicate characters"):
-                _ = await self.state.start_chat_from_characters(
-                    (character.id, character.id)
-                )
+                _ = await self.state.start_chat_from_characters((character.id, character.id))
             with self.assertRaisesRegex(ValueError, "unknown character"):
                 _ = await self.state.start_chat_from_characters(("missing",))
 
@@ -240,15 +226,9 @@ class AppStateTests(unittest.TestCase):
             self.assertIn("A tense rescue on an ocean moon.", story_chat.system_prompt)
             self.assertIn("Write in third person", story_chat.system_prompt)
             self.assertIs(custom_chat.prompt_mode, ChatPromptMode.CUSTOM)
-            self.assertTrue(
-                custom_chat.system_prompt.startswith("Use terse technical summaries.")
-            )
-            with self.assertRaisesRegex(
-                ValueError, "custom instruction cannot be empty"
-            ):
-                _ = await self.state.start_chat_from_character(
-                    mira.id, prompt_mode=ChatPromptMode.CUSTOM
-                )
+            self.assertTrue(custom_chat.system_prompt.startswith("Use terse technical summaries."))
+            with self.assertRaisesRegex(ValueError, "custom instruction cannot be empty"):
+                _ = await self.state.start_chat_from_character(mira.id, prompt_mode=ChatPromptMode.CUSTOM)
 
         asyncio.run(scenario())
 

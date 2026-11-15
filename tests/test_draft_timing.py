@@ -22,9 +22,7 @@ def test_draft_write_waits_for_pause_but_bounds_continuous_typing(
         clock = 0.0
         waits: list[float] = []
 
-        async def elapse(
-            waiter: Coroutine[object, object, bool], timeout: float
-        ) -> bool:
+        async def elapse(waiter: Coroutine[object, object, bool], timeout: float) -> bool:
             nonlocal clock
             waiter.close()
             waits.append(timeout)
@@ -59,9 +57,7 @@ def test_single_draft_update_is_saved_after_quiet_period_and_flush_bypasses_dela
         clock = 0.0
         waits: list[float] = []
 
-        async def elapse(
-            waiter: Coroutine[object, object, bool], timeout: float
-        ) -> bool:
+        async def elapse(waiter: Coroutine[object, object, bool], timeout: float) -> bool:
             nonlocal clock
             waiter.close()
             waits.append(timeout)
@@ -102,9 +98,7 @@ def test_typing_in_one_chat_does_not_delay_a_quiet_chat(tmp_path: Path) -> None:
             saved.append((clock, tuple(item["id"] for item in records)))
             original(records, deleted_chat_ids=deleted_chat_ids)
 
-        async def elapse(
-            waiter: Coroutine[object, object, bool], timeout: float
-        ) -> bool:
+        async def elapse(waiter: Coroutine[object, object, bool], timeout: float) -> bool:
             nonlocal clock
             waiter.close()
             clock += min(0.5, timeout)
