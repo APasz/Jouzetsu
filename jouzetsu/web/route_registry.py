@@ -1124,9 +1124,9 @@ def _register_backend_routes(context: RouteContext) -> None:
             if action in {"load", "unload"}:
                 model = ModelRef(backend_id, form.required_text("model_id"))
                 if action == "load":
-                    await runtime.load_model(model)
+                    await runtime.load_model(model, expected_fingerprint=form.required_text("backend_fingerprint"))
                 else:
-                    await runtime.unload_model(model)
+                    await runtime.unload_model(model, expected_fingerprint=form.required_text("backend_fingerprint"))
                 await runtime.refresh_backend(backend_id)
                 return
             runtime.validate_backend_snapshot(backend, form.required_text("backend_fingerprint"))

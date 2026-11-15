@@ -14,10 +14,13 @@ from typing import Literal, cast
 from unittest.mock import patch
 
 import aiohttp
+import httpx
 import pytest
 from aiohttp import web
 from image_support import image_bytes
+from web_support import close_web_application, csrf_headers, noop, transport
 
+from jouzetsu.backend_codec import backend_fingerprint
 from jouzetsu.backend_models import (
     BackendConfig,
     BackendConfiguration,
@@ -55,8 +58,10 @@ from jouzetsu.runtime import (
     PredictionFragment,
 )
 from jouzetsu.sampling import CHAT_COMPLETIONS_PARAMETERS, ParameterSupport
+from jouzetsu.state import AppState
 from jouzetsu.state_registry import ChatRegistry
 from jouzetsu.storage import ChatStorage
+from jouzetsu.web.application import WebApplication
 
 
 @asynccontextmanager
@@ -136,10 +141,97 @@ def test_ollama_blocks_unverified_context_controls(version: str | None) -> None:
         async with server(handler) as url:
             backend = BackendConfig.create(BackendKind.OLLAMA, "Ollama", url)
             adapter = OllamaBackend(backend)
-            with pytest.raises(BackendError, match="0.14.0"):
+            with pytest.raises(BackendError, match="0.14.0") as exc:
                 _ = [event async for event in adapter.stream(request(backend))]
+            assert exc.value.category is BackendErrorCategory.INCOMPATIBLE
             assert len(calls) == 1 and calls[0].endswith("/api/version")
             await adapter.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    ("version_payload", "compatible"),
+    [
+        ({"version": "0.14.0"}, True),
+        ({"version": "0.40.16"}, True),
+        ({"version": "0.13.9"}, False),
+        ({"version": "unknown"}, False),
+        ({"version": "0.40.0-rc1"}, False),
+        ({"version": None}, False),
+        ({"version": 14}, False),
+        ({}, False),
+    ],
+)
+def test_ollama_version_is_checked_on_startup_and_connection_test(
+    tmp_path: Path, version_payload: dict[str, object], compatible: bool
+) -> None:
+    async def exercise() -> None:
+        calls: list[str] = []
+
+        async def handler(req: web.Request) -> web.Response:
+            calls.append(req.path)
+            if req.path.endswith("/api/version"):
+                return web.json_response(version_payload)
+            if req.path.endswith("/api/tags"):
+                return web.json_response({"models": [{"name": "catalog-model"}]})
+            if req.path.endswith("/api/ps"):
+                return web.json_response({"models": []})
+            if req.path.endswith("/api/show"):
+                return web.json_response({"capabilities": ["completion"]})
+            assert req.path.endswith("/api/chat")
+            return web.Response(
+                text=json.dumps({"model": "catalog-model", "message": {"content": "Reply"}, "done": True}) + "\n"
+            )
+
+        async with server(handler) as url:
+            backend = replace(
+                BackendConfig.create(BackendKind.OLLAMA, "Ollama", url),
+                defaults=GenerationProfile("catalog-model"),
+            ).register_model("catalog-model")
+            store = ConfigStore.for_home(tmp_path)
+            settings = store.load()
+            settings.backends = BackendConfiguration((backend,), backend.id)
+            store.save(settings)
+            state = AppState(settings, ChatStorage(settings.chats_file), config_store=store)
+            app = WebApplication(settings, state, on_startup=noop, on_shutdown=noop)
+            try:
+                await state.start()
+                assert calls[0].endswith("/api/version")
+                error = state.inference.discovery_error(backend.id)
+                if compatible:
+                    assert error is None
+                    assert state.inference.inventory(backend.id)
+                else:
+                    assert error and error.category is BackendErrorCategory.INCOMPATIBLE
+                    assert not state.inference.inventory(backend.id)
+                async with httpx.AsyncClient(
+                    transport=transport(app, client_ip="127.0.0.1"), base_url="http://testserver"
+                ) as browser:
+                    page = await browser.get("/chats?dialog=backends")
+                    if not compatible:
+                        assert "Ollama 0.14.0 or later is required" in page.text
+                    result = await browser.post(
+                        f"/settings/backends/{backend.id}/test",
+                        headers=csrf_headers(page),
+                        data={"backend_fingerprint": backend_fingerprint(state.config.backends.backend(backend.id))},
+                    )
+                    assert result.status_code == (303 if compatible else 400)
+                    if not compatible:
+                        assert "Ollama 0.14.0 or later is required" in result.text
+                assert state.inference.health(backend.id).state is (
+                    BackendReachability.ONLINE if compatible else BackendReachability.STALE
+                )
+                chat = await state.new_chat()
+                sent = await state.inference.send_message(chat.id, chat.revision, "version-check", "Hello")
+                assert sent.job
+                await sent.job.wait()
+                assert sent.job.phase is (JobPhase.FINISHED if compatible else JobPhase.FAILED)
+                if not compatible:
+                    assert sent.job.error and sent.job.error.category is BackendErrorCategory.INCOMPATIBLE
+                    assert all(path.endswith("/api/version") for path in calls)
+            finally:
+                await close_web_application(app, state)
 
     asyncio.run(exercise())
 
@@ -1123,6 +1215,8 @@ def test_ollama_model_management_tracks_real_state(
 
         async def handler(req: web.Request) -> web.Response:
             nonlocal loaded
+            if req.path.endswith("/api/version"):
+                return web.json_response({"version": "0.40.16"})
             if req.path.endswith("/api/tags"):
                 return web.json_response({"models": [{"name": "catalog-model"}]})
             if req.path.endswith("/api/ps"):

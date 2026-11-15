@@ -1078,10 +1078,16 @@ class InferenceRuntime:
             await self._notify(ChangeKind.CONFIG)
 
     @asynccontextmanager
-    async def _maintenance(self, backend_id: BackendId) -> AsyncGenerator[_BackendRuntime]:
+    async def _maintenance(
+        self, backend_id: BackendId, *, expected_fingerprint: str | None = None
+    ) -> AsyncGenerator[_BackendRuntime]:
         async with self._config_lock:
             if self._closing:
                 raise RuntimeError("runtime is shutting down")
+            self.validate_backend_snapshot(
+                next((backend for backend in self.configuration.backends if backend.id == backend_id), None),
+                expected_fingerprint,
+            )
             runtime = self._backends[backend_id]
             runtime.maintenance += 1
         try:
@@ -1133,11 +1139,13 @@ class InferenceRuntime:
         await self._notify(ChangeKind.STATUS)
 
     @_command
-    async def unload_model(self, model: ModelRef) -> None:
-        await self._unload_model(model)
+    async def unload_model(self, model: ModelRef, *, expected_fingerprint: str | None = None) -> None:
+        await self._unload_model(model, expected_fingerprint=expected_fingerprint)
 
-    async def _unload_model(self, model: ModelRef, *, idle_before: float | None = None) -> None:
-        async with self._maintenance(model.backend_id) as runtime:
+    async def _unload_model(
+        self, model: ModelRef, *, idle_before: float | None = None, expected_fingerprint: str | None = None
+    ) -> None:
+        async with self._maintenance(model.backend_id, expected_fingerprint=expected_fingerprint) as runtime:
             if not self.configuration.backend(model.backend_id).enabled:
                 raise ValueError("backend is disabled")
             if any(job.request.model == model for job in (*runtime.queue, *runtime.active.values())):
@@ -1165,9 +1173,9 @@ class InferenceRuntime:
                 runtime.unloading_model_id = None
 
     @_command
-    async def load_model(self, model: ModelRef) -> ModelReady:
+    async def load_model(self, model: ModelRef, *, expected_fingerprint: str | None = None) -> ModelReady:
         """Explicit native loading also works with automatic loading disabled."""
-        async with self._maintenance(model.backend_id) as runtime:
+        async with self._maintenance(model.backend_id, expected_fingerprint=expected_fingerprint) as runtime:
             if not self.configuration.backend(model.backend_id).enabled:
                 raise ValueError("backend is disabled")
             management = runtime.adapter.model_management

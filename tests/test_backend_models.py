@@ -16,6 +16,7 @@ from jouzetsu.backend_models import (
     LMStudioTransport,
     ModelManagementSettings,
     ModelRef,
+    ReasoningSelection,
     RegisteredModel,
 )
 from jouzetsu.runtime import (
@@ -172,6 +173,26 @@ def test_model_parameter_restrictions_apply_to_first_profile_copy() -> None:
     config = BackendConfiguration((source, target), source.id)
     chat = ChatInferenceSettings.new_chat(config).select_backend(config, target.id)
     assert chat.selected_profile == target.defaults
+
+
+@pytest.mark.parametrize("reasoning", ["automatic", "high"])
+def test_backend_switches_restore_complete_profiles(reasoning: ReasoningSelection) -> None:
+    backends = (backend("First"), backend("Second"), backend("Third"))
+    config = BackendConfiguration(backends, backends[0].id)
+    profiles = (
+        GenerationProfile("first-model", SamplingParameters(0.3, 0.4, 100), "on"),
+        GenerationProfile("second-model", SamplingParameters(0.8, 0.6, 200), "off"),
+        GenerationProfile("third-model", SamplingParameters(1.2, 0.9, 300), reasoning),
+    )
+    chat = ChatInferenceSettings.new_chat(config)
+    for selected, profile in zip(backends, profiles, strict=True):
+        chat = chat.select_backend(config, selected.id).set_profile(profile)
+    expected = dict(chat.profiles)
+    config = replace(config, backends=tuple(replace(item, defaults=GenerationProfile()) for item in backends))
+    for selected in (*backends, *reversed(backends), *backends):
+        chat = chat.select_backend(config, selected.id)
+        assert chat.selected_profile == expected[selected.id]
+        assert chat.profiles == expected
 
 
 def test_profile_maps_and_nested_values_are_immutable_snapshots() -> None:

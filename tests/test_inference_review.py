@@ -15,6 +15,7 @@ import pytest
 from inference_support import FakeBackend, Harness, Plan, backend
 
 from jouzetsu.atomic_write import CommitUncertainError
+from jouzetsu.backend_codec import backend_fingerprint
 from jouzetsu.backend_models import BackendConfig, ModelRef
 from jouzetsu.backend_protocol import (
     BackendError,
@@ -29,6 +30,7 @@ from jouzetsu.inference import (
     GenerationJob,
     GenerationMode,
     JobPhase,
+    RevisionConflict,
     RuntimeChange,
 )
 from jouzetsu.models import ChatJSON
@@ -327,6 +329,50 @@ def test_idle_unload_rechecks_last_use_after_waiting_for_management(
             assert not adapter.unloads
             await h.runtime.unload_idle_models(now=180)
             assert adapter.unloads == ["instance"]
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("action", ["load", "unload"])
+def test_model_management_checks_fingerprint_after_waiting_for_configuration(
+    tmp_path: Path, action: Literal["load", "unload"]
+) -> None:
+    async def exercise() -> None:
+        config = backend(native=True)
+        h = Harness(tmp_path, (config,))
+        original_adapter = h.adapters[config.id]
+        token = backend_fingerprint(config)
+        save_entered = asyncio.Event()
+        save_release = asyncio.Event()
+        save_config = h.persistence.save_config
+
+        async def blocked_save(candidate: AppConfig) -> None:
+            save_entered.set()
+            await save_release.wait()
+            await save_config(candidate)
+
+        async def manage() -> None:
+            model = ModelRef(config.id, "model")
+            if action == "load":
+                _ = await h.runtime.load_model(model, expected_fingerprint=token)
+            else:
+                await h.runtime.unload_model(model, expected_fingerprint=token)
+
+        with patch.object(type(h.persistence), "save_config", side_effect=blocked_save):
+            updating = asyncio.create_task(h.runtime.update_backend(replace(config, base_url="http://other.example/v1")))
+            await save_entered.wait()
+            managing = asyncio.create_task(manage())
+            try:
+                await asyncio.sleep(0)
+                assert not managing.done()
+            finally:
+                save_release.set()
+                await updating
+            with pytest.raises(RevisionConflict, match="changed elsewhere"):
+                await managing
+        for adapter in (original_adapter, h.adapters[config.id]):
+            assert not adapter.loads and not adapter.unloads and not adapter.discoveries
         assert await h.runtime.shutdown()
 
     asyncio.run(exercise())

@@ -156,8 +156,14 @@ class OllamaBackend(ChatCompletionsBackend):
     def model_management(self) -> ModelManagement:
         return self
 
+    async def _check_version(self) -> None:
+        version = await self._transport.json_request("GET", f"{self._root}/api/version")
+        assert version is not None
+        _validate_version(version)
+
     @override
     async def discover_models(self) -> ModelDiscovery:
+        await self._check_version()
         payload = await self._transport.json_request("GET", f"{self._root}/api/tags")
         assert payload is not None
         raw_models = payload.get("models")
@@ -240,9 +246,7 @@ class OllamaBackend(ChatCompletionsBackend):
     @override
     async def stream(self, request: GenerationRequest) -> AsyncGenerator[ChatStreamEvent]:
         request.validate_backend(self.id)
-        version = await self._transport.json_request("GET", f"{self._root}/api/version")
-        assert version is not None
-        _validate_version(version)
+        await self._check_version()
         payload = await run_in_worker(_encode_request, request, self._transport.images, self._idle_unload_minutes)
         session = await self._transport.session()
         started = asyncio.get_running_loop().time()

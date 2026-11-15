@@ -6,6 +6,7 @@ import asyncio
 import json
 from dataclasses import replace
 from pathlib import Path
+from typing import Literal
 from unittest.mock import patch
 
 import httpx
@@ -21,6 +22,7 @@ from jouzetsu.config import ConfigStore, DeviceAccessSettings, encode_config
 from jouzetsu.inference import RevisionConflict
 from jouzetsu.models import Chat
 from jouzetsu.runtime import ModelCapabilities
+from jouzetsu.sampling import SamplingParameters
 from jouzetsu.web.navigation import LAST_CHAT_COOKIE_NAME
 from jouzetsu.web.ui_events import stream_events
 
@@ -669,6 +671,56 @@ def test_backend_fingerprint_is_checked_under_the_configuration_lock(
         assert h.state.config.backends.backend(configured.id).name == "First"
         loaded = ConfigStore.for_paths(h.state.config.paths).load()
         assert loaded.backends.backend(configured.id).name == "First"
+        await h.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("action", ["load", "unload"])
+@pytest.mark.parametrize("changed_setting", ["url", "defaults"])
+def test_model_management_rejects_stale_forms(
+    tmp_path: Path, action: Literal["load", "unload"], changed_setting: Literal["url", "defaults"]
+) -> None:
+    async def exercise() -> None:
+        configured = backend(native=True)
+        h = WebHarness(tmp_path, (configured,))
+        original_adapter = h.adapters[configured.id]
+        original_adapter.loaded = True
+        await h.state.inference.refresh_backend(configured.id)
+        configured = h.state.config.backends.backend(configured.id)
+        token = backend_fingerprint(configured)
+        async with client(h) as c:
+            page = await c.get("/chats?dialog=backends")
+            assert token in page.text
+            changed = (
+                replace(configured, base_url="http://other.example/v1")
+                if changed_setting == "url"
+                else replace(configured, defaults=replace(configured.defaults, parameters=SamplingParameters(0.3)))
+            )
+            await h.state.inference.update_backend(changed)
+            current_adapter = h.adapters[configured.id]
+            current_adapter.loaded = True
+            discoveries = (original_adapter.discoveries, current_adapter.discoveries)
+            saved = h.state.config.config_file.read_bytes()
+            result = await c.post(
+                f"/settings/backends/{configured.id}/{action}",
+                headers=csrf_headers(page),
+                data={"backend_fingerprint": token, "model_id": "model"},
+            )
+            assert result.status_code == 409
+            assert "changed elsewhere" in result.text
+            assert h.state.config.config_file.read_bytes() == saved
+            assert (original_adapter.discoveries, current_adapter.discoveries) == discoveries
+            for adapter in (original_adapter, current_adapter):
+                assert not adapter.loads and not adapter.unloads
+            fresh = await c.post(
+                f"/settings/backends/{configured.id}/{action}",
+                headers=csrf_headers(page),
+                data={"backend_fingerprint": backend_fingerprint(changed), "model_id": "model"},
+            )
+            assert fresh.status_code == 303
+            assert current_adapter.loads == (["model"] if action == "load" else [])
+            assert current_adapter.unloads == (["instance"] if action == "unload" else [])
         await h.close()
 
     asyncio.run(exercise())

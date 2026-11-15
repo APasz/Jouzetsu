@@ -411,7 +411,6 @@ class ChatInferenceSettings:
                 if previous is not None
                 else defaults
             )
-        profiles[backend_id] = replace(profiles[backend_id], reasoning="model_default")
         return ChatInferenceSettings(backend_id, profiles)
 
     def set_profile(self, profile: GenerationProfile) -> ChatInferenceSettings:
