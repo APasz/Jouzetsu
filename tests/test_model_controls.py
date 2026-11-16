@@ -8,8 +8,9 @@ from xml.etree import ElementTree as ET
 from inference_support import backend as backend_config
 
 from jouzetsu.backend_models import RegisteredModel
+from jouzetsu.backend_protocol import ModelAvailability
 from jouzetsu.runtime import ModelCapabilities, ModelDescriptor
-from jouzetsu.web.views.model_controls import model_choices, render_model_capabilities
+from jouzetsu.web.views.model_controls import model_choices, render_model_capabilities, render_model_picker
 
 
 def test_confirmed_capabilities_have_accessible_icons_in_display_order() -> None:
@@ -50,4 +51,9 @@ def test_model_choices_keep_capabilities_and_do_not_invent_them_for_missing_mode
     assert available.capabilities is capabilities
     assert available.detail == ""
     assert missing.capabilities is None
-    assert missing.detail == "Missing"
+    assert missing.availability is ModelAvailability.UNAVAILABLE
+    assert missing.detail == ""
+    markup = str(render_model_picker((available, missing), "missing", marker="models"))
+    assert 'data-model-availability="unavailable"' in markup
+    assert 'title="Model unavailable. Refresh models or choose another."' in markup
+    assert 'role="img"' in markup

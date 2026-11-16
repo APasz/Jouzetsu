@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from dataclasses import replace
 from pathlib import Path
@@ -20,6 +21,8 @@ from jouzetsu.backend_protocol import (
     BackendError,
     BackendErrorCategory,
     BackendReachability,
+    ModelAvailability,
+    ModelDiscovery,
 )
 from jouzetsu.config import AppConfig, ConfigStore
 from jouzetsu.inference import (
@@ -32,6 +35,114 @@ from jouzetsu.inference import (
 )
 from jouzetsu.models import Chat, ChatJSON, ImageAttachment, ImageMediaType
 from jouzetsu.runtime import ModelCapabilities
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_missing_discovered_models_preserve_settings_and_recover(
+    tmp_path: Path, native: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def exercise() -> None:
+        config = backend(native=native)
+        h = Harness(tmp_path, (config,))
+        chat = await h.chat()
+        model = ModelRef(config.id, "model")
+        profile = chat.inference.selected_profile
+        adapter = h.adapters[config.id]
+        caplog.set_level(logging.INFO, logger="jouzetsu.inference")
+        with patch.object(adapter, "discover_models", return_value=ModelDiscovery(True, (), server_version="1.2.3")):
+            await h.runtime.refresh_backend(config.id)
+            await h.runtime.refresh_backend(config.id)
+            assert h.runtime.model_availability(model) is ModelAvailability.UNAVAILABLE
+            assert h.runtime.connection_summary(config.id) == "Connected · 0 models · default unavailable"
+            assert await h.runtime.generate(chat.id, chat.revision) is None
+        assert not adapter.requests and not adapter.loads
+        assert chat.inference.selected_profile == profile
+        assert h.runtime.configuration.backend(config.id) == config
+        error = h.registry.get(chat.id).latest_error
+        assert error and "Model unavailable" in str(error)
+        diagnostics = [record.message for record in caplog.records if record.message.startswith("backend discovery ")]
+        assert len(diagnostics) == 1
+        assert f"base_url={config.base_url}" in diagnostics[0]
+        assert "version=1.2.3 discovery_supported=True model_count=0" in diagnostics[0]
+        await h.runtime.refresh_backend(config.id)
+        assert h.runtime.model_availability(model) is ModelAvailability.AVAILABLE
+        job = await h.runtime.generate(chat.id, chat.revision)
+        assert job
+        await job.wait()
+        assert job.phase is JobPhase.FINISHED
+        assert h.runtime.configuration.backend(config.id).model("model").alias == "Alias"
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_manual_models_with_empty_inventory_can_still_generate(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        config = backend()
+        config = replace(config, models=(replace(config.models[0], manually_registered=True),))
+        h = Harness(tmp_path, (config,))
+        chat = await h.chat()
+        with patch.object(h.adapters[config.id], "discover_models", return_value=ModelDiscovery(True)):
+            await h.runtime.refresh_backend(config.id)
+            assert h.runtime.model_availability(ModelRef(config.id, "model")) is ModelAvailability.UNKNOWN
+            assert h.runtime.connection_summary(config.id) == "Connected · 0 models"
+            job = await h.runtime.generate(chat.id, chat.revision)
+            assert job
+            await job.wait()
+            assert job.phase is JobPhase.FINISHED
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_unsupported_or_failed_discovery_clears_missing_model_certainty(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        config = backend()
+        h = Harness(tmp_path, (config,))
+        model = ModelRef(config.id, "model")
+        assert h.runtime.model_availability(model) is ModelAvailability.UNKNOWN
+        adapter = h.adapters[config.id]
+        with patch.object(adapter, "discover_models", return_value=ModelDiscovery(True)):
+            await h.runtime.refresh_backend(config.id)
+        assert h.runtime.model_availability(model) is ModelAvailability.UNAVAILABLE
+        adapter.online = False
+        with pytest.raises(BackendError):
+            await h.runtime.refresh_backend(config.id)
+        assert h.runtime.model_availability(model) is ModelAvailability.UNKNOWN
+        with patch.object(adapter, "discover_models", return_value=ModelDiscovery(False)):
+            await h.runtime.refresh_backend(config.id)
+        assert h.runtime.model_availability(model) is ModelAvailability.UNKNOWN
+        assert h.runtime.connection_summary(config.id) == "Connected · discovery unsupported"
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_queued_generation_checks_updated_model_inventory(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        config = backend()
+        h = Harness(tmp_path, (config,))
+        first, second = await h.chat(), await h.chat()
+        adapter = h.adapters[config.id]
+        held = Plan(hold=True)
+        adapter.plans.append(held)
+        await h.runtime.refresh_backend(config.id)
+        running = await h.runtime.generate(first.id, first.revision)
+        assert running
+        await held.produced.wait()
+        queued = await h.runtime.generate(second.id, second.revision)
+        assert queued and queued.phase is JobPhase.QUEUED
+        with patch.object(adapter, "discover_models", return_value=ModelDiscovery(True)):
+            await h.runtime.refresh_backend(config.id)
+            held.release.set()
+            await running.wait()
+            await queued.wait()
+        assert queued.phase is JobPhase.FAILED
+        assert queued.error and "Model unavailable" in str(queued.error)
+        assert len(adapter.requests) == 1
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
 
 
 @pytest.mark.parametrize(
@@ -174,7 +285,9 @@ def test_cancel_before_task_start_or_while_queued(tmp_path: Path, queued: bool) 
 
 
 @pytest.mark.parametrize("text,reasoning", [("", ""), ("", "private reasoning"), ("partial", "trace")])
-def test_failure_preserves_only_actual_text_and_error_is_ephemeral(tmp_path: Path, text: str, reasoning: str) -> None:
+def test_failure_preserves_only_actual_text_and_error_is_ephemeral(
+    tmp_path: Path, text: str, reasoning: str, caplog: pytest.LogCaptureFixture
+) -> None:
     async def exercise() -> None:
         config = backend()
         h = Harness(tmp_path, (config,))
@@ -192,6 +305,15 @@ def test_failure_preserves_only_actual_text_and_error_is_ephemeral(tmp_path: Pat
         assert job.phase is JobPhase.FAILED
         assert len(chat.messages) == (2 if text else 1)
         assert h.registry.get(chat.id).latest_error is job.error
+        failures = [record for record in caplog.records if record.message.startswith("generation failed ")]
+        assert len(failures) == 1
+        failure = failures[0].message
+        assert f"backend_id={config.id}" in failure
+        assert "model_id=model" in failure
+        assert f"job_id={job.id}" in failure
+        assert "category=timeout error=Stream timed out." in failure
+        assert "private reasoning" not in failure
+        assert "partial" not in failure
         saved = h.reload(chat)
         assert saved.to_dict() == chat.to_dict()
         assert "Stream timed out" not in str(saved.to_dict())

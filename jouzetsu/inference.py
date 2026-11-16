@@ -32,6 +32,7 @@ from .backend_models import (
     ModelRef,
 )
 from .backend_protocol import (
+    MODEL_UNAVAILABLE_MESSAGE,
     BackendError,
     BackendErrorCategory,
     BackendHealth,
@@ -39,6 +40,8 @@ from .backend_protocol import (
     GenerationRequest,
     InferenceBackend,
     InferenceMessage,
+    ModelAvailability,
+    ModelDiscovery,
     UnsafeContextError,
 )
 from .backends import create_backend
@@ -159,7 +162,7 @@ class SendResult:
 class _BackendRuntime:
     adapter: InferenceBackend
     health: BackendHealth = field(default_factory=BackendHealth)
-    inventory: tuple[ModelDescriptor, ...] = ()
+    discovery: ModelDiscovery | None = None
     queue: deque[GenerationJob] = field(default_factory=deque)
     active: dict[str, GenerationJob] = field(default_factory=dict)
     management_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -255,7 +258,63 @@ class InferenceRuntime:
 
     def inventory(self, backend_id: BackendId) -> tuple[ModelDescriptor, ...]:
         """Observed model instances; use health to distinguish current and cached data."""
-        return self._backends[backend_id].inventory
+        discovery = self.discovery(backend_id)
+        return discovery.models if discovery is not None else ()
+
+    def discovery(self, backend_id: BackendId) -> ModelDiscovery | None:
+        """Return the last successful inventory, including discovery support."""
+        return self._backends[backend_id].discovery
+
+    def model_availability(self, model: ModelRef) -> ModelAvailability:
+        """Only a current, supported inventory can establish model absence."""
+        runtime = self._backends[model.backend_id]
+        discovery = runtime.discovery
+        if (
+            runtime.health.state is not BackendReachability.ONLINE
+            or runtime.discovery_error is not None
+            or discovery is None
+            or not discovery.supported
+        ):
+            return ModelAvailability.UNKNOWN
+        if any(descriptor.key == model.model_id for descriptor in discovery.models):
+            return ModelAvailability.AVAILABLE
+        config = self.configuration.backend(model.backend_id)
+        registered = next((item for item in config.models if item.descriptor.key == model.model_id), None)
+        if registered is not None and registered.manually_registered and runtime.adapter.model_management is None:
+            return ModelAvailability.UNKNOWN
+        return ModelAvailability.UNAVAILABLE
+
+    def connection_summary(self, backend_id: BackendId) -> str:
+        """Describe connectivity separately from inventory and default-model availability."""
+        config = self.configuration.backend(backend_id)
+        runtime = self._backends[backend_id]
+        if not config.enabled:
+            return "Disabled"
+        if runtime.health.state is BackendReachability.OFFLINE:
+            return "Offline"
+        if runtime.discovery_error is not None:
+            return "Inventory unavailable"
+        discovery = runtime.discovery
+        if discovery is None:
+            return "Not checked"
+        prefix = "Connected" if runtime.health.state is BackendReachability.ONLINE else "Cached"
+        if not discovery.supported:
+            return f"{prefix} · discovery unsupported"
+        count = len(discovery.models)
+        summary = f"{prefix} · {count} {'model' if count == 1 else 'models'}"
+        if (
+            config.defaults.model_id is not None
+            and self.model_availability(ModelRef(backend_id, config.defaults.model_id)) is ModelAvailability.UNAVAILABLE
+        ):
+            summary += " · default unavailable"
+        return summary
+
+    def _require_available_model(self, model: ModelRef) -> None:
+        if self.model_availability(model) is ModelAvailability.UNAVAILABLE:
+            raise BackendError(
+                BackendErrorCategory.INCOMPATIBLE,
+                MODEL_UNAVAILABLE_MESSAGE,
+            )
 
     def discovery_error(self, backend_id: BackendId) -> BackendError | None:
         """Inventory errors remain visible independently of inference availability."""
@@ -554,6 +613,7 @@ class InferenceRuntime:
                     "The selected model is being unloaded. Try again after unloading finishes.",
                 )
             registered = config.model(model.model_id)
+            self._require_available_model(model)
             profile = chat.inference.selected_profile
             if profile is None:
                 raise ValueError("selected backend has no profile")
@@ -649,6 +709,7 @@ class InferenceRuntime:
                         raise
             if runtime.health.state is BackendReachability.OFFLINE:
                 raise BackendError(BackendErrorCategory.OFFLINE, "The selected backend is offline.")
+            self._require_available_model(job.request.model)
             config = self.configuration.backend(runtime.adapter.id)
             management = config.model_management
             if management is not None and runtime.adapter.model_management is not None:
@@ -740,6 +801,14 @@ class InferenceRuntime:
             job.cancelled = True
         except BackendError as exc:
             job.error = exc
+            log.error(
+                "generation failed backend_id=%s model_id=%s job_id=%s category=%s error=%s",
+                runtime.adapter.id,
+                job.request.model.model_id,
+                job.id,
+                exc.category.value,
+                exc,
+            )
             if isinstance(exc, UnsafeContextError):
                 job.has_text = False
             if exc.category is BackendErrorCategory.OFFLINE:
@@ -1103,7 +1172,8 @@ class InferenceRuntime:
                 return
             try:
                 discovery = await runtime.adapter.discover_models()
-                runtime.inventory = discovery.models
+                changed = runtime.discovery != discovery or runtime.discovery_error is not None
+                runtime.discovery = discovery
                 async with self._config_lock:
                     current = self.configuration.backend(backend_id)
                     merged = current.merge_discovery(discovery.models)
@@ -1111,12 +1181,22 @@ class InferenceRuntime:
                         await self._save_configuration(self.configuration.with_backend(merged))
                 runtime.health = BackendHealth(BackendReachability.ONLINE, datetime.now(UTC))
                 runtime.discovery_error = None
+                if changed:
+                    log.info(
+                        "backend discovery backend_id=%s base_url=%s version=%s discovery_supported=%s model_count=%d",
+                        backend_id,
+                        current.base_url,
+                        discovery.server_version or "unknown",
+                        discovery.supported,
+                        len(discovery.models),
+                    )
             except BackendError as exc:
                 runtime.discovery_error = exc
                 log.warning(
-                    "model discovery failed backend_id=%s category=%s",
+                    "model discovery failed backend_id=%s category=%s error=%s",
                     backend_id,
                     exc.category.value,
+                    exc,
                 )
                 runtime.health = BackendHealth(
                     BackendReachability.OFFLINE

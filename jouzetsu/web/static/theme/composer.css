@@ -322,13 +322,20 @@
 }
 
 .jouzetsu-composer-status-state {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     grid-column: 1;
     grid-row: 1;
     min-width: 0;
-    overflow: hidden;
     font-weight: 700;
-    text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.jouzetsu-composer-status-state > [data-composer-status-state] {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .jouzetsu-composer-status-detail {

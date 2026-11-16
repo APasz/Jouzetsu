@@ -173,6 +173,9 @@ export class ComposerController {
 
     syncLiveStatus(currentStatus, nextStatus) {
         if (!(currentStatus instanceof HTMLElement) || !(nextStatus instanceof HTMLElement)) return false;
+        const currentAvailability = currentStatus.querySelector('[data-model-availability]')?.dataset.modelAvailability;
+        const nextAvailability = nextStatus.querySelector('[data-model-availability]')?.dataset.modelAvailability;
+        if (currentAvailability !== nextAvailability) return false;
         if (!this.#syncStatusText(currentStatus, nextStatus, '[data-composer-status-state]')) return false;
         if (!this.#syncStatusText(currentStatus, nextStatus, '[data-composer-status-detail]')) return false;
         if (!this.#syncStatusLoadProgress(currentStatus, nextStatus)) return false;

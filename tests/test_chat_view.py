@@ -543,7 +543,7 @@ def test_composer_status_distinguishes_model_loading_from_prompt_processing() ->
 
     markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
 
-    assert 'data-composer-status-state="true" class="jouzetsu-composer-status-state">Loading' in markup
+    assert 'data-composer-status-state="true">Loading</span>' in markup
     assert 'data-composer-status-detail="true" class="jouzetsu-composer-status-detail">Cold Model' in markup
     assert "in progress" not in markup
     assert "Processing prompt" not in markup
@@ -709,7 +709,7 @@ def test_composer_status_places_reasoning_and_output_in_the_state_column() -> No
 
         markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
 
-        assert f'data-composer-status-state="true" class="jouzetsu-composer-status-state">{expected_state}' in markup
+        assert f'data-composer-status-state="true">{expected_state}</span>' in markup
         assert 'data-composer-status-detail="true" class="jouzetsu-composer-status-detail">12 tokens' in markup
         assert 'data-composer-status-timers="true"' in markup
 
@@ -727,7 +727,7 @@ def test_composer_status_labels_preparing_and_stopping_stages() -> None:
 
         markup: str = str(render_composer(view, edit_message_id="", editing_message=None))
 
-        assert f'data-composer-status-state="true" class="jouzetsu-composer-status-state">{expected_state}' in markup
+        assert f'data-composer-status-state="true">{expected_state}</span>' in markup
         if expected_detail:
             assert expected_detail in markup
 

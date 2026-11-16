@@ -1716,7 +1716,11 @@ def test_model_picker_keyboard_selection_and_live_refresh(browser_page: Page, br
     expect(browser_page.locator("#chat-fragment")).to_have_attribute("data-revision", str(chat.revision))
     expect(picker).to_be_focused()
     expect(picker).to_have_text("Text model")
+    expect(browser_page.locator('#settings-panel form[action="/chat/model"]')).not_to_have_attribute(
+        "data-live-saving", "true"
+    )
     picker.press("ArrowDown")
+    expect(options).to_be_visible()
     scroll_top = options.evaluate("element => { element.scrollTop = 400; return element.scrollTop; }")
     browser_page.evaluate("window.previousModelPicker = document.getElementById('active-chat-model')")
     _edit_message_in_background(browser_page, message.id, "Updated while the picker is open")
@@ -2077,6 +2081,47 @@ def test_backend_controls_are_usable_on_mobile(browser_page: Page) -> None:
     expect(browser_page.get_by_role("tab", name="Second local", exact=False)).to_be_visible()
 
 
+@pytest.mark.parametrize("width", [390, 960])
+def test_missing_model_icons_and_refresh_feedback_recover(
+    browser_page: Page, browser_server: BrowserServer, tmp_path: Path, width: int
+) -> None:
+    descriptors = browser_server.client.descriptors
+    browser_server.client.descriptors = ()
+    browser_page.set_viewport_size({"width": width, "height": 844})
+    browser_page.goto("/chats?dialog=backends")
+    dialog = browser_page.locator("#backends-dialog")
+    refresh = dialog.get_by_role("button", name="Refresh models", exact=True)
+    expect(refresh).to_have_attribute("title", "Refresh models")
+    expect(refresh).to_have_text("")
+    refresh.click()
+    summary = "Connected · 0 models · default unavailable"
+    expect(dialog.locator("[data-backend-inventory]")).to_have_attribute("title", summary)
+    expect(dialog.locator("[data-dialog-feedback]").first).to_have_text(summary)
+    warnings = dialog.locator('.jouzetsu-model-grid [data-model-availability="unavailable"]')
+    expect(warnings).to_have_count(2)
+    expect(warnings.first).to_have_attribute("title", "Model unavailable. Refresh models or choose another.")
+    expect(browser_page.locator('#composer-status [data-model-availability="unavailable"]')).to_have_count(1)
+    expect(browser_page.locator('#composer-status [data-composer-status-state]')).to_have_text("Missing")
+    assert browser_page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    browser_page.screenshot(path=tmp_path / f"missing-models-{width}.png", full_page=True)
+    browser_server.client.descriptors = descriptors
+    browser_page.evaluate(
+        """async backendId => {
+            const { csrfHeaders } = await import('/static/app/forms.js');
+            const response = await fetch(`/settings/backends/${backendId}/test`, {
+                method: 'POST', headers: csrfHeaders(),
+            });
+            if (!response.ok) throw new Error(`Refresh failed: ${response.status}`);
+        }""",
+        browser_server.state.config.backends.backends[0].id,
+    )
+    expect(warnings).to_have_count(0)
+    expect(browser_page.locator("#composer-status [data-model-availability]")).to_have_count(0)
+    expect(dialog.locator("[data-backend-inventory]")).to_have_attribute("title", "Connected · 2 models")
+    refresh.click()
+    expect(dialog.locator("[data-dialog-feedback]").first).to_have_text("Connected · 2 models")
+
+
 def test_backends_menu_and_connection_tabs(browser_page: Page) -> None:
     _open_chat_page(browser_page)
     browser_page.get_by_test_id("open-nav-button").click()
@@ -2086,7 +2131,7 @@ def test_backends_menu_and_connection_tabs(browser_page: Page) -> None:
     expect(dialog.locator(".jouzetsu-backend-default-form")).to_have_css("display", "grid")
     tabs = dialog.get_by_role("tab")
     expect(tabs).to_have_count(2)
-    expect(tabs.first).to_have_attribute("title", "Unknown")
+    expect(tabs.first).to_have_attribute("title", "Not checked")
     expect(tabs.first.locator('[data-tab-indicator="warning"]')).to_be_visible()
     expect(tabs.first).not_to_contain_text("Unknown")
     tabs.last.focus()

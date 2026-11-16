@@ -1212,7 +1212,9 @@ def _register_backend_routes(context: RouteContext) -> None:
         return await context.mutations.perform(
             request,
             operation,
-            notice="Backend updated",
+            notice=(lambda: context.state.inference.connection_summary(BackendId(_path_text(request, "backend_id"))))
+            if _path_text(request, "action") == "test"
+            else "Backend updated",
             require_global_settings=True,
             dialog="backends",
             dialog_tab=BackendId(_path_text(request, "backend_id")),

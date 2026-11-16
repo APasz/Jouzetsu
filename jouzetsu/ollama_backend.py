@@ -50,7 +50,7 @@ from .runtime import (
 _MINIMUM_OLLAMA_VERSION = (0, 14, 0)
 
 
-def _validate_version(payload: dict[str, object]) -> None:
+def _validate_version(payload: dict[str, object]) -> str:
     """Require a release known to implement both context-preservation flags."""
     version = payload.get("version")
     match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version) if isinstance(version, str) else None
@@ -59,6 +59,7 @@ def _validate_version(payload: dict[str, object]) -> None:
             BackendErrorCategory.INCOMPATIBLE,
             "Ollama 0.14.0 or later is required to preserve conversation history.",
         )
+    return cast(str, version)
 
 
 def _reasoning(value: object) -> ReasoningOption | None:
@@ -156,14 +157,14 @@ class OllamaBackend(ChatCompletionsBackend):
     def model_management(self) -> ModelManagement:
         return self
 
-    async def _check_version(self) -> None:
+    async def _check_version(self) -> str:
         version = await self._transport.json_request("GET", f"{self._root}/api/version")
         assert version is not None
-        _validate_version(version)
+        return _validate_version(version)
 
     @override
     async def discover_models(self) -> ModelDiscovery:
-        await self._check_version()
+        version = await self._check_version()
         payload = await self._transport.json_request("GET", f"{self._root}/api/tags")
         assert payload is not None
         raw_models = payload.get("models")
@@ -197,7 +198,7 @@ class OllamaBackend(ChatCompletionsBackend):
                 descriptor = replace(descriptor, loaded_instance_ids=(name,))
             models.append(descriptor)
         try:
-            return ModelDiscovery(True, tuple(models))
+            return ModelDiscovery(True, tuple(models), server_version=version)
         except ValueError as exc:
             raise protocol_error("Ollama returned duplicate model ids.") from exc
 
@@ -269,7 +270,10 @@ class OllamaBackend(ChatCompletionsBackend):
                         BackendErrorCategory.INCOMPATIBLE
                         if response.status in (400, 404, 422)
                         else BackendErrorCategory.PROTOCOL,
-                        f"Ollama rejected generation (HTTP {response.status}); check the model and context limit.",
+                        "Ollama returned HTTP 404. Check that the selected model is installed on the configured "
+                        "server and that Ollama uses the correct model directory."
+                        if response.status == 404
+                        else f"Ollama rejected generation (HTTP {response.status}); check the model and context limit.",
                     )
                 yield ModelReady(request.model.model_id, request.model.model_id, 0)
                 async for line in response.content:

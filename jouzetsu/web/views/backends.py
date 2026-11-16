@@ -10,9 +10,10 @@ from ...backend_models import (
     BackendConfig,
     BackendKind,
     LMStudioTransport,
+    ModelRef,
     RegisteredModel,
 )
-from ...backend_protocol import BackendReachability
+from ...backend_protocol import BackendReachability, ModelAvailability
 from ...runtime import REASONING_OPTIONS
 from ...sampling import SamplingParameters
 from ...state import AppState
@@ -36,9 +37,11 @@ from ..html import (
 )
 from .controls import checkbox, close_dialog_button, field
 from .feedback import dialog_feedback
+from .icons import render_icon
 from .model_controls import (
     model_choices,
     model_label,
+    render_model_availability,
     render_model_capabilities,
     render_model_picker,
 )
@@ -53,7 +56,7 @@ _DIALOG_ID: Final[str] = "backends-dialog"
 _NEW_TAB: Final[DialogTab] = DialogTab("new", "+ New Backend")
 type BackendAction = Literal["test", "remove", "load", "unload", "default-model"]
 _ACTION_FEEDBACK: Final[dict[BackendAction, tuple[str, str]]] = {
-    "test": ("Refreshing…", "Models refreshed"),
+    "test": ("Refreshing…", ""),
     "remove": ("Removing…", "Backend removed"),
     "load": ("Loading…", "Model loaded"),
     "unload": ("Unloading…", "Model unloaded"),
@@ -86,22 +89,25 @@ def _action(
     marker: str = "",
 ) -> HTML:
     busy_label, notice = _ACTION_FEEDBACK[action]
+    icon_only = action == "test"
     return Form(
         _snapshot(fingerprint),
         Input(type="hidden", name="model_id", value=model_id) if model_id is not None else None,
         Button(
-            label,
+            render_icon("refresh") if icon_only else label,
             type="submit",
-            cls="jouzetsu-button",
+            cls="jouzetsu-button jouzetsu-backend-refresh" if icon_only else "jouzetsu-button",
+            aria_label=label if icon_only else None,
+            title=label if icon_only else None,
             data_confirm=confirm or None,
-            data_busy_label=busy_label,
+            data_busy_label=busy_label if not icon_only else None,
         ),
         action=f"/settings/backends/{backend.id}/{action}",
         method="post",
         data_live_submit="true",
         cls="jouzetsu-inline-form",
         id=marker or None,
-        data_live_notice=notice,
+        data_live_notice=notice or None,
         data_live_discard_edits=f"backend-{backend.id}" if action == "remove" else None,
     )
 
@@ -110,11 +116,11 @@ def _snapshot(fingerprint: str) -> HTML:
     return Input(type="hidden", name="backend_fingerprint", value=fingerprint)
 
 
-def _backend_tab(backend: BackendConfig, health: BackendReachability) -> DialogTab:
+def _backend_tab(backend: BackendConfig, health: BackendReachability, summary: str) -> DialogTab:
     return DialogTab(
         backend.id,
         backend.name,
-        detail=health.value.title() if backend.enabled else "Disabled",
+        detail=summary,
         indicator=_STATUS_INDICATORS[health] if backend.enabled else "neutral",
         indicator_subdued=backend.enabled and health is BackendReachability.STALE,
     )
@@ -125,7 +131,8 @@ def render_backends_dialog(state: AppState, *, active_tab: str = "", notice: str
 
     configuration = state.config.backends
     backend_tabs = tuple(
-        _backend_tab(backend, state.inference.health(backend.id).state) for backend in configuration.backends
+        _backend_tab(backend, state.inference.health(backend.id).state, state.inference.connection_summary(backend.id))
+        for backend in configuration.backends
     )
     tabs = (*backend_tabs, _NEW_TAB)
     if active_tab not in {tab.name for tab in tabs}:
@@ -255,6 +262,16 @@ def _backend_panel(state: AppState, backend: BackendConfig) -> HTML:
     health = state.inference.health(backend.id)
     discovery_error = state.inference.discovery_error(backend.id)
     observed = {model.key: model for model in state.inference.inventory(backend.id)}
+    availability = {
+        model.descriptor.key: state.inference.model_availability(ModelRef(backend.id, model.descriptor.key))
+        for model in backend.models
+    }
+    discovery = state.inference.discovery(backend.id)
+    summary = state.inference.connection_summary(backend.id)
+    inventory_warning = bool(discovery and discovery.supported and not discovery.models) or (
+        backend.defaults.model_id is not None
+        and availability.get(backend.defaults.model_id) is ModelAvailability.UNAVAILABLE
+    )
 
     def instances(model: RegisteredModel) -> tuple[str, ...] | None:
         descriptor = observed.get(model.descriptor.key)
@@ -270,14 +287,31 @@ def _backend_panel(state: AppState, backend: BackendConfig) -> HTML:
                 H3(backend.name, cls="jouzetsu-section-title"),
                 Small(backend.base_url, cls="jouzetsu-backend-url"),
             ),
+            Span(
+                render_icon("warning" if inventory_warning else "activity"),
+                role="img",
+                title=summary,
+                aria_label=summary,
+                cls="jouzetsu-backend-inventory is-warning" if inventory_warning else "jouzetsu-backend-inventory",
+                data_backend_inventory="true",
+            ),
             _action("Refresh models", backend, "test", fingerprint=fingerprint),
             cls="jouzetsu-backend-heading",
         ),
         P(str(discovery_error), role="status") if discovery_error else None,
-        _backend_settings(backend, fingerprint=fingerprint),
+        _backend_settings(state, backend, fingerprint=fingerprint),
         H3(f"Models · {len(backend.models)}", cls="jouzetsu-section-title"),
         Div(
-            *(_model_card(backend, model, instances(model), fingerprint=fingerprint) for model in backend.models),
+            *(
+                _model_card(
+                    backend,
+                    model,
+                    instances(model),
+                    fingerprint=fingerprint,
+                    availability=availability[model.descriptor.key],
+                )
+                for model in backend.models
+            ),
             cls="jouzetsu-model-grid",
         )
         if backend.models
@@ -303,7 +337,16 @@ def _backend_panel(state: AppState, backend: BackendConfig) -> HTML:
             id=f"backend-register-{backend.id}",
             cls="jouzetsu-backend-details",
         ),
-        *(_model_dialog(backend, model, instances(model), fingerprint=fingerprint) for model in backend.models),
+        *(
+            _model_dialog(
+                backend,
+                model,
+                instances(model),
+                fingerprint=fingerprint,
+                availability=availability[model.descriptor.key],
+            )
+            for model in backend.models
+        ),
         id=f"backend-{backend.id}",
         cls="jouzetsu-backend-panel",
     )
@@ -330,7 +373,7 @@ def _idle_unload_control(backend: BackendConfig) -> HTML | None:
     )
 
 
-def _backend_settings(backend: BackendConfig, *, fingerprint: str) -> HTML:
+def _backend_settings(state: AppState, backend: BackendConfig, *, fingerprint: str) -> HTML:
     return Details(
         Summary("Backend settings"),
         Form(
@@ -403,7 +446,7 @@ def _backend_settings(backend: BackendConfig, *, fingerprint: str) -> HTML:
                     cls="jouzetsu-form-help",
                 ),
                 render_model_picker(
-                    model_choices(backend, backend.defaults.model_id),
+                    model_choices(backend, backend.defaults.model_id, availability=state.inference.model_availability),
                     backend.defaults.model_id or "",
                     marker=f"backend-model-{backend.id}",
                     label="Default model",
@@ -511,12 +554,17 @@ def _model_card(
     instances: tuple[str, ...] | None,
     *,
     fingerprint: str,
+    availability: ModelAvailability,
 ) -> HTML:
     model_id = model.descriptor.key
     dialog_id = _model_dialog_id(backend, model)
     return Div(
         Button(
-            Span(model_label(model), cls="jouzetsu-model-card-name"),
+            Span(
+                Span(model_label(model)),
+                render_model_availability(availability),
+                cls="jouzetsu-model-card-name",
+            ),
             _model_metadata(model),
             render_model_capabilities(model.descriptor.capabilities),
             Span(
@@ -553,6 +601,7 @@ def _model_dialog(
     instances: tuple[str, ...] | None,
     *,
     fingerprint: str,
+    availability: ModelAvailability,
 ) -> HTML:
     dialog_id = _model_dialog_id(backend, model)
     return Dialog(
@@ -572,6 +621,7 @@ def _model_dialog(
             ),
             Div(
                 P(model.descriptor.key, cls="jouzetsu-model-identifier"),
+                render_model_availability(availability),
                 _model_metadata(model),
                 render_model_capabilities(model.descriptor.capabilities),
                 _model_load_state(instances) if backend.kind.supports_model_management else None,
@@ -593,7 +643,7 @@ def _model_dialog(
                         fingerprint=fingerprint,
                         model_id=model.descriptor.key,
                     )
-                    if backend.kind.supports_model_management
+                    if backend.kind.supports_model_management and availability is not ModelAvailability.UNAVAILABLE
                     else None,
                     _action(
                         "Unload",

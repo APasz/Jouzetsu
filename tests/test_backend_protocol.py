@@ -118,6 +118,12 @@ def test_discovery_unsupported_empty_and_invalid_are_distinct() -> None:
         ModelDiscovery(cast(bool, 1))
 
 
+@pytest.mark.parametrize("version", ["", "0.1\nsecret", " 0.1", 1])
+def test_discovery_version_rejects_invalid_log_metadata(version: object) -> None:
+    with pytest.raises(ValueError, match="server version"):
+        ModelDiscovery(True, server_version=cast(str, version))
+
+
 def test_health_retains_online_offline_unknown_and_stale_states() -> None:
     now = datetime.now(UTC)
     assert BackendHealth().state is BackendReachability.UNKNOWN

@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Protocol, cast
+from typing import Final, Protocol, cast
 
 from .backend_models import BackendId, ModelRef
 from .models import ImageAttachment, Role
@@ -32,6 +32,15 @@ class BackendReachability(str, Enum):
     ONLINE = "online"
     OFFLINE = "offline"
     STALE = "stale"
+
+
+class ModelAvailability(str, Enum):
+    UNKNOWN = "unknown"
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+
+
+MODEL_UNAVAILABLE_MESSAGE: Final[str] = "Model unavailable. Refresh models or choose another."
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,8 +156,15 @@ class ModelDiscovery:
 
     supported: bool
     models: tuple[ModelDescriptor, ...] = ()
+    server_version: str | None = None
 
     def __post_init__(self) -> None:
+        if self.server_version is not None and (
+            not isinstance(cast(object, self.server_version), str)
+            or not self.server_version
+            or any(character.isspace() for character in self.server_version)
+        ):
+            raise ValueError("server version must be nonempty text without whitespace")
         if type(self.supported) is not bool:
             raise TypeError("discovery support must be boolean")
         if not isinstance(cast(object, self.models), tuple) or not all(

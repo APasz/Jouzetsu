@@ -152,6 +152,31 @@ field keeps models loaded until manually unloaded or Ollama needs the memory.
 The setting applies on the next load or generation. Reasoning values outside Jouzetsu's supported
 Off, On, Low, Medium, High and Max choices are not exposed.
 
+If generation returns HTTP 404, check that the selected model is present in the
+running Ollama server's model directory. A system service can use a different
+directory from a manually started server. Saved model entries and aliases remain
+visible in Jouzetsu when discovery no longer reports them.
+
+Missing models use a warning icon in pickers, model cards and the composer.
+Generation is blocked while the selected model is confirmed missing.
+Unsupported or failed discovery leaves availability unknown;
+manually registered models on generic APIs can still generate.
+The refresh icon's result distinguishes connectivity, model count and an
+unavailable default. Backend status icons expose the same details in tooltips.
+
+Use the installed service manager for managed backends rather than launching a
+second server under another account. For Linux Ollama, use
+`sudo systemctl start ollama.service` (or `restart` when needed), and inspect
+`systemctl show ollama.service -p Environment` for its model directory. A manual
+`ollama serve` can create a separate model store under the current user's home.
+
+Generation failures are recorded in `system.log` and `error.log` with backend,
+model and job IDs, an error category and a safe explanation. Discovery failures
+also include their explanation. These diagnostics omit prompts, reasoning and
+backend response bodies.
+Successful discovery logs the backend URL, advertised server version when
+available, discovery support and model count at startup and when these change.
+
 **Access & Logs** is available from localhost. Set an approval phrase there and
 enter it in each new remote browser. The phrase is the sole enrollment path;
 localhost administrators can revoke devices but cannot directly approve them.

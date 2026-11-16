@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from ..backend_models import GenerationProfile
-from ..backend_protocol import BackendReachability
+from ..backend_protocol import BackendReachability, ModelAvailability
 from ..runtime import RuntimePhase
 from ..state import AppState
 from .icon import app_icon_url
@@ -62,6 +62,9 @@ def chat_view(state: AppState, chat_id: str) -> ChatView:
         latest_error=session.latest_error,
         save_failed=job is not None and job.save_error is not None,
         draft_write_error=state.persistence.chat_write_error is not None,
+        model_availability=state.inference.model_availability(session.chat.inference.selected_model)
+        if backend is not None and session.chat.inference.selected_model is not None
+        else ModelAvailability.UNKNOWN,
         reasoning_options=model.reasoning_options if model else (),
         reasoning_default=model.reasoning_default if model else None,
         reasoning_unavailable=bool(
@@ -90,7 +93,7 @@ def chat_settings_view(state: AppState, chat_id: str) -> ChatSettingsView:
     return ChatSettingsView(
         chat=chat,
         generating=state.is_generating(chat_id),
-        model_choices=model_choices(backend, profile.model_id),
+        model_choices=model_choices(backend, profile.model_id, availability=state.inference.model_availability),
         backends=state.config.backends,
         profile=profile,
         inactive_parameters=inactive,

@@ -41,7 +41,7 @@ class Mutations:
         request: Request,
         operation: Callable[[], Awaitable[object]],
         *,
-        notice: str,
+        notice: str | Callable[[], str],
         require_global_settings: bool = False,
         require_access_management: bool = False,
         dialog: DialogName = "",
@@ -81,7 +81,7 @@ class Mutations:
             return PlainTextResponse(str(exc), status_code=400)
         destination = self.redirect(
             chat_id=chat_id,
-            notice=notice,
+            notice=notice() if callable(notice) else notice,
             dialog=dialog,
             dialog_tab=dialog_tab,
         )

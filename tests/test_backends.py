@@ -85,7 +85,7 @@ def config(url: str, *, native: bool = False) -> BackendConfig:
     return BackendConfig.create(BackendKind.LM_STUDIO if native else BackendKind.OPENAI_COMPATIBLE, "Test", url)
 
 
-@pytest.mark.parametrize("failure", ["overflow", "error", "interrupted", "tool_call", "wrong_role"])
+@pytest.mark.parametrize("failure", ["overflow", "missing_model", "error", "interrupted", "tool_call", "wrong_role"])
 def test_ollama_generation_failures_are_safe(failure: str) -> None:
     async def exercise() -> None:
         async def handler(req: web.Request) -> web.Response:
@@ -93,6 +93,8 @@ def test_ollama_generation_failures_are_safe(failure: str) -> None:
                 return web.json_response({"version": "0.40.16"})
             if failure == "overflow":
                 return web.json_response({"error": "SECRET"}, status=400)
+            if failure == "missing_model":
+                return web.json_response({"error": "SECRET"}, status=404)
             if failure == "error":
                 return web.Response(text=json.dumps({"error": "SECRET"}) + "\n")
             if failure in ("tool_call", "wrong_role"):
@@ -121,9 +123,13 @@ def test_ollama_generation_failures_are_safe(failure: str) -> None:
             assert "SECRET" not in str(exc.value)
             assert exc.value.category is (
                 BackendErrorCategory.INCOMPATIBLE
-                if failure in ("overflow", "tool_call")
+                if failure in ("overflow", "missing_model", "tool_call")
                 else BackendErrorCategory.PROTOCOL
             )
+            if failure == "missing_model":
+                assert "HTTP 404" in str(exc.value)
+                assert "model directory" in str(exc.value)
+                assert "context limit" not in str(exc.value)
             await adapter.close()
 
     asyncio.run(exercise())
@@ -294,6 +300,7 @@ def test_ollama_discovery_and_stream_preserve_history_and_images(
             image = images.store(image_bytes(), "test.png")
             adapter = OllamaBackend(backend, images=images)
             discovery = await adapter.discover_models()
+            assert discovery.server_version == "0.40.16"
             caps = discovery.models[0].capabilities
             assert caps.vision is True and caps.reasoning_options == (
                 "off",

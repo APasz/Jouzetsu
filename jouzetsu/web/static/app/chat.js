@@ -450,7 +450,10 @@ export class ChatController {
             await Promise.all([this.replaceFragment(), this.refreshPanels()]);
             if (new URL(form.action).pathname.startsWith('/settings/backends/')) await this.refreshBackends();
             if (!resubmit && form.dataset.liveCloseDialog) this.#panels.closeDialog(byId(form.dataset.liveCloseDialog));
-            this.#notices.announceForForm(form, submitter?.dataset.liveNotice || form.dataset.liveNotice || 'Saved');
+            this.#notices.announceForForm(
+                form,
+                submitter?.dataset.liveNotice || form.dataset.liveNotice || resultUrl.searchParams.get('notice') || 'Saved',
+            );
         } catch {
             this.#notices.announceForForm(form, 'Could not complete this action. Please try again.', true);
         } finally {

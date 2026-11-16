@@ -183,6 +183,31 @@
     min-width: 0;
 }
 
+.jouzetsu-model-availability,
+.jouzetsu-backend-inventory {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    font-size: 16px;
+}
+
+.jouzetsu-model-availability,
+.jouzetsu-backend-inventory.is-warning {
+    color: var(--jouzetsu-status-warning);
+}
+
+.jouzetsu-backend-heading > :first-child {
+    flex: 1;
+}
+
+.jouzetsu-backend-refresh {
+    display: inline-grid;
+    width: 36px;
+    min-height: 36px;
+    padding: 8px;
+    place-items: center;
+}
+
 .jouzetsu-model-picker-toggle,
 .jouzetsu-model-picker-option {
     display: flex;
@@ -1174,6 +1199,9 @@ form[aria-busy="true"] [data-busy-label] {
 }
 
 .jouzetsu-model-card-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     overflow-wrap: anywhere;
     color: var(--jouzetsu-app-foreground);
     font-size: 13px;

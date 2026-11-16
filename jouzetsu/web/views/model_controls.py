@@ -6,7 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
 
-from ...backend_models import BackendConfig, RegisteredModel
+from ...backend_models import BackendConfig, ModelRef, RegisteredModel
+from ...backend_protocol import MODEL_UNAVAILABLE_MESSAGE, ModelAvailability
 from ...runtime import ModelCapabilities
 from ..html import HTML, Button, Div, Input, Small, Span
 from .icons import IconName, render_icon
@@ -59,6 +60,7 @@ class ModelChoice:
     detail: str = ""
     selectable: bool = True
     capabilities: ModelCapabilities | None = None
+    availability: ModelAvailability = ModelAvailability.UNKNOWN
 
 
 def model_label(model: RegisteredModel) -> str:
@@ -67,13 +69,21 @@ def model_label(model: RegisteredModel) -> str:
     return model.alias or model.descriptor.display_name or model.descriptor.key
 
 
-def model_choices(backend: BackendConfig | None, selected_model: str | None = None) -> tuple[ModelChoice, ...]:
+def model_choices(
+    backend: BackendConfig | None,
+    selected_model: str | None = None,
+    *,
+    availability: Callable[[ModelRef], ModelAvailability] | None = None,
+) -> tuple[ModelChoice, ...]:
     choices = (
         [
             ModelChoice(
                 model.descriptor.key,
                 model_label(model),
                 capabilities=model.descriptor.capabilities,
+                availability=availability(ModelRef(backend.id, model.descriptor.key))
+                if availability is not None
+                else ModelAvailability.UNKNOWN,
             )
             for model in backend.models
         ]
@@ -81,13 +91,28 @@ def model_choices(backend: BackendConfig | None, selected_model: str | None = No
         else []
     )
     if selected_model and all(choice.key != selected_model for choice in choices):
-        choices.append(ModelChoice(selected_model, selected_model, "Missing"))
+        choices.append(ModelChoice(selected_model, selected_model, availability=ModelAvailability.UNAVAILABLE))
     return tuple(choices)
+
+
+def render_model_availability(availability: ModelAvailability) -> HTML | None:
+    """Flag confirmed absence without treating unknown availability as failure."""
+    if availability is not ModelAvailability.UNAVAILABLE:
+        return None
+    return Span(
+        render_icon("warning"),
+        cls="jouzetsu-model-availability",
+        role="img",
+        title=MODEL_UNAVAILABLE_MESSAGE,
+        aria_label=MODEL_UNAVAILABLE_MESSAGE,
+        data_model_availability=availability.value,
+    )
 
 
 def _choice_content(choice: ModelChoice) -> HTML:
     return Span(
         Span(choice.label, cls="jouzetsu-model-choice-label"),
+        render_model_availability(choice.availability),
         Small(choice.detail, cls="jouzetsu-model-choice-detail") if choice.detail else None,
         render_model_capabilities(choice.capabilities) if choice.capabilities is not None else None,
         cls="jouzetsu-model-choice-content",

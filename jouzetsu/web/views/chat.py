@@ -11,7 +11,7 @@ from typing import Final, Literal
 from urllib.parse import urlencode
 
 from ...backend_models import BackendConfiguration, GenerationProfile
-from ...backend_protocol import BackendError
+from ...backend_protocol import BackendError, ModelAvailability
 from ...config import GenerationSettings, MessageActionStyle, StarterPrompt
 from ...markdown import render_markdown
 from ...models import Chat, Message
@@ -58,7 +58,7 @@ from .images import (
     render_image_upload,
     render_image_upload_control,
 )
-from .model_controls import ModelChoice, render_model_picker
+from .model_controls import ModelChoice, render_model_availability, render_model_picker
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +82,7 @@ class ChatView:
     reasoning_options: tuple[ReasoningOption, ...] = ()
     reasoning_default: ReasoningOption | None = None
     reasoning_unavailable: bool = False
+    model_availability: ModelAvailability = ModelAvailability.UNKNOWN
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +141,7 @@ class _ComposerStatusState(Enum):
     READY = "Ready"
     REASONING = "Reasoning"
     STOPPING = "Stopping"
+    UNAVAILABLE = "Missing"
     UNLOADED = "Unloaded"
 
 
@@ -175,21 +177,23 @@ def _streaming_assistant_message(view: ChatView) -> Message | None:
 def _composer_status(view: ChatView, *, editing_message: Message | None) -> _ComposerStatus:
     """Derive the composer status once for full and incremental chat renders."""
 
-    return (
-        _ComposerStatus(_ComposerStatusState.EDITING, "Message")
-        if editing_message is not None
-        else _format_runtime_status(view.runtime_status)
-    )
+    if editing_message is not None:
+        return _ComposerStatus(_ComposerStatusState.EDITING, "Message")
+    if not view.generating and view.latest_error is None and view.model_availability is ModelAvailability.UNAVAILABLE:
+        return _ComposerStatus(_ComposerStatusState.UNAVAILABLE)
+    return _format_runtime_status(view.runtime_status)
 
 
-def _render_composer_status_content(status: _ComposerStatus) -> tuple[HTML, ...]:
+def _render_composer_status_content(
+    status: _ComposerStatus, *, availability: ModelAvailability = ModelAvailability.UNKNOWN
+) -> tuple[HTML, ...]:
     """Render stable state, detail, and timer columns for live updates."""
 
     return (
         Span(
-            status.state.value,
+            Span(status.state.value, data_composer_status_state="true"),
+            render_model_availability(availability),
             cls="jouzetsu-composer-status-state",
-            data_composer_status_state="true",
         ),
         Span(
             status.detail,
@@ -1178,7 +1182,10 @@ def render_composer(view: ChatView, *, edit_message_id: str, editing_message: Me
     if generating:
         status_classes += " jouzetsu-generation-status"
     status_display: HTML = Div(
-        *_render_composer_status_content(status),
+        *_render_composer_status_content(
+            status,
+            availability=view.model_availability if not editing and not generating else ModelAvailability.UNKNOWN,
+        ),
         id="composer-status",
         cls=status_classes,
         aria_live="polite",
