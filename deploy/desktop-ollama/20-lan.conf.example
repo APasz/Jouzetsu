@@ -1,0 +1,6 @@
+[Unit]
+Requires=ollama-client-firewall.service
+After=ollama-client-firewall.service
+
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0:11434"

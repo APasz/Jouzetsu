@@ -1,0 +1,12 @@
+[Unit]
+Description=Home LAN access to Jouzetsu
+Before=jouzetsu.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/jouzetsu.nft
+ExecReload=/usr/sbin/nft -f /etc/nftables.d/jouzetsu.nft
+
+[Install]
+WantedBy=multi-user.target

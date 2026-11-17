@@ -1,0 +1,49 @@
+[Unit]
+Description=Jouzetsu chat workspace
+Requires=jouzetsu-firewall.service
+After=network.target jouzetsu-firewall.service
+RequiresMountsFor=/srv/projects/jouzetsu
+BindsTo=srv.mount
+ConditionPathIsMountPoint=/srv
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=jouzetsu
+Group=jouzetsu
+WorkingDirectory=/srv/projects/jouzetsu/app
+Environment=JOUZETSU_HOME=/srv/projects/jouzetsu
+Environment=JOUZETSU_PORT=6900
+Environment=JOUZETSU_SHARED_FILES=true
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=TMPDIR=/srv/projects/jouzetsu/tmp
+Environment=HOME=/srv/projects/jouzetsu/data
+ExecStart=/srv/projects/jouzetsu/app/.venv/bin/python -m jouzetsu --home /srv/projects/jouzetsu
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=45
+UMask=0007
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/projects/jouzetsu
+ReadOnlyPaths=/srv/projects/jouzetsu/app /srv/projects/jouzetsu/.tools /srv/projects/jouzetsu/.cache
+InaccessiblePaths=-/srv/projects/jouzetsu/.validation
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

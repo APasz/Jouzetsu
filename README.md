@@ -186,7 +186,9 @@ are not trusted by the bundled server (`proxy_headers=False`).
 
 Undo, continuity review, host monitoring and the in-app process Exit control have
 been removed. This checkpoint uses fresh versioned data; aggregate chat-store
-migration is not supported. Gate 4 deployment work remains separate.
+migration is not supported. Gate 4 deployment is documented in
+[`deploy/README.md`](deploy/README.md), with acceptance results in
+[`deploy/GATE4.md`](deploy/GATE4.md).
 
 The service locks committed chat data as soon as a job is accepted, including
 queued/loading work. Drafts remain editable. Jobs and errors are memory-only;
@@ -255,6 +257,9 @@ Useful environment overrides:
 - `JOUZETSU_HOME` — application home
 - `JOUZETSU_HOST` / `JOUZETSU_PORT` — listen address and port
 - `JOUZETSU_LOG_LEVEL` — `DEBUG`, `INFO` (default), or `WARNING`
+- `JOUZETSU_SHARED_FILES=true` — save application documents with group read/write
+  access (`0660`); the default `false` keeps them owner-only (`0600`). Use a
+  dedicated shared group and setgid directories; this does not change ownership.
 
 The application home contains `config.json`, `data/chats/`,
 `data/characters/`, `data/character-presets/`, and `data/logs/`. Deleted
@@ -343,8 +348,36 @@ storage device honouring synchronisation.
 
 Jouzetsu is a single-user shared workspace, not a multi-user system. Its device approval is a convenience gate for trusted browsers. The
 built-in server is HTTP-only: keep it on localhost, a trusted LAN, or a
-private network such as Tailscale. Do not expose the application port directly to the public internet. Proxy and
-Pi deployment guidance belongs to Gate 4.
+private network such as Tailscale. Do not expose the application port directly to
+the public internet. Deployment and maintenance instructions are in
+[`deploy/README.md`](deploy/README.md). Its web port is restricted by a separate
+nftables table to loopback and the trusted home LAN; binding to `0.0.0.0` alone
+does not enforce that restriction.
+
+## Raspberry Pi deployment
+
+The Pi deployment runs Jouzetsu on port **6900** under a dedicated non-login
+`jouzetsu` account. All application files, the ARM Python installation, virtual
+environments, configuration, data, caches and temporary files live under
+`/srv/projects/jouzetsu` on an SSD. The configured deployment administrator can
+edit project files normally. The OS can remain on SD.
+
+Copy `deploy/local.example.toml` to the Git-ignored `deploy/local.toml` and fill
+in your SSH alias, administrator account, LAN interface and trusted subnet.
+After initial setup, preview or deploy code from this checkout:
+
+```sh
+python3 -m scripts.deploy_pi --dry-run
+python3 -m scripts.deploy_pi
+```
+
+The deployment helper stops the service, transfers only application/deployment
+code, installs frozen ARM-native dependencies, installs the systemd configuration,
+restarts, and checks readiness. It protects production configuration, data and
+virtual environments and never transfers the desktop's `config.json` or `data/`.
+An unsuccessful update stops with an error and needs manual attention; there is
+no automatic rollback. See the deployment guide for first-browser approval,
+offline inference, logs, SSD mount dependencies and future Tailscale access.
 
 ## Development
 

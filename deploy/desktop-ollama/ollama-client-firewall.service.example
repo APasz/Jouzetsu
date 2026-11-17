@@ -1,0 +1,9 @@
+[Unit]
+Description=Application host access to the desktop Ollama API
+Before=ollama.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/nft -f /etc/nftables.d/ollama-client.nft
+ExecReload=/usr/bin/nft -f /etc/nftables.d/ollama-client.nft

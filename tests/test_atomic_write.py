@@ -11,6 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from jouzetsu.atomic_write import (
+    SHARED_FILES_ENVIRONMENT_VARIABLE,
     CommitUncertainError,
     DurableWriteGuard,
     atomic_write_text,
@@ -18,6 +19,49 @@ from jouzetsu.atomic_write import (
     move_path,
     remove_path,
 )
+
+
+@pytest.mark.parametrize("shared_files, expected_mode", [("false", 0o600), ("true", 0o660)])
+def test_atomic_replacements_keep_the_selected_access_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shared_files: str, expected_mode: int
+) -> None:
+    monkeypatch.setenv(SHARED_FILES_ENVIRONMENT_VARIABLE, shared_files)
+    path = tmp_path / "document.json"
+    for content in ("first", "replacement"):
+        atomic_write_text(path, content)
+        assert path.read_text() == content
+        assert stat.S_IMODE(path.stat().st_mode) == expected_mode
+
+
+def test_atomic_files_are_private_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(SHARED_FILES_ENVIRONMENT_VARIABLE, raising=False)
+    path = tmp_path / "document.json"
+    atomic_write_text(path, "private")
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_invalid_shared_file_setting_preserves_the_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "document.json"
+    _ = path.write_text("original")
+    monkeypatch.setenv(SHARED_FILES_ENVIRONMENT_VARIABLE, "yes")
+    with pytest.raises(ValueError, match="must be true or false"):
+        atomic_write_text(path, "replacement")
+    assert path.read_text() == "original"
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_permission_failure_preserves_the_destination(tmp_path: Path) -> None:
+    path = tmp_path / "document.json"
+    _ = path.write_text("original")
+    with (
+        patch("jouzetsu.atomic_write.os.fchmod", side_effect=OSError("permission failure")),
+        pytest.raises(OSError, match="permission failure"),
+    ):
+        atomic_write_text(path, "replacement")
+    assert path.read_text() == "original"
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_failed_atomic_write_preserves_destination_and_removes_temporary_file() -> None:

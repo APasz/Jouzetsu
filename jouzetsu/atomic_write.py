@@ -10,8 +10,19 @@ from contextlib import contextmanager
 from logging import Logger
 from pathlib import Path
 from threading import RLock
+from typing import Final
 
 log: Logger = logging.getLogger(__name__)
+SHARED_FILES_ENVIRONMENT_VARIABLE: Final[str] = "JOUZETSU_SHARED_FILES"
+
+
+def _file_mode() -> int:
+    """Keep files private unless the deployment explicitly enables group editing."""
+
+    shared_files = os.environ.get(SHARED_FILES_ENVIRONMENT_VARIABLE, "false")
+    if shared_files not in {"true", "false"}:
+        raise ValueError(f"{SHARED_FILES_ENVIRONMENT_VARIABLE} must be true or false")
+    return 0o660 if shared_files == "true" else 0o600
 
 
 class CommitUncertainError(OSError):
@@ -69,6 +80,7 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
     atomic on the target filesystem. Both file and directory fsync must succeed
     before the write is acknowledged.
     """
+    file_mode = _file_mode()
     ensure_directory(path.parent)
     descriptor, temporary_path = tempfile.mkstemp(
         prefix=f"{path.name}.",
@@ -77,6 +89,8 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
     )
     try:
         with os.fdopen(descriptor, "wb") as file:
+            # mkstemp's owner-only mode would mask inherited group/ACL access.
+            os.fchmod(file.fileno(), file_mode)
             _ = file.write(data)
             file.flush()
             _sync_file(file.fileno())

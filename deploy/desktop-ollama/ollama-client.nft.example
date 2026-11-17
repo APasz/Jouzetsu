@@ -1,0 +1,10 @@
+# Documentation addresses: replace both addresses before installing this example.
+destroy table inet ollama_client
+table inet ollama_client {
+    chain input {
+        type filter hook input priority 10; policy accept;
+        iifname "lo" tcp dport 11434 accept
+        ip saddr 192.0.2.20 ip daddr 192.0.2.10 tcp dport 11434 accept
+        tcp dport 11434 reject with tcp reset
+    }
+}

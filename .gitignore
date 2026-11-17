@@ -14,3 +14,7 @@ config.json
 
 # Local icon may override the fallback at runtime.
 /jouzetsu/web/static/icon.svg
+
+# Per-installation deployment settings and private operational records.
+/deploy/local.toml
+/deploy/private/

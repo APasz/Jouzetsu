@@ -1,0 +1,6 @@
+# Documentation examples: replace these with your own SSH alias, account and LAN.
+# Copy to local.toml, which is ignored by Git.
+ssh_host = "app-host.example"
+admin_user = "operator"
+lan_interface = "eth0"
+lan_subnet = "192.0.2.0/24"

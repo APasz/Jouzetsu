@@ -1,0 +1,10 @@
+# Only Jouzetsu's port is filtered; other services and existing tables are untouched.
+destroy table inet jouzetsu
+table inet jouzetsu {
+    chain input {
+        type filter hook input priority 10; policy accept;
+        iifname "lo" tcp dport 6900 accept
+        iifname "${lan_interface}" ip saddr ${lan_subnet} tcp dport 6900 accept
+        tcp dport 6900 reject with tcp reset
+    }
+}
