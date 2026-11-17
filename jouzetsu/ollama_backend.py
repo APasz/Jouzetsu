@@ -28,6 +28,7 @@ from .chat_completions import (
     UNLOAD_TIMEOUT,
     build_messages,
     encode_payload,
+    iter_stream_data,
     json_object,
     protocol_error,
     token_count,
@@ -276,7 +277,7 @@ class OllamaBackend(ChatCompletionsBackend):
                         else f"Ollama rejected generation (HTTP {response.status}); check the model and context limit.",
                     )
                 yield ModelReady(request.model.model_id, request.model.model_id, 0)
-                async for line in response.content:
+                async for line in iter_stream_data(response.content.iter_chunked(4096), framing="ndjson"):
                     try:
                         chunk = json_object(cast(object, json.loads(line)))
                     except (ValueError, TypeError) as exc:

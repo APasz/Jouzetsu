@@ -41,6 +41,7 @@ from jouzetsu.chat_completions import (
     ChatCompletionsTransport,
     _encode_request,  # pyright: ignore[reportPrivateUsage]
     iter_sse_data,
+    iter_stream_data,
     json_object,
 )
 from jouzetsu.config import ConfigStore
@@ -131,6 +132,39 @@ def test_ollama_generation_failures_are_safe(failure: str) -> None:
                 assert "model directory" in str(exc.value)
                 assert "context limit" not in str(exc.value)
             await adapter.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("content_size", [256 * 1024, 1024 * 1024])
+@pytest.mark.parametrize("terminated", [True, False])
+def test_ollama_stream_uses_shared_event_limit(content_size: int, terminated: bool) -> None:
+    async def exercise() -> None:
+        content = "x" * content_size
+
+        async def handler(req: web.Request) -> web.Response:
+            if req.path.endswith("/api/version"):
+                return web.json_response({"version": "0.40.16"})
+            return web.Response(
+                text=json.dumps({"model": "catalog-model", "message": {"content": content}, "done": True})
+                + ("\n" if terminated else ""),
+                content_type="application/x-ndjson",
+            )
+
+        async with server(handler) as url:
+            backend = BackendConfig.create(BackendKind.OLLAMA, "Ollama", url)
+            adapter = OllamaBackend(backend)
+            try:
+                if content_size == 1024 * 1024:
+                    with pytest.raises(BackendError, match="size limit") as exc:
+                        _ = [item async for item in adapter.stream(request(backend))]
+                    assert exc.value.category is BackendErrorCategory.PROTOCOL
+                else:
+                    events = [item async for item in adapter.stream(request(backend))]
+                    assert [item.content for item in events if isinstance(item, PredictionFragment)] == [content]
+                    assert isinstance(events[-1], PredictionComplete)
+            finally:
+                await adapter.close()
 
     asyncio.run(exercise())
 
@@ -1054,19 +1088,56 @@ def test_sse_bom_and_all_line_endings_at_every_byte_boundary(newline: bytes) -> 
     asyncio.run(exercise())
 
 
-def test_sse_size_limit_applies_to_events_not_aggregate_network_chunks() -> None:
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n", b"\r"])
+@pytest.mark.parametrize("terminated", [True, False])
+def test_ndjson_utf8_and_line_endings_at_every_byte_boundary(newline: bytes, terminated: bool) -> None:
+    async def exercise() -> None:
+        expected = ['{"content":"café"}'.encode(), b'{"done":true}']
+        payload = newline.join(expected) + (newline if terminated else b"")
+        for boundary in range(1, len(payload)):
+
+            async def chunks(split: int) -> AsyncIterator[bytes]:
+                yield payload[:split]
+                yield b""
+                yield payload[split:]
+
+            assert [data async for data in iter_stream_data(chunks(boundary), framing="ndjson")] == expected
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("framing", ["sse", "ndjson"])
+def test_stream_size_limit_applies_to_events_not_aggregate_network_chunks(framing: Literal["sse", "ndjson"]) -> None:
     async def exercise() -> None:
         async def grouped() -> AsyncIterator[bytes]:
-            yield b"data: small\n\n" * 20
+            yield (b"data: small\n\n" if framing == "sse" else b"small\n") * 20
 
         with patch("jouzetsu.chat_completions._MAX_EVENT_BYTES", 32):
-            assert [data async for data in iter_sse_data(grouped())] == ["small"] * 20
+            assert [data async for data in iter_stream_data(grouped(), framing=framing)] == [b"small"] * 20
 
             async def oversized() -> AsyncIterator[bytes]:
-                yield b"data: " + b"x" * 40 + b"\n\n"
+                yield (b"data: " if framing == "sse" else b"") + b"x" * 40 + b"\n\n"
 
-            with pytest.raises(BackendError, match="size limit"):
-                _ = [data async for data in iter_sse_data(oversized())]
+            with pytest.raises(BackendError, match="size limit") as exc:
+                _ = [data async for data in iter_stream_data(oversized(), framing=framing)]
+            assert exc.value.category is BackendErrorCategory.PROTOCOL
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("framing", ["sse", "ndjson"])
+def test_stream_size_limit_rejects_unterminated_fragmented_events(framing: Literal["sse", "ndjson"]) -> None:
+    async def exercise() -> None:
+        async def oversized() -> AsyncIterator[bytes]:
+            yield b"x" * 20
+            yield b"x" * 20
+            raise AssertionError("The reader consumed input beyond the event size limit.")
+
+        with (
+            patch("jouzetsu.chat_completions._MAX_EVENT_BYTES", 32),
+            pytest.raises(BackendError, match="size limit"),
+        ):
+            _ = [data async for data in iter_stream_data(oversized(), framing=framing)]
 
     asyncio.run(exercise())
 

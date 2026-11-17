@@ -75,8 +75,8 @@ def json_object(raw: object) -> dict[str, object]:
     return cast(dict[str, object], raw)
 
 
-async def iter_sse_data(chunks: AsyncIterable[bytes]) -> AsyncIterator[str]:
-    """Frame bounded SSE events across UTF-8, CR, LF and CRLF boundaries."""
+async def iter_stream_data(chunks: AsyncIterable[bytes], *, framing: Literal["sse", "ndjson"]) -> AsyncIterator[bytes]:
+    """Frame SSE events or NDJSON lines with the same per-event byte limit."""
     buffer = b""
     lines: list[bytes] = []
     event_size = 0
@@ -107,12 +107,12 @@ async def iter_sse_data(chunks: AsyncIterable[bytes]) -> AsyncIterator[str]:
             event_size += len(line) + 1
             if event_size > _MAX_EVENT_BYTES:
                 raise protocol_error("A backend streaming event exceeded the size limit.")
-            if not line:
+            if framing == "ndjson":
+                yield line
+                event_size = 0
+            elif not line:
                 if lines:
-                    try:
-                        yield b"\n".join(lines).decode("utf-8")
-                    except UnicodeDecodeError as exc:
-                        raise protocol_error() from exc
+                    yield b"\n".join(lines)
                 lines.clear()
                 event_size = 0
             else:
@@ -121,8 +121,19 @@ async def iter_sse_data(chunks: AsyncIterable[bytes]) -> AsyncIterator[str]:
                     lines.append(value.removeprefix(b" "))
         if len(buffer) + event_size > _MAX_EVENT_BYTES:
             raise protocol_error("A backend streaming event exceeded the size limit.")
-    if buffer or lines:
+    if framing == "ndjson" and buffer:
+        yield buffer
+    elif buffer or lines:
         raise protocol_error("The backend disconnected during a streaming event.")
+
+
+async def iter_sse_data(chunks: AsyncIterable[bytes]) -> AsyncIterator[str]:
+    """Frame bounded SSE events across UTF-8, CR, LF and CRLF boundaries."""
+    async for data in iter_stream_data(chunks, framing="sse"):
+        try:
+            yield data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise protocol_error() from exc
 
 
 def build_messages(messages: Sequence[InferenceMessage], images: ImageStorage | None) -> list[WireMessage]:
