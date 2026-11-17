@@ -364,16 +364,19 @@ edit project files normally. The OS can remain on SD.
 
 Copy `deploy/local.example.toml` to the Git-ignored `deploy/local.toml` and fill
 in your SSH alias, administrator account, LAN interface and trusted subnet.
-After initial setup, preview or deploy code from this checkout:
+After initial setup, commit your changes and keep the checkout clean, then
+preview or deploy that commit:
 
 ```sh
 python3 -m scripts.deploy_pi --dry-run
 python3 -m scripts.deploy_pi
 ```
 
-The deployment helper stops the service, transfers only application/deployment
-code, installs frozen ARM-native dependencies, installs the systemd configuration,
-restarts, and checks readiness. It protects production configuration, data and
+The deployment helper requires a clean Git checkout and transfers code exported
+from the selected commit. It stops the service, installs frozen ARM-native
+dependencies and systemd configuration, restarts, and checks readiness. A
+successful deployment records its full commit and UTC time in
+`/srv/projects/jouzetsu/deployment.json`. It protects production configuration, data and
 virtual environments and never transfers the desktop's `config.json` or `data/`.
 An unsuccessful update stops with an error and needs manual attention; there is
 no automatic rollback. See the deployment guide for first-browser approval,

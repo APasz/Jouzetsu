@@ -30,6 +30,7 @@ Do not put approval phrases or API credentials in deployment settings.
   .tools/              uv binaries and managed ARM Python
   .cache/              dependency/download cache
   .validation/         separate development/test environment
+  deployment.json      last successful deployment's commit and UTC timestamp
 ```
 
 The configured administrator owns code/tooling and belongs to the `jouzetsu`
@@ -147,19 +148,41 @@ The service requires `/srv` and stops with that mount. Its mountpoint condition
 prevents using SD storage underneath an unavailable SSD. The Pi can still boot
 without the SSD when its fstab mount is configured with `nofail`.
 
-From the desktop checkout:
+Commit changes before deploying from the desktop checkout. Staged, unstaged and
+untracked changes anywhere in the repository prevent deployment before contacting
+the Pi. Git-ignored application data and local deployment settings are allowed.
+The same check applies to `--dry-run` and `--sync-only`.
 
 ```sh
 python3 -m scripts.deploy_pi --dry-run
 python3 -m scripts.deploy_pi
 ```
 
+The helper exports the selected Git commit into a temporary local directory and
+transfers that snapshot. Ignored files and edits made after the export cannot
+become part of the deployed code. The Pi is updated directly as before.
+
 Only `jouzetsu/`, `scripts/`, `deploy/`, `tests/`, `pyproject.toml`, `uv.lock` and
 `README.md` are transferred into `app/`, with the private-path exclusions above.
-Rsync deletes obsolete code while protecting `.venv/`, `config.json` and `data/`.
+Rsync deletes obsolete code while protecting `.venv/`, `config.json`, `data/` and
+the local `jouzetsu/web/static/icon.svg` override.
 Production mutable files reside outside that transfer root. The separately
 transferred local deployment settings contain machine identifiers, not application
 credentials. A dry run neither stops services nor copies settings or changes files.
+
+After installation, restart and HTTP readiness succeed, the helper atomically
+writes `/srv/projects/jouzetsu/deployment.json` with `commit` (the full object ID)
+and `deployed_at` (UTC). Inspect it over SSH:
+
+```sh
+ssh app-host.example 'cat /srv/projects/jouzetsu/deployment.json'
+```
+
+Dry runs and initial `--sync-only` transfers do not write this record. Failed
+transfer, installation or readiness checks leave the previous record unchanged.
+It describes the last successfully completed deployment; a failed update
+can leave partially updated code requiring manual attention. Existing installations
+gain the record after their next successful normal deployment.
 
 An update stops at the first failed transfer/install/check. Inspect the error and
 logs, correct it and rerun deployment. No automated rollback or backups are
