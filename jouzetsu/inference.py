@@ -56,6 +56,7 @@ from .runtime import (
     ModelReady,
     PredictionComplete,
     PredictionFragment,
+    PromptProcessingProgress,
     ReasoningOption,
     RuntimePhase,
     RuntimeStatus,
@@ -326,9 +327,8 @@ class InferenceRuntime:
     def _reject(self, chat_id: str, error: BackendError) -> None:
         session = self.registry.get(chat_id)
         session.latest_error = error
-        session.runtime_status = replace(
-            session.runtime_status,
-            phase=RuntimePhase.OFFLINE if error.category is BackendErrorCategory.OFFLINE else RuntimePhase.ERROR,
+        session.runtime_status = session.runtime_status.with_phase(
+            RuntimePhase.OFFLINE if error.category is BackendErrorCategory.OFFLINE else RuntimePhase.ERROR
         )
 
     def _lock(self, chat_id: str) -> asyncio.Lock:
@@ -671,7 +671,14 @@ class InferenceRuntime:
         session.latest_error = None
         session.live_response = None
         session.is_generating = True
-        session.runtime_status = RuntimeStatus(RuntimePhase.QUEUED, model.model_id, job.model_name)
+        queued_at = time.monotonic()
+        session.runtime_status = RuntimeStatus(
+            RuntimePhase.QUEUED,
+            model.model_id,
+            job.model_name,
+            started_at=queued_at,
+            phase_started_at=queued_at,
+        )
         self._jobs[chat.id] = job
         runtime.queue.append(job)
         self._activity.set()
@@ -693,7 +700,7 @@ class InferenceRuntime:
         runtime = self._backends[job.request.model.backend_id]
         session = self.registry.get(job.chat_id)
         job.phase = JobPhase.RUNNING
-        session.runtime_status = RuntimeStatus(RuntimePhase.STARTING, job.request.model.model_id, job.model_name)
+        session.runtime_status = session.runtime_status.with_phase(RuntimePhase.STARTING)
         try:
             if job.cancelled:
                 raise asyncio.CancelledError
@@ -712,21 +719,10 @@ class InferenceRuntime:
             self._require_available_model(job.request.model)
             config = self.configuration.backend(runtime.adapter.id)
             management = config.model_management
-            if management is not None and runtime.adapter.model_management is not None:
+            if runtime.adapter.model_management is not None:
                 async with runtime.management_lock:
-                    if management.automatic_loading:
-                        session.runtime_status = replace(session.runtime_status, phase=RuntimePhase.LOADING_MODEL)
-                        async with aclosing(
-                            runtime.adapter.model_management.load_model(job.request.model.model_id)
-                        ) as events:
-                            async for event in events:
-                                if job.cancelled:
-                                    raise asyncio.CancelledError
-                                if isinstance(event, ModelReady):
-                                    job.ready = event
-                                else:
-                                    session.runtime_status = replace(session.runtime_status, progress=event.progress)
-                                await self._notify(ChangeKind.STATUS, job.chat_id)
+                    if management is None or management.automatic_loading:
+                        _ = await self._load_model(runtime, job.request.model.model_id, job=job)
                     else:
                         discovery = await runtime.adapter.discover_models()
                         descriptor = next(
@@ -738,11 +734,8 @@ class InferenceRuntime:
                                 BackendErrorCategory.LOAD_FAILURE,
                                 "The selected model is not loaded and automatic loading is disabled.",
                             )
-            session.runtime_status = replace(
-                session.runtime_status,
-                phase=RuntimePhase.PROCESSING_PROMPT,
-                progress=None,
-            )
+            session.runtime_status = session.runtime_status.with_phase(RuntimePhase.PROCESSING_PROMPT)
+            await self._notify(ChangeKind.STATUS, job.chat_id)
             completed = False
             if job.cancelled:
                 raise asyncio.CancelledError
@@ -758,14 +751,14 @@ class InferenceRuntime:
                     if isinstance(event, ModelReady):
                         job.ready = event
                         runtime.health = BackendHealth(BackendReachability.ONLINE, datetime.now(UTC))
+                        session.runtime_status = session.runtime_status.with_phase(RuntimePhase.PROCESSING_PROMPT)
                     elif isinstance(event, PredictionFragment):
                         fragments = job.reasoning_fragments if event.is_reasoning else job.text_fragments
                         fragments.append(event.content)
                         if not event.is_reasoning:
                             job.has_text = job.has_text or bool(event.content.strip())
                         phase = RuntimePhase.REASONING if event.is_reasoning else RuntimePhase.GENERATING
-                        if session.runtime_status.phase is not phase:
-                            session.runtime_status = replace(session.runtime_status, phase=phase)
+                        session.runtime_status = session.runtime_status.with_phase(phase)
                         job.preview_dirty = True
                         now = time.monotonic()
                         first_text = job.has_text and session.live_response is None
@@ -778,10 +771,11 @@ class InferenceRuntime:
                         completed = True
                         job.reported_reasoning = event.metrics.reasoning_level
                         session.runtime_status = replace(session.runtime_status, metrics=event.metrics)
-                    elif isinstance(event, ModelLoadProgress):
-                        session.runtime_status = replace(
-                            session.runtime_status,
-                            phase=RuntimePhase.LOADING_MODEL,
+                    elif isinstance(event, ModelLoadProgress | PromptProcessingProgress):
+                        session.runtime_status = session.runtime_status.with_phase(
+                            RuntimePhase.LOADING_MODEL
+                            if isinstance(event, ModelLoadProgress)
+                            else RuntimePhase.PROCESSING_PROMPT,
                             progress=event.progress,
                         )
                     await self._notify(ChangeKind.STATUS, job.chat_id)
@@ -865,7 +859,7 @@ class InferenceRuntime:
             if isinstance(error, CommitUncertainError)
             else "The response could not be saved. Retry saving before editing this chat.",
         )
-        session.runtime_status = replace(session.runtime_status, phase=RuntimePhase.ERROR)
+        session.runtime_status = session.runtime_status.with_phase(RuntimePhase.ERROR)
         await self._notify(ChangeKind.STATUS, job.chat_id)
 
     async def _publish_delayed_preview(self, job: GenerationJob) -> None:
@@ -934,11 +928,7 @@ class InferenceRuntime:
         session.live_response = None
         session.live_reasoning = ""
         session.generation_task = None
-        session.runtime_status = replace(
-            session.runtime_status,
-            phase=RuntimePhase.ERROR if job.error else RuntimePhase.READY,
-            progress=None,
-        )
+        session.runtime_status = session.runtime_status.with_phase(RuntimePhase.ERROR if job.error else RuntimePhase.READY)
         job.phase = JobPhase.CANCELLED if job.cancelled else JobPhase.FAILED if job.error else JobPhase.FINISHED
         _ = self._jobs.pop(job.chat_id, None)
         if job.task is None:
@@ -980,7 +970,7 @@ class InferenceRuntime:
         elif job.task is not None:
             self._request_cancel(job)
             session = self.registry.get(chat_id)
-            session.runtime_status = replace(session.runtime_status, phase=RuntimePhase.STOPPING)
+            session.runtime_status = session.runtime_status.with_phase(RuntimePhase.STOPPING)
             await self._notify(ChangeKind.STATUS, chat_id)
             _, pending = await asyncio.wait({job.task}, timeout=_CANCELLATION_GRACE_SECONDS)
             if pending:
@@ -1006,7 +996,7 @@ class InferenceRuntime:
             RuntimePhase.ERROR,
             RuntimePhase.OFFLINE,
         }:
-            session.runtime_status = replace(session.runtime_status, phase=RuntimePhase.READY)
+            session.runtime_status = session.runtime_status.with_phase(RuntimePhase.READY)
         await self._notify(ChangeKind.CHAT, chat_id)
 
     async def _fail_queued(self, runtime: _BackendRuntime, error: BackendError) -> None:
@@ -1252,26 +1242,45 @@ class InferenceRuntime:
             finally:
                 runtime.unloading_model_id = None
 
+    async def _load_model(
+        self, runtime: _BackendRuntime, model_id: str, *, job: GenerationJob | None = None
+    ) -> ModelReady:
+        management = runtime.adapter.model_management
+        if management is None:
+            raise ValueError("backend does not support model management")
+        ready: ModelReady | None = None
+        async with aclosing(management.load_model(model_id)) as events:
+            async for event in events:
+                if job is not None and job.cancelled:
+                    raise asyncio.CancelledError
+                if ready is not None or (isinstance(event, ModelReady) and event.model_key != model_id):
+                    raise BackendError(
+                        BackendErrorCategory.LOAD_FAILURE,
+                        "The backend returned invalid model loading events.",
+                    )
+                if isinstance(event, ModelReady):
+                    ready = event
+                    if job is not None:
+                        job.ready = event
+                if job is None:
+                    await self._notify(ChangeKind.STATUS)
+                elif isinstance(event, ModelLoadProgress):
+                    session = self.registry.get(job.chat_id)
+                    session.runtime_status = session.runtime_status.with_phase(
+                        RuntimePhase.LOADING_MODEL, progress=event.progress
+                    )
+                    await self._notify(ChangeKind.STATUS, job.chat_id)
+        if ready is None:
+            raise BackendError(BackendErrorCategory.LOAD_FAILURE, "The backend did not confirm model loading.")
+        return ready
+
     @_command
     async def load_model(self, model: ModelRef, *, expected_fingerprint: str | None = None) -> ModelReady:
         """Explicit native loading also works with automatic loading disabled."""
         async with self._maintenance(model.backend_id, expected_fingerprint=expected_fingerprint) as runtime:
             if not self.configuration.backend(model.backend_id).enabled:
                 raise ValueError("backend is disabled")
-            management = runtime.adapter.model_management
-            if management is None:
-                raise ValueError("backend does not support model management")
-            ready: ModelReady | None = None
-            async with aclosing(management.load_model(model.model_id)) as events:
-                async for event in events:
-                    if isinstance(event, ModelReady):
-                        ready = event
-                    await self._notify(ChangeKind.STATUS)
-            if ready is None:
-                raise BackendError(
-                    BackendErrorCategory.LOAD_FAILURE,
-                    "The backend did not confirm model loading.",
-                )
+            ready = await self._load_model(runtime, model.model_id)
             runtime.last_used[model.model_id] = time.monotonic()
             self._activity.set()
             return ready

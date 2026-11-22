@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Final, Literal, cast
 
@@ -166,6 +167,17 @@ class RuntimeStatus:
             raise ValueError("runtime progress must be between 0 and 1")
         if self.output_tokens < 0:
             raise ValueError("output token count cannot be negative")
+
+    def with_phase(self, phase: RuntimePhase, *, progress: float | None = None) -> RuntimeStatus:
+        """Keep overall timing and reset the stage timer only when its phase changes."""
+        if phase is self.phase and progress == self.progress:
+            return self
+        return replace(
+            self,
+            phase=phase,
+            progress=progress,
+            phase_started_at=time.monotonic() if phase is not self.phase else self.phase_started_at,
+        )
 
 
 @dataclass(frozen=True, slots=True)

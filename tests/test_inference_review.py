@@ -36,10 +36,156 @@ from jouzetsu.inference import (
 from jouzetsu.models import ChatJSON
 from jouzetsu.runtime import (
     ChatStreamEvent,
+    GenerationMetrics,
     ModelLoadProgress,
     ModelReady,
+    PredictionComplete,
     PredictionFragment,
+    PromptProcessingProgress,
+    RuntimePhase,
+    RuntimeStatus,
 )
+
+
+@pytest.mark.parametrize("manual", [False, True])
+@pytest.mark.parametrize("confirmation", ["missing", "wrong_model", "duplicate", "late_progress"])
+def test_loading_requires_one_confirmation_for_the_requested_model(
+    tmp_path: Path, manual: bool, confirmation: Literal["missing", "wrong_model", "duplicate", "late_progress"]
+) -> None:
+    class UnconfirmedBackend(FakeBackend):
+        @override
+        async def load_model(self, model_id: str) -> AsyncGenerator[ModelLoadProgress | ModelReady]:
+            yield ModelLoadProgress(None)
+            if confirmation == "wrong_model":
+                yield ModelReady("other-model", "Other", 4096)
+            elif confirmation == "duplicate":
+                yield ModelReady(model_id, "Model", 4096)
+                yield ModelReady(model_id, "Model", 4096)
+            elif confirmation == "late_progress":
+                yield ModelReady(model_id, "Model", 4096)
+                yield ModelLoadProgress(1.0)
+
+    async def exercise() -> None:
+        config = backend(native=True)
+        h = Harness(tmp_path, (config,), adapter_factory=UnconfirmedBackend)
+        try:
+            if manual:
+                with pytest.raises(BackendError) as error:
+                    await h.runtime.load_model(ModelRef(config.id, "model"))
+                assert error.value.category is BackendErrorCategory.LOAD_FAILURE
+            else:
+                chat = await h.chat()
+                job = await h.runtime.generate(chat.id, chat.revision)
+                assert job
+                await job.wait()
+                assert job.phase is JobPhase.FAILED
+                assert job.error and job.error.category is BackendErrorCategory.LOAD_FAILURE
+                assert len(chat.messages) == 1
+            assert not h.adapters[config.id].requests
+        finally:
+            assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_cancelling_model_loading_closes_the_loader_and_runs_the_next_job(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        entered, closed = asyncio.Event(), asyncio.Event()
+
+        class HeldLoadBackend(FakeBackend):
+            def __init__(self, config: BackendConfig) -> None:
+                super().__init__(config)
+                self.hold_next_load = True
+
+            @override
+            async def load_model(self, model_id: str) -> AsyncGenerator[ModelLoadProgress | ModelReady]:
+                if self.hold_next_load:
+                    self.hold_next_load = False
+                    try:
+                        yield ModelLoadProgress(None)
+                        entered.set()
+                        await asyncio.Event().wait()
+                    finally:
+                        closed.set()
+                async with aclosing(super().load_model(model_id)) as events:
+                    async for event in events:
+                        yield event
+
+        config = backend(native=True)
+        h = Harness(tmp_path, (config,), adapter_factory=HeldLoadBackend)
+        try:
+            first, second = await h.chat(), await h.chat()
+            running = await h.runtime.generate(first.id, first.revision)
+            assert running
+            await asyncio.wait_for(entered.wait(), 1)
+            assert h.registry.get(first.id).runtime_status.phase is RuntimePhase.LOADING_MODEL
+            queued = await h.runtime.generate(second.id, second.revision)
+            assert queued and queued.phase is JobPhase.QUEUED
+            await h.runtime.cancel(first.id)
+            assert closed.is_set()
+            assert running.phase is JobPhase.CANCELLED
+            assert len(first.messages) == 1
+            await asyncio.wait_for(queued.wait(), 1)
+            assert queued.phase is JobPhase.FINISHED
+            assert len(h.adapters[config.id].requests) == 1
+        finally:
+            assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_generation_phases_keep_overall_time_and_reset_only_the_stage_timer(tmp_path: Path) -> None:
+    clock = 10.0
+
+    class PhasedBackend(FakeBackend):
+        @override
+        async def stream(self, request: GenerationRequest) -> AsyncGenerator[ChatStreamEvent]:
+            nonlocal clock
+            for clock, event in (
+                (11.0, ModelLoadProgress(0.25)),
+                (12.0, ModelLoadProgress(0.75)),
+                (13.0, ModelReady("model", "Model", 4096)),
+                (14.0, PromptProcessingProgress(0.5)),
+                (15.0, PredictionFragment("Thinking", None, True)),
+                (16.0, PredictionFragment("Reply", None, False)),
+                (17.0, PredictionFragment(" tail", None, False)),
+            ):
+                yield event
+            yield PredictionComplete(GenerationMetrics(output_tokens=2))
+
+    async def exercise() -> None:
+        config = backend()
+        h = Harness(tmp_path, (config,), adapter_factory=PhasedBackend)
+        chat = await h.chat()
+        statuses: list[RuntimeStatus] = []
+
+        async def notify(change: RuntimeChange) -> None:
+            if change.chat_id == chat.id:
+                statuses.append(h.registry.get(chat.id).runtime_status)
+
+        with (
+            patch("jouzetsu.inference.time.monotonic", side_effect=lambda: clock),
+            patch.object(h.runtime, "_notify_callback", new=notify),
+        ):
+            job = await h.runtime.generate(chat.id, chat.revision)
+            assert job
+            await job.wait()
+        assert job.phase is JobPhase.FINISHED
+        assert statuses and all(status.started_at == 10.0 for status in statuses)
+        loading = [status for status in statuses if status.phase is RuntimePhase.LOADING_MODEL]
+        assert [status.progress for status in loading] == [0.25, 0.75]
+        assert all(status.phase_started_at == 11.0 for status in loading)
+        processing = [status for status in statuses if status.phase is RuntimePhase.PROCESSING_PROMPT]
+        assert any(status.phase_started_at == 13.0 and status.progress is None for status in processing)
+        assert any(status.phase_started_at == 13.0 and status.progress == 0.5 for status in processing)
+        reasoning = [status for status in statuses if status.phase is RuntimePhase.REASONING]
+        assert reasoning and all(status.phase_started_at == 15.0 and status.progress is None for status in reasoning)
+        generating = [status for status in statuses if status.phase is RuntimePhase.GENERATING]
+        assert generating and all(status.phase_started_at == 16.0 for status in generating)
+        assert all(status.progress is None for status in generating)
+        assert await h.runtime.shutdown()
+
+    asyncio.run(exercise())
 
 
 class ControlledBackend(FakeBackend):

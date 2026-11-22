@@ -163,14 +163,7 @@ class OllamaBackend(ChatCompletionsBackend):
         assert version is not None
         return _validate_version(version)
 
-    @override
-    async def discover_models(self) -> ModelDiscovery:
-        version = await self._check_version()
-        payload = await self._transport.json_request("GET", f"{self._root}/api/tags")
-        assert payload is not None
-        raw_models = payload.get("models")
-        if not isinstance(raw_models, list):
-            raise protocol_error("Ollama returned an invalid model inventory.")
+    async def _running_model_names(self) -> set[str]:
         running = await self._transport.json_request("GET", f"{self._root}/api/ps")
         assert running is not None
         raw_running = running.get("models")
@@ -182,6 +175,17 @@ class OllamaBackend(ChatCompletionsBackend):
             if not isinstance(name, str) or not name.strip() or name != name.strip():
                 raise protocol_error("Ollama returned an invalid running model id.")
             running_names.add(name)
+        return running_names
+
+    @override
+    async def discover_models(self) -> ModelDiscovery:
+        version = await self._check_version()
+        payload = await self._transport.json_request("GET", f"{self._root}/api/tags")
+        assert payload is not None
+        raw_models = payload.get("models")
+        if not isinstance(raw_models, list):
+            raise protocol_error("Ollama returned an invalid model inventory.")
+        running_names = await self._running_model_names()
         models: list[ModelDescriptor] = []
         for raw in cast(list[object], raw_models):
             item = json_object(raw)
@@ -205,6 +209,9 @@ class OllamaBackend(ChatCompletionsBackend):
 
     async def load_model(self, model_id: str) -> AsyncGenerator[ModelLoadProgress | ModelReady]:
         validate_model_id(model_id)
+        if model_id in await self._running_model_names():
+            yield ModelReady(model_id, model_id, 0)
+            return
         yield ModelLoadProgress(None)
         response = await self._transport.json_request(
             "POST",

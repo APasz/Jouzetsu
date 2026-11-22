@@ -57,6 +57,7 @@ from jouzetsu.runtime import (
     ModelReady,
     PredictionComplete,
     PredictionFragment,
+    RuntimePhase,
 )
 from jouzetsu.sampling import CHAT_COMPLETIONS_PARAMETERS, ParameterSupport
 from jouzetsu.state import AppState
@@ -219,6 +220,8 @@ def test_ollama_version_is_checked_on_startup_and_connection_test(
                 return web.json_response({"models": []})
             if req.path.endswith("/api/show"):
                 return web.json_response({"capabilities": ["completion"]})
+            if req.path.endswith("/api/generate"):
+                return web.json_response({"model": "catalog-model", "done": True, "done_reason": "load"})
             assert req.path.endswith("/api/chat")
             return web.Response(
                 text=json.dumps({"model": "catalog-model", "message": {"content": "Reply"}, "done": True}) + "\n"
@@ -1283,6 +1286,68 @@ def runtime_for_backend(home: Path, backend: BackendConfig) -> InferenceRuntime:
     return InferenceRuntime(ChatRegistry(lambda: ""), persistence)
 
 
+@pytest.mark.parametrize("initially_loaded", [False, True])
+def test_ollama_generation_reports_loading_before_prompt_processing(tmp_path: Path, initially_loaded: bool) -> None:
+    async def exercise() -> None:
+        load_entered, release_load = asyncio.Event(), asyncio.Event()
+        chat_entered, release_chat = asyncio.Event(), asyncio.Event()
+
+        async def handler(req: web.Request) -> web.Response:
+            if req.path.endswith("/api/version"):
+                return web.json_response({"version": "0.40.16"})
+            if req.path.endswith("/api/tags"):
+                return web.json_response({"models": [{"name": "catalog-model"}]})
+            if req.path.endswith("/api/ps"):
+                return web.json_response({"models": [{"name": "catalog-model"}] if initially_loaded else []})
+            if req.path.endswith("/api/show"):
+                return web.json_response({"capabilities": ["completion"]})
+            payload = json_object(cast(object, await req.json()))
+            assert payload["model"] == "catalog-model"
+            assert payload["keep_alive"] == "7m"
+            if req.path.endswith("/api/generate"):
+                assert not initially_loaded, "Loaded models must not be preloaded again"
+                assert "prompt" not in payload and "messages" not in payload
+                load_entered.set()
+                await release_load.wait()
+                return web.json_response({"model": "catalog-model", "done": True, "done_reason": "load"})
+            assert req.path.endswith("/api/chat")
+            chat_entered.set()
+            await release_chat.wait()
+            return web.Response(
+                text=json.dumps({"model": "catalog-model", "message": {"content": "Reply"}, "done": True}) + "\n"
+            )
+
+        async with server(handler) as url:
+            backend = replace(
+                BackendConfig.create(BackendKind.OLLAMA, "Ollama", url),
+                defaults=GenerationProfile("catalog-model"),
+                ollama_idle_unload_minutes=7,
+            ).register_model("catalog-model")
+            runtime = runtime_for_backend(tmp_path, backend)
+            chat = await runtime.create_chat()
+            try:
+                sent = await runtime.send_message(chat.id, chat.revision, "loading-phases", "Hello")
+                assert sent.job
+                if not initially_loaded:
+                    await asyncio.wait_for(load_entered.wait(), 1)
+                    status = runtime.registry.get(chat.id).runtime_status
+                    assert status.phase is RuntimePhase.LOADING_MODEL
+                    assert status.progress is None
+                    assert not chat_entered.is_set()
+                    release_load.set()
+                await asyncio.wait_for(chat_entered.wait(), 1)
+                assert runtime.registry.get(chat.id).runtime_status.phase is RuntimePhase.PROCESSING_PROMPT
+                release_chat.set()
+                await sent.job.wait()
+                assert sent.job.phase is JobPhase.FINISHED
+            finally:
+                release_load.set()
+                release_chat.set()
+                assert await runtime.shutdown()
+
+    asyncio.run(exercise())
+
+
 @pytest.mark.parametrize("idle_minutes, keep_alive", [(None, -1), (3, "3m")])
 def test_ollama_model_management_tracks_real_state(
     tmp_path: Path, idle_minutes: int | None, keep_alive: int | str
@@ -1339,6 +1404,8 @@ def test_ollama_model_management_tracks_real_state(
 def test_ollama_rejects_unconfirmed_model_management(operation: str) -> None:
     async def exercise() -> None:
         async def handler(req: web.Request) -> web.Response:
+            if req.path.endswith("/api/ps"):
+                return web.json_response({"models": []})
             return web.json_response({"model": "catalog-model", "done": True, "done_reason": "unexpected"})
 
         async with server(handler) as url:

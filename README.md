@@ -145,8 +145,8 @@ Ollama can be added as a backend using its server URL, usually
 `http://127.0.0.1:11434`. Jouzetsu discovers local models and their advertised
 vision and reasoning controls, streams thinking separately, and disables both
 history truncation and context shifting. Ollama 0.14.0 or later is required for
-these context controls. Ollama automatically loads models as
-needed and manages their lifetime. Jouzetsu can display loaded models and load or
+these context controls. Jouzetsu loads models as needed, shows loading separately
+from prompt processing, and lets Ollama manage their lifetime. It can display loaded models and load or
 unload them manually. Set idle unload minutes in the backend settings; a blank
 field keeps models loaded until manually unloaded or Ollama needs the memory.
 The setting applies on the next load or generation. Reasoning values outside Jouzetsu's supported
