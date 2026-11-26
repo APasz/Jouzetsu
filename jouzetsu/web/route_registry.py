@@ -598,6 +598,8 @@ def _register_chat_routes(context: RouteContext) -> None:
             if action == "dismiss-error":
                 await runtime.dismiss_error(chat_id)
                 return None
+            if action == "generate-title":
+                return await runtime.generate(chat_id, revision, mode=GenerationMode.TITLE)
             if action == "delete" and not message_id:
                 await runtime.delete_chat(chat_id, revision)
                 return None
@@ -699,6 +701,7 @@ def _register_chat_routes(context: RouteContext) -> None:
         "/chat/retry-save",
         "/chat/dismiss-error",
         "/chats/{chat_id}/rename",
+        "/chats/{chat_id}/generate-title",
         "/chats/{chat_id}/delete",
         "/messages/edit",
         *(

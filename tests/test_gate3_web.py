@@ -92,6 +92,7 @@ def test_navigation_is_read_only_and_explicit_per_browser(tmp_path: Path) -> Non
     "action",
     (
         "rename",
+        "generate-title",
         "edit",
         "delete",
         "truncate",
@@ -118,8 +119,8 @@ def test_stale_committed_mutations_are_rejected_without_notifications(tmp_path: 
         async with client(h) as c:
             page = await c.get(f"/chats/{chat.id}")
             path = (
-                f"/chats/{chat.id}/rename"
-                if action == "rename"
+                f"/chats/{chat.id}/{action}"
+                if action in {"rename", "generate-title"}
                 else "/messages/edit"
                 if action == "edit"
                 else f"/messages/{chat.messages[0].id}/{action}"
@@ -223,7 +224,8 @@ def test_send_submission_is_idempotent_with_original_image_snapshot(
             await job.wait()
             assert len(chat.messages) == 2
             await c.get(f"/chats/{chat.id}")
-            assert len(h.adapters[configured.id].requests) == 1
+            assert len(h.adapters[configured.id].requests) == 2
+            assert h.adapters[configured.id].requests[1].messages[-1].content == "Reply"
         await h.close()
 
     asyncio.run(exercise())

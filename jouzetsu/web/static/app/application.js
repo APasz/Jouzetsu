@@ -177,7 +177,7 @@ export const startApplication = () => {
         if (dialogTarget instanceof HTMLElement) {
             const dialog = byId(dialogTarget.dataset.dialogOpen || '');
             if (dialog instanceof HTMLDialogElement && !dialog.open) {
-                panels.close(false);
+                panels.close({ restoreFocus: false, refresh: false });
                 dialog.showModal();
                 if (dialog.id === 'backends-dialog') void chat.refreshBackends();
             }
@@ -251,12 +251,10 @@ export const startApplication = () => {
         ) composer.resetHeight(composerInput.closest('.jouzetsu-composer'));
         if (form.dataset.liveSubmit === 'true') {
             event.preventDefault();
-            if (form.dataset.liveSaving !== 'true') {
-                void chat.submitLiveForm(
-                    form,
-                    submitter instanceof HTMLButtonElement ? submitter : null,
-                );
-            }
+            void chat.submitLiveForm(
+                form,
+                submitter instanceof HTMLButtonElement ? submitter : null,
+            );
             return;
         }
         if (form.dataset.chatMutation === 'true') {

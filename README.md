@@ -68,8 +68,13 @@ resolution is preserved. Draft attachments survive reloads, and forks retain the
 other chats and recoverable trash remain intact. Initial limits allow 32 images
 per message, 64 MiB per image, 512 MiB per upload, and 100 million pixels per
 image. The upload policy is centralised in `ImageLimits` for future settings.
-Chat documents use schema version 4, including backend profiles, generation
+Chat documents use schema version 5, including backend profiles, generation
 attribution, independent committed/draft revisions, and submission receipts.
+After the first successful assistant reply is saved, the same model generates
+a short chat title. Manually named chats retain their titles. The refresh button
+beside the title in chat settings generates a new title from the full visible
+conversation using the currently selected model. Generated titles retain the
+48-character limit and ellipsis; title requests never enter the transcript.
 WebP originals are sent to LM Studio as lossless PNG images to work around the
 0.4.26 compatibility endpoint rejecting WebP data URLs.
 

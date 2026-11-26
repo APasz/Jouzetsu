@@ -52,6 +52,7 @@ def chat_view(state: AppState, chat_id: str) -> ChatView:
     return ChatView(
         chat=session.chat,
         generating=session.is_generating,
+        generating_title=job is not None and job.mode.is_title,
         runtime_status=status,
         generation_reasoning=session.live_reasoning,
         empty_state_message=session.empty_state_message,
@@ -80,6 +81,7 @@ def chat_view(state: AppState, chat_id: str) -> ChatView:
 
 def chat_settings_view(state: AppState, chat_id: str) -> ChatSettingsView:
     chat = state.session(chat_id).chat
+    job = state.inference.job(chat_id)
     backend_id = chat.inference.selected_backend_id
     backend = next(
         (backend for backend in state.config.backends.backends if backend.id == backend_id),
@@ -93,6 +95,7 @@ def chat_settings_view(state: AppState, chat_id: str) -> ChatSettingsView:
     return ChatSettingsView(
         chat=chat,
         generating=state.is_generating(chat_id),
+        generating_title=job is not None and job.mode.is_title,
         model_choices=model_choices(backend, profile.model_id, availability=state.inference.model_availability),
         backends=state.config.backends,
         profile=profile,

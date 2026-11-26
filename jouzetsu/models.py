@@ -64,7 +64,9 @@ CHARACTER_STORY_PROMPT_CLOSING: str = (
     "unless they ask you to."
 )
 CHARACTER_CUSTOM_PROMPT_PREVIEW_EMPTY: str = "Enter a custom instruction."
-CHAT_SCHEMA_VERSION: Final[int] = 4
+CHAT_SCHEMA_VERSION: Final[int] = 5
+CHAT_TITLE_MAX_LENGTH: Final[int] = 48
+_TITLE_QUOTE_PAIRS: Final[tuple[tuple[str, str], ...]] = (('"', '"'), ("'", "'"), ("“", "”"), ("‘", "’"))
 CHARACTER_SCHEMA_VERSION: Final[int] = 1
 CHARACTER_DRAFT_DISPLAY_NAME: Final[str] = "Untitled character"
 
@@ -82,9 +84,10 @@ class FutureSchemaVersionError(ValueError):
 
 
 class ChatTitleSource(str, Enum):
-    """Whether a chat title may be generated from its first user message."""
+    """Whether a title is awaiting generation, model-generated, or user-chosen."""
 
     AUTO = "auto"
+    GENERATED = "generated"
     MANUAL = "manual"
 
 
@@ -1086,6 +1089,8 @@ class Chat:
     def __post_init__(self) -> None:
         if not isinstance(cast(object, self.inference), ChatInferenceSettings):
             raise TypeError("inference must be chat inference settings")
+        if not isinstance(cast(object, self.title_source), ChatTitleSource):
+            raise TypeError("chat title source must be a ChatTitleSource")
         if not isinstance(cast(object, self.submissions), tuple) or not all(
             isinstance(cast(object, item), Submission) for item in self.submissions
         ):
@@ -1176,7 +1181,7 @@ class Chat:
         return msg
 
     def set_manual_title(self, title: str) -> None:
-        """Set a user-chosen title that future first-message sends must retain."""
+        """Set a user-chosen title that automatic naming must retain."""
 
         if not title.strip():
             raise ValueError("chat title cannot be empty")
@@ -1184,12 +1189,11 @@ class Chat:
         self.title_source = ChatTitleSource.MANUAL
         self.touch()
 
-    def set_auto_title_from_first_message(self, content: str) -> None:
-        """Generate the title only while this chat still uses an automatic title."""
+    def set_generated_title(self, content: str) -> None:
+        """Store a concise model-generated title without changing the transcript."""
 
-        if self.title_source is not ChatTitleSource.AUTO:
-            return
-        self.title = auto_title_from(content)
+        self.title = generated_chat_title(content)
+        self.title_source = ChatTitleSource.GENERATED
         self.touch()
 
     def update_message(self, message_id: str, content: str) -> Message | None:
@@ -1375,11 +1379,14 @@ class Chat:
         )
 
 
-def auto_title_from(text: str, max_len: int = 48) -> str:
-    """Derive a short chat title from the first user message."""
-    string: str = (text or "").strip().replace("\n", " ")
-    if not string:
-        return "New chat"
-    if len(string) > max_len:
-        string = string[: max_len - 1].rstrip() + "…"
-    return string
+def generated_chat_title(content: str) -> str:
+    """Validate model output and retain the existing title length limit."""
+
+    title = " ".join(content.split())
+    while len(title) > 1 and (title[0], title[-1]) in _TITLE_QUOTE_PAIRS:
+        title = title[1:-1].strip()
+    if not title or any(title in pair for pair in _TITLE_QUOTE_PAIRS):
+        raise ValueError("generated chat title cannot be empty")
+    if len(title) > CHAT_TITLE_MAX_LENGTH:
+        return title[: CHAT_TITLE_MAX_LENGTH - 1].rstrip() + "…"
+    return title

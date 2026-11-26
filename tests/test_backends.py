@@ -48,7 +48,7 @@ from jouzetsu.config import ConfigStore
 from jouzetsu.controllers import PersistenceController
 from jouzetsu.image_storage import ImageStorage
 from jouzetsu.inference import GenerationMode, InferenceRuntime, JobPhase
-from jouzetsu.models import Chat, ImageAttachment, ImageMediaType
+from jouzetsu.models import Chat, ChatTitleSource, ImageAttachment, ImageMediaType
 from jouzetsu.ollama_backend import OllamaBackend
 from jouzetsu.responses_transport import encode_request as encode_responses_request
 from jouzetsu.runtime import (
@@ -1493,7 +1493,7 @@ def test_responses_runtime_replays_edits_regeneration_continuation_and_forks(
                 lmstudio_transport=LMStudioTransport.RESPONSES,
             ).register_model("catalog-model")
             runtime = runtime_for_backend(tmp_path, backend)
-            chat = await runtime.create_chat()
+            chat = await runtime.create_chat(Chat(title="Replay test", title_source=ChatTitleSource.MANUAL))
             first = await runtime.send_message(chat.id, chat.revision, "first-id", "First")
             assert first.job
             await first.job.wait()

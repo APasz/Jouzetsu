@@ -9,6 +9,7 @@ import pytest
 from jouzetsu.character_presets import BASE_CHARACTER_PRESETS, EXTRA_CHARACTER_PRESETS
 from jouzetsu.models import (
     CHAT_SCHEMA_VERSION,
+    CHAT_TITLE_MAX_LENGTH,
     Character,
     CharacterChatBinding,
     CharacterField,
@@ -126,12 +127,11 @@ def test_chat_enables_reasoning_persistence_by_default() -> None:
     assert Chat.from_dict({}).save_reasoning is True
 
 
-def test_chat_title_source_round_trips_and_manual_title_is_retained() -> None:
+def test_chat_title_source_round_trips() -> None:
     chat = Chat()
     chat.set_manual_title("New chat")
 
     reloaded = Chat.from_dict(chat.to_dict())
-    reloaded.set_auto_title_from_first_message("A first message")
 
     assert reloaded.title == "New chat"
     assert reloaded.title_source is ChatTitleSource.MANUAL
@@ -139,7 +139,39 @@ def test_chat_title_source_round_trips_and_manual_title_is_retained() -> None:
 
 def test_chat_rejects_invalid_explicit_title_source_value() -> None:
     with pytest.raises(ValueError, match="title_source"):
-        _ = Chat.from_dict({"title_source": "generated"})
+        _ = Chat.from_dict({"title_source": "invalid"})
+
+
+def test_chat_constructor_rejects_an_untyped_title_source() -> None:
+    with pytest.raises(TypeError, match="ChatTitleSource"):
+        _ = Chat(title_source=cast(ChatTitleSource, cast(object, "auto")))
+
+
+@pytest.mark.parametrize("content", ['"Concise Chat Title"', "  Concise\nChat\tTitle  ", "\"'Concise Chat Title'\""])
+def test_generated_title_is_normalised_and_round_trips(content: str) -> None:
+    chat = Chat()
+    chat.set_generated_title(content)
+    assert chat.title == "Concise Chat Title"
+    assert Chat.from_dict(chat.to_dict()).title_source is ChatTitleSource.GENERATED
+
+
+@pytest.mark.parametrize("title", ["'Twas the Night", "’Tis the Season", "The Artists’"])
+def test_generated_title_preserves_unpaired_apostrophes(title: str) -> None:
+    chat = Chat()
+    chat.set_generated_title(f'"{title}"')
+    assert chat.title == title
+
+
+def test_generated_titles_retain_the_existing_truncation_limit() -> None:
+    chat = Chat()
+    chat.set_generated_title("A" * (CHAT_TITLE_MAX_LENGTH + 20))
+    assert chat.title == "A" * (CHAT_TITLE_MAX_LENGTH - 1) + "…"
+
+
+@pytest.mark.parametrize("content", ["", " \n ", '""', "“ ”"])
+def test_empty_generated_title_is_rejected(content: str) -> None:
+    with pytest.raises(ValueError, match="empty"):
+        Chat().set_generated_title(content)
 
 
 @pytest.mark.parametrize("title_source", [1, None])

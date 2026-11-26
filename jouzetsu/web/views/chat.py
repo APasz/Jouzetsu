@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 from typing import Final, Literal
@@ -33,6 +33,7 @@ from ..html import (
     Header,
     Img,
     Input,
+    Label,
     Main,
     Option,
     P,
@@ -72,6 +73,7 @@ class ChatView:
     empty_state_message: str
     starter_prompts: tuple[StarterPrompt, ...]
     message_action_style: MessageActionStyle
+    generating_title: bool = False
     generation_block_reason: str = ""
     history_generation_block_reason: str = ""
     live_response: Message | None = None
@@ -94,6 +96,7 @@ class ChatSettingsView:
     model_choices: tuple[ModelChoice, ...]
     backends: BackendConfiguration
     profile: GenerationProfile
+    generating_title: bool = False
     inactive_parameters: tuple[str, ...] = ()
 
 
@@ -181,7 +184,8 @@ def _composer_status(view: ChatView, *, editing_message: Message | None) -> _Com
         return _ComposerStatus(_ComposerStatusState.EDITING, "Message")
     if not view.generating and view.latest_error is None and view.model_availability is ModelAvailability.UNAVAILABLE:
         return _ComposerStatus(_ComposerStatusState.UNAVAILABLE)
-    return _format_runtime_status(view.runtime_status)
+    status = _format_runtime_status(view.runtime_status)
+    return replace(status, detail="Chat title") if view.generating_title else status
 
 
 def _render_composer_status_content(
@@ -426,6 +430,7 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
     generating: bool = view.generating
     sampling: SamplingParameters = view.profile.parameters
     current_model: str = view.profile.model_id or ""
+    title_input_id = f"chat-title-{chat.id}"
     return scope_chat_forms(
         Aside(
             Div(
@@ -444,16 +449,38 @@ def render_settings_panel(view: ChatSettingsView) -> HTML:
                 ),
                 _render_character_cast_source(chat),
                 Form(
-                    _field(
-                        "Title",
-                        Input(
-                            value=chat.title,
-                            name="title",
-                            required=True,
-                            disabled=generating,
-                            data_live_autosave="true",
-                            data_testid="rename-chat-input",
+                    # Enter in the title field should rename rather than regenerate.
+                    Button("Rename chat", type="submit", hidden=True, disabled=generating),
+                    Div(
+                        Label("Title", fr=title_input_id, cls="jouzetsu-field-label"),
+                        Div(
+                            Input(
+                                id=title_input_id,
+                                value=chat.title,
+                                name="title",
+                                required=True,
+                                disabled=generating,
+                                data_live_autosave="true",
+                                data_testid="rename-chat-input",
+                            ),
+                            Button(
+                                _icon("refresh"),
+                                type="submit",
+                                formaction=f"/chats/{chat.id}/generate-title",
+                                formnovalidate=True,
+                                disabled=generating
+                                or chat.inference.selected_model is None
+                                or not any(message.role in {"user", "assistant"} for message in chat.messages),
+                                cls="jouzetsu-icon-button jouzetsu-title-regenerate",
+                                aria_label="Regenerate chat title",
+                                aria_busy=str(view.generating_title).lower(),
+                                title="Generating chat title…" if view.generating_title else "Regenerate chat title",
+                                data_live_notice="Title generation queued",
+                                data_testid="regenerate-chat-title-button",
+                            ),
+                            cls="jouzetsu-title-input-row",
                         ),
+                        cls="jouzetsu-field",
                     ),
                     action=f"/chats/{chat.id}/rename",
                     method="post",

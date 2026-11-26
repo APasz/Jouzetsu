@@ -30,7 +30,7 @@ from jouzetsu.backend_protocol import (
 from jouzetsu.config import ConfigStore
 from jouzetsu.controllers import PersistenceController
 from jouzetsu.inference import InferenceRuntime, RuntimeChange
-from jouzetsu.models import Chat
+from jouzetsu.models import Chat, ChatTitleSource
 from jouzetsu.runtime import (
     ChatStreamEvent,
     GenerationMetrics,
@@ -163,7 +163,9 @@ class Harness:
         self.runtime = InferenceRuntime(self.registry, self.persistence, backend_factory=factory, notify=notify)
 
     async def chat(self, text: str = "Hello") -> Chat:
-        chat = await self.runtime.create_chat()
+        """Provide a named chat so lifecycle tests do not schedule automatic titles."""
+
+        chat = await self.runtime.create_chat(Chat(title="Test chat", title_source=ChatTitleSource.MANUAL))
         _ = await self.runtime.send_message(chat.id, chat.revision, "first", text, generate=False)
         return chat
 

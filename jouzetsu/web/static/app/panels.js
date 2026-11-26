@@ -11,7 +11,7 @@ export class PanelController {
     open(name, opener) {
         const panel = byId(`${name}-panel`);
         if (!(panel instanceof HTMLElement)) return;
-        this.close(false);
+        this.close({ restoreFocus: false, refresh: false });
         this.#opener = opener instanceof HTMLElement ? opener : null;
         panel.classList.add('is-open');
         this.#setPanelAccessibility(panel, true);
@@ -27,19 +27,19 @@ export class PanelController {
         }
     }
 
-    close(restoreFocus = true) {
+    close({ restoreFocus = true, refresh = true } = {}) {
         const closedNames = [];
+        this.#setChatAccessibility(false);
+        if (restoreFocus && this.#opener instanceof HTMLElement) this.#opener.focus({ preventScroll: true });
         document.querySelectorAll('.jouzetsu-panel').forEach((panel) => {
             if (!(panel instanceof HTMLElement)) return;
             if (panel.classList.contains('is-open') && panel.dataset.panelName) closedNames.push(panel.dataset.panelName);
             panel.classList.remove('is-open');
             this.#setPanelAccessibility(panel, false);
         });
-        this.#setChatAccessibility(false);
         document.documentElement.classList.remove('jouzetsu-panel-open');
-        if (restoreFocus && this.#opener instanceof HTMLElement) this.#opener.focus();
         this.#opener = null;
-        if (restoreFocus) closedNames.forEach((name) => void this.#refreshPanel(name));
+        if (refresh) closedNames.forEach((name) => void this.#refreshPanel(name));
     }
 
     removeTransientParameters() {

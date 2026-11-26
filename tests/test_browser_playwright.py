@@ -35,7 +35,7 @@ from jouzetsu.config import (
     MessageActionStyle,
     StarterPrompt,
 )
-from jouzetsu.models import Chat
+from jouzetsu.models import Chat, ChatTitleSource
 from jouzetsu.runtime import ModelCapabilities, ModelDescriptor
 
 _MESSAGE_LIST_SELECTOR: Final[str] = '[data-testid="message-list"]'
@@ -2101,7 +2101,7 @@ def test_missing_model_icons_and_refresh_feedback_recover(
     expect(warnings).to_have_count(2)
     expect(warnings.first).to_have_attribute("title", "Model unavailable. Refresh models or choose another.")
     expect(browser_page.locator('#composer-status [data-model-availability="unavailable"]')).to_have_count(1)
-    expect(browser_page.locator('#composer-status [data-composer-status-state]')).to_have_text("Missing")
+    expect(browser_page.locator("#composer-status [data-composer-status-state]")).to_have_text("Missing")
     assert browser_page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     browser_page.screenshot(path=tmp_path / f"missing-models-{width}.png", full_page=True)
     browser_server.client.descriptors = descriptors
@@ -2771,6 +2771,156 @@ def _create_chat_in_background(page: Page) -> None:
     }""")
         == 200
     )
+
+
+@pytest.mark.parametrize("viewport_width", [960, 390])
+@pytest.mark.parametrize("select_current_chat", [False, True])
+def test_selecting_a_chat_closes_navigation(
+    browser_page: Page,
+    browser_server: BrowserServer,
+    viewport_width: int,
+    select_current_chat: bool,
+) -> None:
+    """Selecting any chat dismisses navigation and makes the chat interactive."""
+
+    browser_page.set_viewport_size({"width": viewport_width, "height": 844})
+    first = browser_server.state.chats[0]
+    _open_chat_page(browser_page)
+    _create_chat_in_background(browser_page)
+    selected = first if select_current_chat else browser_server.state.chats[0]
+    browser_page.get_by_test_id("message-input").fill("Preserved draft")
+    browser_page.get_by_test_id("open-nav-button").click()
+    navigation = browser_page.locator("#navigation-panel")
+    expect(navigation).to_have_class(re.compile(r"is-open"))
+
+    browser_page.get_by_test_id(f"chat-item-{selected.id}").click()
+
+    expect(browser_page).to_have_url(f"{browser_server.base_url}/chats/{selected.id}")
+    expect(navigation).not_to_have_class(re.compile(r"is-open"))
+    expect(navigation).to_have_attribute("aria-hidden", "true")
+    expect(browser_page.locator("#chat-fragment")).to_have_attribute("data-chat-id", selected.id)
+    expect(browser_page.locator("#chat-fragment")).not_to_have_attribute("inert")
+    expect(browser_page.get_by_test_id("message-input")).to_be_editable()
+    expect(browser_page.get_by_test_id("open-nav-button")).to_be_focused()
+    assert first.draft == "Preserved draft"
+
+
+@pytest.mark.parametrize("viewport_width", [960, 390])
+def test_title_regeneration_stays_open_and_updates_the_title_field(
+    browser_page: Page, browser_server: BrowserServer, viewport_width: int
+) -> None:
+    browser_page.set_viewport_size({"width": viewport_width, "height": 844})
+    chat = browser_server.state.chats[0]
+    _ = chat.add_message("user", "Discuss the northern lights")
+    _ = chat.add_message("assistant", "Auroras are caused by charged particles.")
+    transcript = [message.to_dict() for message in chat.messages]
+    gate = Event()
+    browser_server.client.completion_gate = gate
+    browser_server.client.response_content = "Northern Lights Explained"
+    _open_chat_page(browser_page)
+    browser_page.get_by_test_id("message-input").fill("Unsent draft")
+    browser_page.get_by_test_id("open-settings-button").click()
+    button = browser_page.get_by_test_id("regenerate-chat-title-button")
+    title = browser_page.get_by_test_id("rename-chat-input")
+    try:
+        expect(button).to_be_enabled()
+        title.fill("An edited title")
+        button.click()
+        expect(button).to_have_attribute("aria-busy", "true")
+        expect(button).to_be_disabled()
+        expect(title).to_have_value("An edited title")
+        expect(browser_page.locator("#settings-panel")).to_have_class(re.compile(r"is-open"))
+        assert len(browser_server.client.requests) == 1
+        assert [message.content for message in browser_server.client.requests[0].messages[1:-1]] == [
+            message.content for message in chat.messages
+        ]
+        gate.set()
+        expect(title).to_have_value("Northern Lights Explained")
+        expect(button).to_be_enabled()
+        expect(button).to_have_attribute("aria-busy", "false")
+        assert [message.to_dict() for message in chat.messages] == transcript
+        browser_page.keyboard.press("Escape")
+        expect(browser_page.get_by_test_id("active-chat-title")).to_have_text("Northern Lights Explained")
+        expect(browser_page.get_by_test_id("message-input")).to_have_value("Unsent draft")
+    finally:
+        gate.set()
+
+
+def test_repeated_title_click_does_not_queue_duplicate_generation(
+    browser_page: Page, browser_server: BrowserServer
+) -> None:
+    chat = browser_server.state.chats[0]
+    _ = chat.add_message("user", "Hello")
+    _open_chat_page(browser_page)
+    browser_page.evaluate("""() => {
+        const original = fetch.bind(window);
+        window.titleRequests = 0;
+        window.fetch = async (url, options) => {
+            const response = await original(url, options);
+            if (new URL(url, location.href).pathname.endsWith('/generate-title')) {
+                window.titleRequests += 1;
+                if (window.titleRequests === 1) {
+                    await new Promise(resolve => { window.releaseTitle = resolve; });
+                }
+            }
+            return response;
+        };
+    }""")
+    browser_page.get_by_test_id("open-settings-button").click()
+    button = browser_page.get_by_test_id("regenerate-chat-title-button")
+    button.click()
+    browser_page.wait_for_function("() => typeof window.releaseTitle === 'function'")
+    button.click()
+    browser_page.evaluate("window.releaseTitle()")
+    browser_page.wait_for_function(
+        "() => !document.querySelector('#settings-panel form[action$=rename]').dataset.liveSaving"
+    )
+    _wait_for_animation_frames(browser_page)
+    assert browser_page.evaluate("window.titleRequests") == 1
+    assert len(browser_server.client.requests) == 1
+
+
+def test_enter_in_title_field_renames_without_generating(browser_page: Page, browser_server: BrowserServer) -> None:
+    chat = browser_server.state.chats[0]
+    _ = chat.add_message("user", "Hello")
+    _open_chat_page(browser_page)
+    browser_page.get_by_test_id("open-settings-button").click()
+    title = browser_page.get_by_test_id("rename-chat-input")
+    title.fill("My manual title")
+    with browser_page.expect_response(lambda response: response.url.endswith(f"/chats/{chat.id}/rename")):
+        title.press("Enter")
+    expect(browser_page.get_by_test_id("active-chat-title")).to_have_text("My manual title")
+    assert chat.title_source is ChatTitleSource.MANUAL
+    assert not browser_server.client.requests
+
+
+def test_automatic_title_follows_the_completed_first_reply(browser_page: Page, browser_server: BrowserServer) -> None:
+    chat = browser_server.state.chats[0]
+    chat.title = "New chat"
+    chat.title_source = ChatTitleSource.AUTO
+    reply_gate, title_gate = Event(), Event()
+    browser_server.client.completion_gate = reply_gate
+    browser_server.client.response_content = "Auroras are caused by charged particles."
+    _open_chat_page(browser_page)
+    try:
+        browser_page.get_by_test_id("message-input").fill("Explain the northern lights")
+        browser_page.get_by_test_id("send-message-button").click()
+        expect(browser_page.locator("article.is-streaming")).to_contain_text("charged particles")
+        assert len(browser_server.client.requests) == 1
+        browser_server.client.response_content = "Northern Lights Explained"
+        browser_server.client.completion_gate = title_gate
+        reply_gate.set()
+        browser_page.get_by_test_id("open-settings-button").click()
+        expect(browser_page.get_by_test_id("regenerate-chat-title-button")).to_have_attribute("aria-busy", "true")
+        assert len(chat.messages) == 2
+        assert chat.messages[-1].content == "Auroras are caused by charged particles."
+        title_gate.set()
+        expect(browser_page.get_by_test_id("rename-chat-input")).to_have_value("Northern Lights Explained")
+        assert len(chat.messages) == 2
+        assert len(browser_server.client.requests) == 2
+    finally:
+        reply_gate.set()
+        title_gate.set()
 
 
 def test_navigation_cannot_retain_another_chats_dirty_settings(

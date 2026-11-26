@@ -376,7 +376,9 @@ export class ChatController {
                 window.location.assign(resultUrl.href);
                 return;
             }
-            if (openedPanel instanceof HTMLElement && sourcePath === window.location.pathname) this.#panels.close(false);
+            if (openedPanel instanceof HTMLElement && sourcePath === window.location.pathname) {
+                this.#panels.close({ restoreFocus: false, refresh: false });
+            }
             const detailsDialog = form.closest('#message-details-dialog');
             if (detailsDialog instanceof HTMLDialogElement) detailsDialog.close();
             await Promise.all([this.replaceFragment({ followLatest: followLatest && sourcePath === window.location.pathname }), this.refreshPanels()]);
@@ -391,20 +393,25 @@ export class ChatController {
     }
 
     async submitLiveForm(form, submitter = null) {
-        if (form.dataset.liveSaving === 'true') return;
+        const action = submitter?.hasAttribute('formaction') ? submitter.formAction : form.action;
+        if (form.dataset.liveSaving === 'true') {
+            if (submitter?.hasAttribute('formaction') && action !== form.dataset.liveAction) {
+                form.dataset.livePendingAction = action;
+            }
+            return;
+        }
         addCsrfToken(form);
         const backendFingerprint = form.elements.namedItem('backend_fingerprint')?.value;
         form.dataset.liveSaving = 'true';
+        form.dataset.liveAction = action;
         form.setAttribute('aria-busy', 'true');
         const submitted = liveFormBody(form, submitter).toString();
         this.#notices.clearForForm(form);
         if (submitter?.dataset.busyLabel) form.dataset.liveBusyLabel = submitter.dataset.busyLabel;
         synchronizeLiveFormProgress();
         let resubmit = false;
+        let accepted = false;
         try {
-            const action = submitter?.hasAttribute('formaction')
-                ? submitter.formAction
-                : form.action;
             const method = submitter?.hasAttribute('formmethod')
                 ? submitter.formMethod
                 : form.method || 'POST';
@@ -425,6 +432,7 @@ export class ChatController {
                 this.#notices.announceForForm(form, error, true);
                 return;
             }
+            accepted = true;
             const revision = response.headers.get('X-Jouzetsu-Chat-Revision');
             resubmit = liveFormBody(form, submitter).toString() !== submitted;
             const acknowledgedBackend = response.headers.get('X-Jouzetsu-Backend-Fingerprint');
@@ -458,11 +466,20 @@ export class ChatController {
             this.#notices.announceForForm(form, 'Could not complete this action. Please try again.', true);
         } finally {
             delete form.dataset.liveSaving;
+            delete form.dataset.liveAction;
             delete form.dataset.liveCommitted;
             delete form.dataset.liveBusyLabel;
             form.removeAttribute('aria-busy');
             synchronizeLiveFormProgress();
-            if (resubmit && form.isConnected && form.querySelector('[data-live-autosave]')) form.requestSubmit();
+            const pendingAction = form.dataset.livePendingAction;
+            delete form.dataset.livePendingAction;
+            if (accepted && pendingAction) {
+                const current = Array.from(document.forms).find((candidate) => formKey(candidate) === formKey(form));
+                const pendingButton = Array.from(current?.querySelectorAll('button[formaction]') || []).find(
+                    (button) => button.formAction === pendingAction,
+                );
+                if (pendingButton && !pendingButton.disabled) current.requestSubmit(pendingButton);
+            } else if (resubmit && form.isConnected && form.querySelector('[data-live-autosave]')) form.requestSubmit();
         }
     }
 
@@ -483,6 +500,7 @@ export class ChatController {
         if (url.origin !== window.location.origin || !/^\/chats\/[A-Za-z0-9]+$/.test(url.pathname)) return;
         if (this.#images.isUploading && !await this.#images.flush()) return;
         if (!await this.#drafts.preserve()) return;
+        this.#panels.close({ refresh: false });
         const currentUrl = new URL(window.location.href);
         this.#setHistoryUrl(url, currentUrl.searchParams.has('edit') && !url.searchParams.has('edit'));
         await Promise.all([this.replaceFragment(), this.refreshPanels()]);
@@ -557,7 +575,11 @@ export class ChatController {
             && this.#messages.isNearBottom(currentMessages)
         );
         syncElementAttributes(current, next);
-        if (currentTopbar.outerHTML !== nextTopbar.outerHTML) currentTopbar.replaceWith(nextTopbar);
+        if (currentTopbar.outerHTML !== nextTopbar.outerHTML) {
+            const focusedPanel = currentTopbar.contains(document.activeElement) ? document.activeElement.dataset.panelOpen : '';
+            currentTopbar.replaceWith(nextTopbar);
+            if (focusedPanel) nextTopbar.querySelector(`[data-panel-open="${CSS.escape(focusedPanel)}"]`)?.focus({ preventScroll: true });
+        }
         this.#reconcileMessageList(currentMessages, nextMessages);
         this.#reconcileComposer(currentComposer, nextComposer, next.dataset.draftRevision);
         if (firstPreview && (followLatest || stickToBottom)) {

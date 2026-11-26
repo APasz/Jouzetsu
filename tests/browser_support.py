@@ -29,7 +29,7 @@ from jouzetsu.config import (
     LoggingSettings,
     UiSettings,
 )
-from jouzetsu.models import Chat
+from jouzetsu.models import Chat, ChatTitleSource
 from jouzetsu.runtime import (
     ChatStreamEvent,
     FirstToken,
@@ -137,7 +137,15 @@ def create_browser_server(root: Path, *, loop: Literal["asyncio", "uvloop"] = "a
     )
     client = BrowserTestBackend(configured)
     storage = ChatStorage(paths.chats_file)
-    storage.save_records((Chat(inference=ChatInferenceSettings.new_chat(configuration)).to_dict(),))
+    storage.save_records(
+        (
+            Chat(
+                title="Browser test chat",
+                title_source=ChatTitleSource.MANUAL,
+                inference=ChatInferenceSettings.new_chat(configuration),
+            ).to_dict(),
+        )
+    )
     state = AppState(config, storage, backend_factory=lambda _: client)
 
     async def shutdown() -> None:
